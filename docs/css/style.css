@@ -64,6 +64,29 @@ nav.tabs button.active{background:var(--paper); color:var(--wine-dark); font-wei
 section.tab-panel{padding:34px 0 6px; display:none;}
 section.tab-panel.active{display:block;}
 
+/* ---------- Filtro de período ---------- */
+.filterbar{
+  display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+  background:var(--panel); border-radius:12px; box-shadow:var(--shadow); padding:12px 14px; margin-bottom:22px;
+}
+.filterbar .fbtn{
+  font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:.02em; text-transform:uppercase;
+  padding:7px 12px; border-radius:20px; border:1px solid var(--line); cursor:pointer;
+  background:var(--panel-tint); color:var(--muted);
+}
+.filterbar .fbtn.active{background:var(--wine); color:#fff; border-color:var(--wine);}
+.filterbar .flabel{font-size:12px; color:var(--muted); display:flex; align-items:center; gap:4px;}
+.filterbar .flabel input{
+  font-family:'Inter',sans-serif; font-size:12px; padding:4px 6px; border-radius:6px; border:1px solid var(--line); background:var(--panel);
+}
+.filterbar .filtro-resumo{
+  margin-left:auto; font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--wine-dark); font-weight:600;
+  background:var(--sage-bg); padding:6px 10px; border-radius:8px;
+}
+@media (max-width:700px){
+  .filterbar .filtro-resumo{margin-left:0; width:100%;}
+}
+
 .section-head{display:flex; align-items:baseline; justify-content:space-between; margin-bottom:18px; gap:12px; flex-wrap:wrap;}
 .section-title{font-family:'Fraunces',serif; font-weight:600; font-size:22px; margin:0;}
 .section-desc{font-size:13px; color:var(--muted); max-width:640px;}
