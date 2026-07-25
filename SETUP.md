@@ -68,7 +68,7 @@ publica o site.
 ## 6) Ligar o site ao backend
 
 - [ ] Mande pro Claude o `APPS_SCRIPT_URL` (passo 4) e o `GOOGLE_CLIENT_ID`
-      (passo 5) — ele preenche `site/js/config.js` e publica no GitHub.
+      (passo 5) — ele preenche `docs/js/config.js` e publica no GitHub.
 
 ## 7) Testar
 

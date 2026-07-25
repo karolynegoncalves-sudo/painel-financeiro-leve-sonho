@@ -7,7 +7,7 @@ publicado no GitHub Pages e restrito a e-mails convidados via login Google.
 ## Como as peças se encaixam
 
 ```
-GitHub Pages (site/)         Google Apps Script (apps-script/)      Bling API v3
+GitHub Pages (docs/)         Google Apps Script (apps-script/)      Bling API v3
   index.html + js/app.js  <-> Web App (Code.gs) valida login e   <-> contas a pagar/receber,
   Login Google (GIS)          responde JSON por view                 depósitos, categorias
                                grava em "Fluxo de Caixa" e "DRE"
@@ -15,8 +15,8 @@ GitHub Pages (site/)         Google Apps Script (apps-script/)      Bling API v3
                                ao vivo dos FPVs 2026 via IMPORTRANGE)
 ```
 
-- **`site/`** — o que vira o site publicado no GitHub Pages. Puro HTML/CSS/JS,
-  sem build step.
+- **`docs/`** — o que vira o site publicado no GitHub Pages (nome exigido
+  pelo GitHub para servir de uma subpasta). Puro HTML/CSS/JS, sem build step.
 - **`apps-script/`** — cole estes arquivos no editor do Apps Script, dentro de
   uma planilha Google Sheets nova. É o backend: guarda os dados, fala com o
   Bling, e decide quem pode ver o quê.
