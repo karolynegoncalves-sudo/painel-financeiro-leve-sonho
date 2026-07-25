@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Leve Sonho — Painel Financeiro</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,500&family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body>
+
+<!-- LOGIN GATE -->
+<div id="loginGate">
+  <div class="brand-eyebrow">Leve Sonho Comércio de Vestuário</div>
+  <h1>Painel Financeiro</h1>
+  <p>Precificação, fluxo de caixa, DRE e KPIs em um só lugar, sincronizado ao vivo. Acesso restrito — entre com a conta Google que foi convidada.</p>
+  <div id="googleBtn"></div>
+  <div id="loginDenied">
+    Sua conta (<code id="deniedEmail"></code>) ainda não está na lista de convidados.
+    Peça pra Karolyne te adicionar na aba <code>_Acesso</code> da planilha.
+  </div>
+</div>
+
+<!-- APP (só aparece depois do login autorizado) -->
+<div id="app" style="display:none;">
+  <header class="top">
+    <div class="wrap">
+      <div class="top-inner">
+        <div>
+          <div class="brand-eyebrow">Leve Sonho Comércio de Vestuário</div>
+          <h1 class="brand">Painel Financeiro</h1>
+          <div class="brand-sub">Precificação, fluxo de caixa, DRE e KPIs — alimentado ao vivo pela planilha e pelo Bling.</div>
+        </div>
+        <div class="top-meta">
+          <div class="user-email" id="userEmail"></div>
+          <button id="btnSair">Sair</button>
+        </div>
+      </div>
+      <nav class="tabs" id="tabNav">
+        <button data-tab="kpis" class="active">KPIs &amp; Gráficos</button>
+        <button data-tab="fluxoCaixa">Fluxo de Caixa</button>
+        <button data-tab="dre">DRE</button>
+        <button data-tab="precificacao">Precificação</button>
+      </nav>
+    </div>
+  </header>
+
+  <div class="wrap">
+    <section class="tab-panel active" id="tab-kpis" data-view="kpis"></section>
+    <section class="tab-panel" id="tab-fluxoCaixa" data-view="fluxoCaixa"></section>
+    <section class="tab-panel" id="tab-dre" data-view="dre"></section>
+    <section class="tab-panel" id="tab-precificacao" data-view="precificacao"></section>
+  </div>
+
+  <footer class="app-footer">
+    <div class="wrap">
+      Fonte dos dados: Bling ERP (financeiro) e planilha "Leve Sonho — Painel Financeiro". Sincronização automática a cada 2h.
+    </div>
+  </footer>
+</div>
+
+<script src="js/config.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
