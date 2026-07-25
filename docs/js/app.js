@@ -56,8 +56,8 @@ async function verificarESeguir_(token) {
   document.getElementById('userEmail').textContent = data.email || '';
   document.getElementById('loginGate').style.display = 'none';
   document.getElementById('app').style.display = 'block';
-  renderTab('kpis', data);
   setupTabs();
+  safeRenderTab('kpis', data);
 }
 
 document.getElementById('btnSair').addEventListener('click', () => {
@@ -90,10 +90,18 @@ function setupTabs() {
         document.getElementById('tab-' + view).innerHTML = '<div class="state-msg">Carregando...</div>';
         const data = await apiFetch_(view, idToken);
         cache[view] = data;
-        renderTab(view, data);
+        safeRenderTab(view, data);
       }
     });
   });
+}
+
+function safeRenderTab(view, data) {
+  try {
+    renderTab(view, data);
+  } catch (e) {
+    document.getElementById('tab-' + view).innerHTML = '<div class="state-msg">Erro ao desenhar esta aba (' + e.message + ').</div>';
+  }
 }
 
 function renderTab(view, data) {
