@@ -106,6 +106,7 @@ const FILTER = { preset: 'mes', start: null, end: null, monthStr: '' };
 function startOfDay_(d) { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; }
 function endOfDay_(d) { const x = new Date(d); x.setHours(23, 59, 59, 999); return x; }
 function addDays_(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
+function toDateInputValue_(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
 
 function computeRange_(preset, monthStr, customStart, customEnd) {
   const hoje = new Date();
@@ -163,8 +164,8 @@ const FILTER_LABELS = {
 
 function renderFiltroBar_() {
   const presets = ['hoje', 'ontem', 'semana', 'semana_passada', 'mes', 'mes_passado'];
-  const custIni = FILTER.preset === 'personalizado' ? FILTER.start.toISOString().slice(0, 10) : '';
-  const custFim = FILTER.preset === 'personalizado' ? FILTER.end.toISOString().slice(0, 10) : '';
+  const custIni = FILTER.preset === 'personalizado' ? toDateInputValue_(FILTER.start) : '';
+  const custFim = FILTER.preset === 'personalizado' ? toDateInputValue_(FILTER.end) : '';
   return `
     <div class="filterbar">
       ${presets.map(p => `<button type="button" class="fbtn ${FILTER.preset === p ? 'active' : ''}" data-preset="${p}">${FILTER_LABELS[p]}</button>`).join('')}
@@ -254,7 +255,7 @@ function serieTemporal_(rows, start, end) {
   const dias = Math.round((end - start) / 86400000) + 1;
   const porDia = dias <= 45;
   const buckets = {};
-  const chave = (d) => porDia ? d.toISOString().slice(0, 10) : (d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'));
+  const chave = (d) => porDia ? toDateInputValue_(d) : (d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'));
   const label = (k) => porDia ? dayLabel(new Date(k + 'T00:00:00')) : monthLabel(k);
   rows.forEach(r => {
     const k = chave(r.date);
