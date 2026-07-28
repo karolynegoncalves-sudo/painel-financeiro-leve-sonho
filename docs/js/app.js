@@ -2,7 +2,9 @@ const CFG = window.PAINEL_CONFIG;
 
 const fmtBRL = (v, dec = 0) => Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: dec, maximumFractionDigits: dec });
 const fmtPct = (v, dec = 1) => (v >= 0 ? '+' : '') + (Number(v || 0) * 100).toLocaleString('pt-BR', { minimumFractionDigits: dec, maximumFractionDigits: dec }) + '%';
+const fmtPctSimples_ = (v, dec = 1) => (Number(v || 0) * 100).toLocaleString('pt-BR', { minimumFractionDigits: dec, maximumFractionDigits: dec }) + '%';
 const fmtDataBR = (d) => d.toLocaleDateString('pt-BR');
+const escapeHtml_ = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const monthLabel = (p) => {
   const m = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
   const [y, mo] = String(p).split('-');
@@ -10,11 +12,28 @@ const monthLabel = (p) => {
 };
 const dayLabel = (d) => String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0');
 
-const PALETTE = { wine: '#8E2A44', wineSoft: '#C97C90', gold: '#B8863E', sage: '#4B7A5B', sageSoft: '#9CC3A8', brick: '#AB3B32', amber: '#B9791F', ink: '#211B22', muted: '#B8AC9C' };
+const PALETTE = { sage: '#557571', sageSoft: '#9DB8B5', terracotta: '#D49A89', terracottaDark: '#B97A67', peach: '#F7D1BA', brick: '#AB3B32', amber: '#B9791F', ink: '#2B2926', muted: '#C9BFB4' };
 
 let idToken = sessionStorage.getItem('id_token') || null;
-const cache = {}; // só para 'precificacao' (não depende de filtro de data)
+const cache = {};
 let FLUXO_ROWS = null; // [{date, tipo, grupoDRE, categoria, contato, banco, valor}]
+
+/* ---------------- Precificação: estado local ---------------- */
+let precifProdutos = null;       // array de produtos vinda do backend (cache mutável local)
+let precifConfig = null;         // {despesasFixasPctPadrao, canais:{...}}
+let precifBusca = '';
+let precifFiltroCanal = '';
+let precifExpandidoId = null;    // id do produto expandido, ou '__novo__'
+let precifDraftOrigem = null;    // valores iniciais pro produto sendo criado/duplicado
+
+const CANAL_LABELS = {
+  NuvemShop_Cartao: 'NuvemShop (Cartão)',
+  NuvemShop_Pix: 'NuvemShop (Pix)',
+  MercadoLivre: 'Mercado Livre',
+  Shopee: 'Shopee',
+  SHEIN: 'SHEIN',
+  TikTokShop: 'TikTok Shop'
+};
 
 /* ---------------- Auth ---------------- */
 
@@ -76,6 +95,24 @@ async function apiFetch_(view, token) {
     return await resp.json();
   } catch (e) {
     return { error: String(e) };
+  }
+}
+
+/**
+ * Único ponto de escrita. Manda o body como texto puro (não application/json)
+ * de propósito — assim o navegador não dispara um preflight CORS, que o
+ * Apps Script Web App não responde direito.
+ */
+async function apiPost_(action, payload) {
+  try {
+    const resp = await fetch(CFG.APPS_SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(Object.assign({ token: idToken, action: action }, payload))
+    });
+    return await resp.json();
+  } catch (e) {
+    return { ok: false, error: String(e) };
   }
 }
 
@@ -215,11 +252,16 @@ async function safeRenderTab(view) {
   const el = document.getElementById('tab-' + view);
   try {
     if (view === 'precificacao') {
-      if (!cache.precificacao) {
+      if (precifProdutos === null || precifConfig === null) {
         el.innerHTML = '<div class="state-msg">Carregando...</div>';
-        cache.precificacao = await apiFetch_('precificacao', idToken);
+        const [dataProdutos, dataConfig] = await Promise.all([
+          apiFetch_('precificacao', idToken),
+          apiFetch_('precificacaoConfig', idToken)
+        ]);
+        precifProdutos = (dataProdutos && dataProdutos.produtos) || [];
+        precifConfig = (dataConfig && dataConfig.config) || { despesasFixasPctPadrao: 0, canais: {} };
       }
-      return renderPrecificacao(el, cache.precificacao);
+      return renderPrecificacao(el);
     }
     if (!FLUXO_ROWS) { el.innerHTML = '<div class="state-msg">Carregando...</div>'; return; }
     const rowsFiltradas = FLUXO_ROWS.filter(r => r.date >= FILTER.start && r.date <= FILTER.end);
@@ -320,8 +362,8 @@ function renderKpis(el, rows) {
     data: {
       labels: serie.map(b => b.label),
       datasets: [
-        { type: 'bar', label: 'Receita bruta', data: serieReceita, backgroundColor: PALETTE.wineSoft, borderRadius: 3 },
-        { type: 'line', label: 'Resultado líquido', data: serieResultado, borderColor: PALETTE.gold, borderWidth: 2, pointRadius: 3, tension: .2 }
+        { type: 'bar', label: 'Receita bruta', data: serieReceita, backgroundColor: PALETTE.sageSoft, borderRadius: 3 },
+        { type: 'line', label: 'Resultado líquido', data: serieResultado, borderColor: PALETTE.terracottaDark, borderWidth: 2, pointRadius: 3, tension: .2 }
       ]
     },
     options: {
@@ -373,14 +415,14 @@ function renderFluxoCaixa(el, rows) {
     type: 'bar',
     data: { labels: serie.map(b => b.label), datasets: [
       { label: 'Entradas', data: entradas, backgroundColor: PALETTE.sageSoft },
-      { label: 'Saídas', data: saidas, backgroundColor: PALETTE.wineSoft }
+      { label: 'Saídas', data: saidas, backgroundColor: PALETTE.terracotta }
     ] },
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' }, tooltip: { callbacks: { label: (c) => c.dataset.label + ': ' + fmtBRL(c.raw) } } }, scales: { y: { ticks: { callback: (v) => fmtBRL(v) } } } }
   });
 
   new Chart(document.getElementById('chartCaixaCategorias'), {
     type: 'bar',
-    data: { labels: topCategorias.map(c => c[0]), datasets: [{ label: 'Total', data: topCategorias.map(c => c[1]), backgroundColor: PALETTE.wine, borderRadius: 3 }] },
+    data: { labels: topCategorias.map(c => c[0]), datasets: [{ label: 'Total', data: topCategorias.map(c => c[1]), backgroundColor: PALETTE.terracottaDark, borderRadius: 3 }] },
     options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => fmtBRL(c.raw) } } }, scales: { x: { ticks: { callback: (v) => fmtBRL(v) } } } }
   });
 
@@ -427,29 +469,360 @@ function renderDre(el, rows) {
 
 /* ---------------- Precificação ---------------- */
 
-function renderPrecificacao(el, data) {
-  const canais = (data && data.canais) || [];
+function renderPrecificacao(el) {
+  const produtos = precifProdutos || [];
+
+  const margens = produtos.map(p => p.lucroPctSnapshot || 0);
+  const margemMedia = margens.length ? margens.reduce((a, b) => a + b, 0) / margens.length : 0;
+  const abaixoDe20 = produtos.filter(p => (p.lucroPctSnapshot || 0) < 0.20).length;
+  const markups = produtos.map(p => p.markupSnapshot).filter(m => m > 0);
+  const markupMedio = markups.length ? markups.reduce((a, b) => a + b, 0) / markups.length : 0;
+
   el.innerHTML = `
     <div class="section-head">
       <h2 class="section-title">Precificação</h2>
-      <div class="section-desc">Espelho ao vivo (IMPORTRANGE) das planilhas FPV 2026 reais de cada canal — as mesmas fórmulas que a Karolyne já usa, sem recriação.</div>
+      <div class="section-desc">Calculadora editável — escolha o canal, preencha os custos e veja preço, margem e lucro na hora. Fica salvo aqui, não precisa mais abrir a planilha antiga.</div>
     </div>
-    <div class="grid-3" id="precifCards"></div>
+    <div class="precif-summary">
+      <div class="tile"><div class="l">Produtos cadastrados</div><div class="v">${produtos.length}</div></div>
+      <div class="tile"><div class="l">Margem média</div><div class="v">${produtos.length ? fmtPct(margemMedia) : '—'}</div></div>
+      <div class="tile"><div class="l">Abaixo de 20% de margem</div><div class="v">${abaixoDe20}</div></div>
+      <div class="tile"><div class="l">Markup médio</div><div class="v">${markupMedio ? markupMedio.toFixed(2) + '×' : '—'}</div></div>
+    </div>
+    <div class="precif-toolbar">
+      <input type="text" id="precifBusca" placeholder="Buscar por nome..." value="${escapeHtml_(precifBusca)}">
+      <select id="precifFiltroCanal">
+        <option value="">Todos os canais</option>
+        ${Object.keys(CANAL_LABELS).map(c => `<option value="${c}" ${precifFiltroCanal === c ? 'selected' : ''}>${CANAL_LABELS[c]}</option>`).join('')}
+      </select>
+      <button type="button" class="primario" id="precifNovo">+ Novo produto</button>
+    </div>
     <div class="panel">
-      <p class="sub">Para ver o detalhe completo de cada calculadora (matéria-prima, mão de obra, margens), abra a planilha "Leve Sonho — Painel Financeiro" diretamente — a aba <code>Precificação_&lt;Canal&gt;</code> espelha o FPV real daquele canal.</p>
+      <div style="overflow-x:auto;"><table class="simple" id="precifTabela"></table></div>
     </div>
   `;
-  const grid = document.getElementById('precifCards');
-  canais.forEach(c => {
-    const div = document.createElement('div');
-    div.className = 'panel';
-    div.innerHTML = `
-      <h3>${c.canal}</h3>
-      <div class="sub">${c.ok ? c.linhas + ' linhas × ' + c.colunas + ' colunas espelhadas' : (c.motivo || 'aba não encontrada')}</div>
-      <span class="badge ${c.ok ? 'ok' : 'bad'}">${c.ok ? 'Sincronizado' : 'Verificar'}</span>
-    `;
-    grid.appendChild(div);
+
+  document.getElementById('precifBusca').addEventListener('input', (e) => { precifBusca = e.target.value; renderPrecificacaoTabela_(); });
+  document.getElementById('precifFiltroCanal').addEventListener('change', (e) => { precifFiltroCanal = e.target.value; renderPrecificacaoTabela_(); });
+  document.getElementById('precifNovo').addEventListener('click', () => abrirNovoProduto_());
+
+  renderPrecificacaoTabela_();
+}
+
+function renderPrecificacaoTabela_() {
+  const tbl = document.getElementById('precifTabela');
+  if (!tbl) return;
+  const produtos = precifProdutos || [];
+  const filtrados = produtos.filter(p => {
+    if (precifFiltroCanal && p.canal !== precifFiltroCanal) return false;
+    if (precifBusca && p.nome.toLowerCase().indexOf(precifBusca.toLowerCase()) < 0) return false;
+    return true;
   });
+
+  let html = '<tr><th>Nome</th><th>Canal</th><th>Preço</th><th>Custo</th><th>Margem</th><th>Markup</th><th></th></tr>';
+
+  if (precifExpandidoId === '__novo__') {
+    html += linhaEditavelHtml_(precifDraftOrigem, '__novo__');
+  }
+  if (!filtrados.length && precifExpandidoId !== '__novo__') {
+    html += '<tr><td colspan="7" style="padding:24px; text-align:center; color:var(--muted);">Nenhum produto ainda. Clique em "+ Novo produto" pra começar.</td></tr>';
+  }
+  filtrados.forEach(p => {
+    html += precifExpandidoId === p.id ? linhaEditavelHtml_(p, p.id) : linhaResumoHtml_(p);
+  });
+
+  tbl.innerHTML = html;
+  ligarEventosPrecifTabela_(tbl);
+}
+
+function linhaResumoHtml_(p) {
+  const canalCfg = (precifConfig.canais || {})[p.canal];
+  const tagCls = 'precif-canal-tag' + (canalCfg && !canalCfg.confirmado ? ' nao-confirmado' : '');
+  return `<tr>
+    <td>${escapeHtml_(p.nome)}</td>
+    <td><span class="${tagCls}">${CANAL_LABELS[p.canal] || p.canal}</span></td>
+    <td>${fmtBRL(p.precoVenda, 2)}</td>
+    <td>${fmtBRL(p.custoProdutoSnapshot, 2)}</td>
+    <td>${fmtPct(p.lucroPctSnapshot)}</td>
+    <td>${p.markupSnapshot ? p.markupSnapshot.toFixed(2) + '×' : '—'}</td>
+    <td><div class="precif-row-acoes">
+      <button type="button" class="editar" data-id="${p.id}">Editar</button>
+      <button type="button" class="duplicar" data-id="${p.id}">Duplicar</button>
+      <button type="button" class="excluir" data-id="${p.id}">Excluir</button>
+    </div></td>
+  </tr>`;
+}
+
+function materialLinhaTds_(m) {
+  return `<td><input type="text" class="m-descricao" placeholder="ex: Cetim" value="${escapeHtml_(m.descricao || '')}"></td>
+    <td><input type="number" step="0.01" class="m-valorUnitario" value="${m.valorUnitario || ''}"></td>
+    <td><input type="number" step="0.01" class="m-qtdUtilizada" value="${m.qtdUtilizada || ''}"></td>
+    <td><input type="number" step="0.01" class="m-valorManual" value="${m.valorManual || ''}"></td>
+    <td><button type="button" class="del-linha">✕</button></td>`;
+}
+function maoDeObraLinhaTds_(f) {
+  return `<td><input type="text" class="f-descricao" placeholder="ex: Costureira" value="${escapeHtml_(f.descricao || '')}"></td>
+    <td><input type="number" step="0.01" class="f-salarioMensal" value="${f.salarioMensal || ''}"></td>
+    <td><input type="number" step="0.01" class="f-horasMes" value="${f.horasMes || ''}"></td>
+    <td><input type="number" step="0.01" class="f-tempoExecucaoMinutos" value="${f.tempoExecucaoMinutos || ''}"></td>
+    <td><button type="button" class="del-linha">✕</button></td>`;
+}
+function outrosLinhaTds_(o) {
+  return `<td><input type="text" class="o-descricao" placeholder="ex: Embalagem" value="${escapeHtml_(o.descricao || '')}"></td>
+    <td><input type="number" step="0.01" class="o-valor" value="${o.valor || ''}"></td>
+    <td><button type="button" class="del-linha">✕</button></td>`;
+}
+
+function linhaEditavelHtml_(produto, chave) {
+  produto = produto || { nome: '', canal: '', materiais: [], maoDeObra: [], outros: [], tarifas: {}, despesasFixasPct: 0, precoVenda: 0 };
+  const canais = Object.keys(CANAL_LABELS);
+  const materiaisRows = (produto.materiais && produto.materiais.length ? produto.materiais : [{}]).map(m => '<tr>' + materialLinhaTds_(m) + '</tr>').join('');
+  const maoDeObraRows = (produto.maoDeObra && produto.maoDeObra.length ? produto.maoDeObra : [{}]).map(f => '<tr>' + maoDeObraLinhaTds_(f) + '</tr>').join('');
+  const outrosRows = (produto.outros && produto.outros.length ? produto.outros : [{}]).map(o => '<tr>' + outrosLinhaTds_(o) + '</tr>').join('');
+  const tarifas = produto.tarifas || {};
+
+  return `<tr><td colspan="7">
+    <div class="precif-subrow" data-id="${produto.id || ''}">
+      <div class="precif-field-row">
+        <label>Nome<input type="text" class="nome" value="${escapeHtml_(produto.nome || '')}"></label>
+        <label>Canal<select class="canal">
+          ${canais.map(c => {
+            const cfg = canaisConfigOuVazio_()[c];
+            const aviso = cfg && !cfg.confirmado ? ' ⚠ não confirmado' : '';
+            return `<option value="${c}" ${produto.canal === c ? 'selected' : ''}>${CANAL_LABELS[c]}${aviso}</option>`;
+          }).join('')}
+        </select></label>
+        <label>Preço de venda (R$)<input type="number" step="0.01" class="precoVenda" value="${produto.precoVenda || ''}"></label>
+        <label>Despesas fixas %<input type="number" step="0.01" class="despesasFixasPct" value="${((produto.despesasFixasPct || 0) * 100).toFixed(2)}"></label>
+      </div>
+
+      <div class="precif-linegroup" data-grupo="materiais">
+        <h4>Matéria-prima</h4>
+        <table><thead><tr><th>Descrição</th><th>Valor unitário</th><th>Qtd utilizada</th><th>ou valor manual</th><th></th></tr></thead>
+        <tbody>${materiaisRows}</tbody></table>
+        <button type="button" class="add-linha" data-grupo="materiais">+ material</button>
+      </div>
+
+      <div class="precif-linegroup" data-grupo="maoDeObra">
+        <h4>Mão de obra</h4>
+        <table><thead><tr><th>Descrição</th><th>Salário mensal</th><th>Horas/mês</th><th>Tempo execução (min)</th><th></th></tr></thead>
+        <tbody>${maoDeObraRows}</tbody></table>
+        <button type="button" class="add-linha" data-grupo="maoDeObra">+ funcionário</button>
+      </div>
+
+      <div class="precif-linegroup" data-grupo="outros">
+        <h4>Outros materiais/serviços</h4>
+        <table><thead><tr><th>Descrição</th><th>Valor</th><th></th></tr></thead>
+        <tbody>${outrosRows}</tbody></table>
+        <button type="button" class="add-linha" data-grupo="outros">+ item</button>
+      </div>
+
+      <div class="precif-linegroup" data-grupo="tarifas">
+        <h4>Tarifas do canal</h4>
+        <div class="precif-field-row">
+          <label>Impostos %<input type="number" step="0.01" class="tarifa-impostosPct" value="${((tarifas.impostosPct || 0) * 100).toFixed(2)}"></label>
+          <label>Comissão %<input type="number" step="0.01" class="tarifa-comissaoPct" value="${((tarifas.comissaoPct || 0) * 100).toFixed(2)}"></label>
+          <label><span class="extra1-label">${escapeHtml_(tarifas.extra1Nome || 'Taxa extra 1')} %</span><input type="number" step="0.01" class="tarifa-extra1Pct" value="${((tarifas.extra1Pct || 0) * 100).toFixed(2)}"></label>
+          <label><span class="extra2-label">${escapeHtml_(tarifas.extra2Nome || 'Taxa extra 2')} %</span><input type="number" step="0.01" class="tarifa-extra2Pct" value="${((tarifas.extra2Pct || 0) * 100).toFixed(2)}"></label>
+        </div>
+      </div>
+
+      <div class="precif-breakdown">
+        <div class="tile"><div class="l">Custo do produto</div><div class="v out-custo">—</div></div>
+        <div class="tile"><div class="l">Despesas fixas</div><div class="v out-despesasFixas">—</div></div>
+        <div class="tile"><div class="l">Custo variável</div><div class="v out-custoVariavel">—</div></div>
+        <div class="tile out-lucro-tile"><div class="l">Lucro</div><div class="v out-lucro">—</div></div>
+        <div class="tile"><div class="l">Markup</div><div class="v out-markup">—</div></div>
+        <div class="tile"><div class="l">Margem de contribuição</div><div class="v out-margemContrib">—</div></div>
+      </div>
+
+      <div class="precif-ladder out-ladder"></div>
+
+      <div class="precif-save-bar">
+        <button type="button" class="cancelar">Cancelar</button>
+        <button type="button" class="salvar">Salvar</button>
+      </div>
+    </div>
+  </td></tr>`;
+}
+
+function canaisConfigOuVazio_() { return (precifConfig && precifConfig.canais) || {}; }
+
+function ligarEventosPrecifTabela_(tbl) {
+  tbl.querySelectorAll('.editar').forEach(btn => btn.addEventListener('click', () => abrirEdicaoProduto_(btn.dataset.id)));
+  tbl.querySelectorAll('.duplicar').forEach(btn => btn.addEventListener('click', () => duplicarProduto_(btn.dataset.id)));
+  tbl.querySelectorAll('.excluir').forEach(btn => btn.addEventListener('click', () => excluirProdutoUi_(btn.dataset.id)));
+
+  const subrow = tbl.querySelector('.precif-subrow');
+  if (!subrow) return;
+
+  subrow.addEventListener('input', (e) => {
+    if (e.target.matches('input')) recalcularSubrow_(subrow);
+  });
+
+  subrow.addEventListener('change', (e) => {
+    if (e.target.classList.contains('canal')) aplicarPresetCanal_(subrow, e.target.value);
+  });
+
+  subrow.addEventListener('click', (e) => {
+    const addBtn = e.target.closest('.add-linha');
+    if (addBtn) {
+      const grupo = addBtn.dataset.grupo;
+      const tbody = addBtn.closest('.precif-linegroup').querySelector('tbody');
+      const tr = document.createElement('tr');
+      tr.innerHTML = grupo === 'materiais' ? materialLinhaTds_({}) : grupo === 'maoDeObra' ? maoDeObraLinhaTds_({}) : outrosLinhaTds_({});
+      tbody.appendChild(tr);
+      return;
+    }
+    const delBtn = e.target.closest('.del-linha');
+    if (delBtn) { delBtn.closest('tr').remove(); recalcularSubrow_(subrow); return; }
+    const usarBtn = e.target.closest('.usar-preco');
+    if (usarBtn) { subrow.querySelector('.precoVenda').value = usarBtn.dataset.preco; recalcularSubrow_(subrow); return; }
+    if (e.target.classList.contains('cancelar')) { precifExpandidoId = null; precifDraftOrigem = null; renderPrecificacaoTabela_(); return; }
+    if (e.target.classList.contains('salvar')) { salvarProdutoUi_(subrow); return; }
+  });
+
+  recalcularSubrow_(subrow);
+}
+
+function aplicarPresetCanal_(subrow, canal) {
+  const preset = canaisConfigOuVazio_()[canal];
+  if (!preset) return;
+  subrow.querySelector('.tarifa-impostosPct').value = (preset.impostosPct * 100).toFixed(2);
+  subrow.querySelector('.tarifa-comissaoPct').value = (preset.comissaoPct * 100).toFixed(2);
+  subrow.querySelector('.tarifa-extra1Pct').value = (preset.extra1Pct * 100).toFixed(2);
+  subrow.querySelector('.tarifa-extra2Pct').value = (preset.extra2Pct * 100).toFixed(2);
+  subrow.querySelector('.extra1-label').textContent = (preset.extra1Nome || 'Taxa extra 1') + ' %';
+  subrow.querySelector('.extra2-label').textContent = (preset.extra2Nome || 'Taxa extra 2') + ' %';
+  recalcularSubrow_(subrow);
+}
+
+function lerProdutoDoSubrow_(subrow) {
+  const materiais = Array.from(subrow.querySelectorAll('[data-grupo="materiais"] tbody tr')).map(tr => ({
+    descricao: tr.querySelector('.m-descricao').value,
+    valorUnitario: parseFloat(tr.querySelector('.m-valorUnitario').value) || 0,
+    qtdUtilizada: parseFloat(tr.querySelector('.m-qtdUtilizada').value) || 0,
+    valorManual: parseFloat(tr.querySelector('.m-valorManual').value) || 0
+  })).filter(m => m.descricao || m.valorUnitario || m.valorManual);
+
+  const maoDeObra = Array.from(subrow.querySelectorAll('[data-grupo="maoDeObra"] tbody tr')).map(tr => ({
+    descricao: tr.querySelector('.f-descricao').value,
+    salarioMensal: parseFloat(tr.querySelector('.f-salarioMensal').value) || 0,
+    horasMes: parseFloat(tr.querySelector('.f-horasMes').value) || 0,
+    tempoExecucaoMinutos: parseFloat(tr.querySelector('.f-tempoExecucaoMinutos').value) || 0
+  })).filter(f => f.descricao || f.salarioMensal);
+
+  const outros = Array.from(subrow.querySelectorAll('[data-grupo="outros"] tbody tr')).map(tr => ({
+    descricao: tr.querySelector('.o-descricao').value,
+    valor: parseFloat(tr.querySelector('.o-valor').value) || 0
+  })).filter(o => o.descricao || o.valor);
+
+  const tarifas = {
+    impostosPct: (parseFloat(subrow.querySelector('.tarifa-impostosPct').value) || 0) / 100,
+    comissaoPct: (parseFloat(subrow.querySelector('.tarifa-comissaoPct').value) || 0) / 100,
+    extra1Nome: subrow.querySelector('.extra1-label').textContent.replace(/\s*%$/, ''),
+    extra1Pct: (parseFloat(subrow.querySelector('.tarifa-extra1Pct').value) || 0) / 100,
+    extra2Nome: subrow.querySelector('.extra2-label').textContent.replace(/\s*%$/, ''),
+    extra2Pct: (parseFloat(subrow.querySelector('.tarifa-extra2Pct').value) || 0) / 100
+  };
+
+  return {
+    id: subrow.dataset.id || '',
+    nome: subrow.querySelector('.nome').value.trim(),
+    canal: subrow.querySelector('.canal').value,
+    materiais, maoDeObra, outros, tarifas,
+    despesasFixasPct: (parseFloat(subrow.querySelector('.despesasFixasPct').value) || 0) / 100,
+    precoVenda: parseFloat(subrow.querySelector('.precoVenda').value) || 0
+  };
+}
+
+function recalcularSubrow_(subrow) {
+  const p = lerProdutoDoSubrow_(subrow);
+  const custo = PrecifCalc.custoProduto_(p.materiais, p.maoDeObra, p.outros);
+  const custoVariavelPct = PrecifCalc.custoVariavelPct_(p.tarifas);
+  const bd = PrecifCalc.breakdown_(p.precoVenda, custo, custoVariavelPct, p.despesasFixasPct);
+
+  subrow.querySelector('.out-custo').textContent = fmtBRL(bd.custoProduto, 2);
+  subrow.querySelector('.out-despesasFixas').textContent = fmtBRL(bd.despesasFixasReais, 2);
+  subrow.querySelector('.out-custoVariavel').textContent = fmtBRL(bd.custoVariavelReais, 2) + ' (' + fmtPctSimples_(bd.custoVariavelPct) + ')';
+  subrow.querySelector('.out-lucro').textContent = fmtBRL(bd.lucroReais, 2) + ' (' + fmtPct(bd.lucroPct) + ')';
+  const tileLucro = subrow.querySelector('.out-lucro-tile');
+  tileLucro.classList.toggle('lucro-pos', bd.lucroReais >= 0);
+  tileLucro.classList.toggle('lucro-neg', bd.lucroReais < 0);
+  subrow.querySelector('.out-markup').textContent = bd.markup ? bd.markup.toFixed(2) + '×' : '—';
+  subrow.querySelector('.out-margemContrib').textContent = fmtBRL(bd.margemContribReais, 2) + ' (' + fmtPct(bd.margemContribPct) + ')';
+
+  const ladder = PrecifCalc.ladderSugerido_(custo, p.despesasFixasPct, custoVariavelPct);
+  subrow.querySelector('.out-ladder').innerHTML = ladder.map(l => l.precoSugerido == null ? '' : `
+    <button type="button" class="usar-preco" data-preco="${l.precoSugerido.toFixed(2)}">
+      <span class="l">Lucro ${Math.round(l.margemAlvoPct * 100)}%</span>
+      <span class="v">${fmtBRL(l.precoSugerido, 2)}</span>
+    </button>`).join('');
+}
+
+function abrirNovoProduto_() {
+  const canais = Object.keys(canaisConfigOuVazio_());
+  const primeiroCanal = canais[0] || '';
+  const preset = canaisConfigOuVazio_()[primeiroCanal] || {};
+  precifDraftOrigem = {
+    id: '', nome: '', canal: primeiroCanal,
+    materiais: [], maoDeObra: [], outros: [],
+    tarifas: {
+      impostosPct: preset.impostosPct || 0, comissaoPct: preset.comissaoPct || 0,
+      extra1Nome: preset.extra1Nome || '', extra1Pct: preset.extra1Pct || 0,
+      extra2Nome: preset.extra2Nome || '', extra2Pct: preset.extra2Pct || 0
+    },
+    despesasFixasPct: (precifConfig && precifConfig.despesasFixasPctPadrao) || 0,
+    precoVenda: 0
+  };
+  precifExpandidoId = '__novo__';
+  renderPrecificacaoTabela_();
+}
+
+function abrirEdicaoProduto_(id) {
+  const p = (precifProdutos || []).find(x => x.id === id);
+  if (!p) return;
+  precifDraftOrigem = JSON.parse(JSON.stringify(p));
+  precifExpandidoId = id;
+  renderPrecificacaoTabela_();
+}
+
+function duplicarProduto_(id) {
+  const p = (precifProdutos || []).find(x => x.id === id);
+  if (!p) return;
+  precifDraftOrigem = Object.assign(JSON.parse(JSON.stringify(p)), { id: '', nome: p.nome + ' (cópia)' });
+  precifExpandidoId = '__novo__';
+  renderPrecificacaoTabela_();
+}
+
+async function excluirProdutoUi_(id) {
+  const p = (precifProdutos || []).find(x => x.id === id);
+  if (!p) return;
+  if (!confirm('Excluir "' + p.nome + '"? Ele some da lista, mas fica marcado como inativo na planilha (não é apagado de verdade).')) return;
+  const resp = await apiPost_('excluirProduto', { id: id });
+  if (!resp || !resp.ok) { alert('Não deu pra excluir: ' + ((resp && resp.error) || 'erro desconhecido')); return; }
+  precifProdutos = precifProdutos.filter(x => x.id !== id);
+  if (precifExpandidoId === id) precifExpandidoId = null;
+  renderPrecificacaoTabela_();
+}
+
+async function salvarProdutoUi_(subrow) {
+  const p = lerProdutoDoSubrow_(subrow);
+  if (!p.nome) { alert('Dá um nome pro produto antes de salvar.'); return; }
+  if (!(p.precoVenda > 0)) { alert('Preenche o preço de venda antes de salvar.'); return; }
+  const btn = subrow.querySelector('.salvar');
+  btn.disabled = true; btn.textContent = 'Salvando...';
+  const resp = await apiPost_('salvarProduto', { produto: p });
+  if (!resp || !resp.ok) {
+    btn.disabled = false; btn.textContent = 'Salvar';
+    alert('Não deu pra salvar: ' + ((resp && resp.error) || 'erro desconhecido'));
+    return;
+  }
+  const dataProdutos = await apiFetch_('precificacao', idToken);
+  precifProdutos = (dataProdutos && dataProdutos.produtos) || [];
+  precifExpandidoId = null;
+  precifDraftOrigem = null;
+  renderPrecificacaoTabela_();
 }
 
 /* ---------------- Boot ---------------- */

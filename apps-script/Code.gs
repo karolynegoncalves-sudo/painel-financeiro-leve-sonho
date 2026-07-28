@@ -20,9 +20,36 @@ function doGet(e) {
   switch (view) {
     case 'fluxoCaixa': return jsonResponse_({ email: email, rows: getFluxoCaixaRows_() });
     case 'dre': return jsonResponse_({ email: email, rows: getDreRows_() });
-    case 'precificacao': return jsonResponse_({ email: email, canais: getPrecificacaoResumo_() });
+    case 'precificacao': return jsonResponse_({ email: email, produtos: getPrecificacaoCatalogo_() });
+    case 'precificacaoConfig': return jsonResponse_({ email: email, config: getPrecificacaoConfig_() });
     case 'kpis': return jsonResponse_({ email: email, kpis: getKpis_() });
     default: return jsonResponse_({ error: 'unknown_view' });
+  }
+}
+
+/**
+ * Único ponto de escrita vindo do frontend (tudo mais é só leitura). O
+ * dashboard manda o body como texto puro JSON (Content-Type text/plain)
+ * de propósito — evita o preflight CORS que o Apps Script Web App não
+ * responde bem, e a gente faz o JSON.parse manualmente aqui.
+ */
+function doPost(e) {
+  try {
+    const body = JSON.parse((e && e.postData && e.postData.contents) || '{}');
+    const email = verificarAcesso_(body.token);
+    if (!email) return jsonResponse_({ ok: false, error: 'not_authorized' });
+
+    switch (body.action) {
+      case 'salvarProduto':
+        return jsonResponse_({ ok: true, email: email, produto: salvarPrecificacaoProduto_(body.produto, email) });
+      case 'excluirProduto':
+        return jsonResponse_({ ok: true, email: email, id: excluirPrecificacaoProduto_(body.id, email) });
+      default:
+        return jsonResponse_({ ok: false, error: 'unknown_action' });
+    }
+  } catch (err) {
+    logSync_('doPost', 'erro', String(err));
+    return jsonResponse_({ ok: false, error: String(err) });
   }
 }
 

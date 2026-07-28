@@ -14,6 +14,8 @@ const ABA_SYNC_LOG = '_Sync_Log';
 const ABA_DRE_MAPA = '_DRE_Mapa';
 const ABA_FLUXO_CAIXA = 'Fluxo de Caixa';
 const ABA_DRE = 'DRE';
+const ABA_PRECIFICACAO = 'Precificação';
+const ABA_PRECIFICACAO_CONFIG = '_Precificacao_Config';
 
 // IDs reais das planilhas FPV 2026 (uma por canal) — usados para espelhar
 // a Precificação ao vivo via IMPORTRANGE, sem recriar as fórmulas.
@@ -34,6 +36,8 @@ function setupWorkbook() {
   setupDre_(ss);
   setupDreMapa_(ss);
   setupPrecificacao_(ss);
+  setupPrecificacaoCatalogo_(ss);
+  setupPrecificacaoConfig_(ss);
 
   SpreadsheetApp.flush();
   Logger.log('Setup concluído. Confira as abas: %s', ss.getSheets().map(s => s.getName()).join(', '));
@@ -184,4 +188,49 @@ function setupPrecificacao_(ss) {
       sheet.getRange('A1').setFormula(formula);
     }
   });
+}
+
+/**
+ * Catálogo real da calculadora de precificação — uma linha por produto
+ * salvo. Só cria a aba/cabeçalho; quem grava linhas é
+ * salvarPrecificacaoProduto_() em Precificacao.gs, nunca este setup.
+ */
+function setupPrecificacaoCatalogo_(ss) {
+  const sheet = getOrCreateSheet_(ss, ABA_PRECIFICACAO);
+  ensureHeader_(sheet, [
+    'id', 'nome', 'canal', 'ativo',
+    'materiaisJson', 'maoDeObraJson', 'outrosJson', 'tarifasJson',
+    'despesasFixasPct', 'precoVenda',
+    'custoProdutoSnapshot', 'lucroPctSnapshot', 'margemContribuicaoPctSnapshot', 'markupSnapshot',
+    'criadoEm', 'criadoPor', 'atualizadoEm', 'atualizadoPor'
+  ]);
+}
+
+/**
+ * Presets editáveis de taxa por canal + a % de despesas fixas global
+ * (linha especial "_GLOBAL"). Karolyne pode ajustar qualquer valor direto
+ * na planilha — a calculadora sempre lê daqui, nunca de número fixo no
+ * código. Semeado uma única vez (nunca sobrescreve ajustes já feitos).
+ */
+function setupPrecificacaoConfig_(ss) {
+  const sheet = getOrCreateSheet_(ss, ABA_PRECIFICACAO_CONFIG);
+  const jaTinhaDados = sheet.getLastRow() > 1;
+  ensureHeader_(sheet, [
+    'canal', 'impostosPct', 'comissaoPct',
+    'extra1Nome', 'extra1Pct', 'extra2Nome', 'extra2Pct',
+    'despesasFixasPct', 'confirmado'
+  ]);
+  if (jaTinhaDados) return;
+
+  const linhas = [
+    ['NuvemShop_Cartao', 0.0742, 0.03, 'TPV Nuvemshop', 0.01, 'Parcelamento Pagar.ME', 0.1305, '', true],
+    ['NuvemShop_Pix', 0.0742, 0, 'Taxas', 0.0098, '', 0, '', true],
+    ['MercadoLivre', 0.07, 0.14, 'Antecipação', 0.038, '', 0, '', true],
+    ['Shopee', 0.0742, 0.14, 'Transporte', 0.06, 'Antecipa', 0.035, '', true],
+    ['SHEIN', 0.07, 0.14, 'Antecipação', 0.038, '', 0, '', true],
+    ['TikTokShop', 0.07, 0.14, 'Antecipação', 0.038, '', 0, '', false],
+    ['_GLOBAL', '', '', '', '', '', '', 0.3494, true]
+  ];
+  sheet.getRange(2, 1, linhas.length, linhas[0].length).setValues(linhas);
+  sheet.autoResizeColumns(1, 9);
 }
