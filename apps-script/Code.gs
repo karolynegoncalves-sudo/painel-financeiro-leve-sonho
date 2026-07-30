@@ -22,6 +22,9 @@ function doGet(e) {
     case 'dre': return jsonResponse_({ email: email, rows: getDreRows_() });
     case 'precificacao': return jsonResponse_({ email: email, produtos: getPrecificacaoCatalogo_() });
     case 'precificacaoConfig': return jsonResponse_({ email: email, config: getPrecificacaoConfig_() });
+    case 'precificacaoMateriais': return jsonResponse_({ email: email, materiais: getPrecificacaoMateriaisCatalogo_() });
+    case 'precificacaoRendimento': return jsonResponse_({ email: email, rendimento: getPrecificacaoRendimentoCatalogo_() });
+    case 'precificacaoFuncionarios': return jsonResponse_({ email: email, funcionarios: getPrecificacaoFuncionariosCatalogo_() });
     case 'kpis': return jsonResponse_({ email: email, kpis: getKpis_() });
     default: return jsonResponse_({ error: 'unknown_view' });
   }

@@ -25,6 +25,9 @@ let precifBusca = '';
 let precifFiltroCanal = '';
 let precifExpandidoId = null;    // id do produto expandido, ou '__novo__'
 let precifDraftOrigem = null;    // valores iniciais pro produto sendo criado/duplicado
+let precifMateriais = null;      // catálogo de tecidos/materiais (_Precificacao_Materiais)
+let precifRendimento = null;     // tabela tipoProduto+tamanho -> metros (_Precificacao_Rendimento)
+let precifFuncionarios = null;   // cadastro de funcionários (_Precificacao_Funcionarios)
 
 const CANAL_LABELS = {
   NuvemShop_Cartao: 'NuvemShop (Cartão)',
@@ -254,12 +257,18 @@ async function safeRenderTab(view) {
     if (view === 'precificacao') {
       if (precifProdutos === null || precifConfig === null) {
         el.innerHTML = '<div class="state-msg">Carregando...</div>';
-        const [dataProdutos, dataConfig] = await Promise.all([
+        const [dataProdutos, dataConfig, dataMateriais, dataRendimento, dataFuncionarios] = await Promise.all([
           apiFetch_('precificacao', idToken),
-          apiFetch_('precificacaoConfig', idToken)
+          apiFetch_('precificacaoConfig', idToken),
+          apiFetch_('precificacaoMateriais', idToken),
+          apiFetch_('precificacaoRendimento', idToken),
+          apiFetch_('precificacaoFuncionarios', idToken)
         ]);
         precifProdutos = (dataProdutos && dataProdutos.produtos) || [];
         precifConfig = (dataConfig && dataConfig.config) || { despesasFixasPctPadrao: 0, canais: {} };
+        precifMateriais = (dataMateriais && dataMateriais.materiais) || [];
+        precifRendimento = (dataRendimento && dataRendimento.rendimento) || [];
+        precifFuncionarios = (dataFuncionarios && dataFuncionarios.funcionarios) || [];
       }
       return renderPrecificacao(el);
     }
@@ -553,15 +562,28 @@ function linhaResumoHtml_(p) {
   </tr>`;
 }
 
+function materialCatalogoOptions_() {
+  return (precifMateriais || []).map((m, i) =>
+    `<option value="${i}">${escapeHtml_((m.fornecedor ? m.fornecedor + ' - ' : '') + m.material)} (R$${m.valor.toFixed(2)}/m)</option>`
+  ).join('');
+}
+function funcionarioCatalogoOptions_() {
+  return (precifFuncionarios || []).map((f, i) =>
+    `<option value="${i}">${escapeHtml_(f.nome)}</option>`
+  ).join('');
+}
+
 function materialLinhaTds_(m) {
-  return `<td><input type="text" class="m-descricao" placeholder="ex: Cetim" value="${escapeHtml_(m.descricao || '')}"></td>
+  return `<td><select class="m-catalogo"><option value="">— catálogo —</option>${materialCatalogoOptions_()}</select></td>
+    <td><input type="text" class="m-descricao" placeholder="ex: Cetim" value="${escapeHtml_(m.descricao || '')}"></td>
     <td><input type="number" step="0.01" class="m-valorUnitario" value="${m.valorUnitario || ''}"></td>
     <td><input type="number" step="0.01" class="m-qtdUtilizada" value="${m.qtdUtilizada || ''}"></td>
     <td><input type="number" step="0.01" class="m-valorManual" value="${m.valorManual || ''}"></td>
     <td><button type="button" class="del-linha">✕</button></td>`;
 }
 function maoDeObraLinhaTds_(f) {
-  return `<td><input type="text" class="f-descricao" placeholder="ex: Costureira" value="${escapeHtml_(f.descricao || '')}"></td>
+  return `<td><select class="f-catalogo"><option value="">— catálogo —</option>${funcionarioCatalogoOptions_()}</select></td>
+    <td><input type="text" class="f-descricao" placeholder="ex: Costureira" value="${escapeHtml_(f.descricao || '')}"></td>
     <td><input type="number" step="0.01" class="f-salarioMensal" value="${f.salarioMensal || ''}"></td>
     <td><input type="number" step="0.01" class="f-horasMes" value="${f.horasMes || ''}"></td>
     <td><input type="number" step="0.01" class="f-tempoExecucaoMinutos" value="${f.tempoExecucaoMinutos || ''}"></td>
@@ -596,16 +618,22 @@ function linhaEditavelHtml_(produto, chave) {
         <label>Despesas fixas %<input type="number" step="0.01" class="despesasFixasPct" value="${((produto.despesasFixasPct || 0) * 100).toFixed(2)}"></label>
       </div>
 
+      <div class="precif-field-row">
+        <label>Tipo de produto (opcional)<input type="text" class="tipoProduto" list="precifTiposList" placeholder="ex: Robe manga curta"></label>
+        <label>Tamanho<input type="text" class="tamanho" list="precifTamanhosList" placeholder="ex: M"></label>
+        <span class="out-sugestaoRendimento"></span>
+      </div>
+
       <div class="precif-linegroup" data-grupo="materiais">
         <h4>Matéria-prima</h4>
-        <table><thead><tr><th>Descrição</th><th>Valor unitário</th><th>Qtd utilizada</th><th>ou valor manual</th><th></th></tr></thead>
+        <table><thead><tr><th>Material do catálogo</th><th>Descrição</th><th>Valor unitário</th><th>Qtd utilizada</th><th>ou valor manual</th><th></th></tr></thead>
         <tbody>${materiaisRows}</tbody></table>
         <button type="button" class="add-linha" data-grupo="materiais">+ material</button>
       </div>
 
       <div class="precif-linegroup" data-grupo="maoDeObra">
         <h4>Mão de obra</h4>
-        <table><thead><tr><th>Descrição</th><th>Salário mensal</th><th>Horas/mês</th><th>Tempo execução (min)</th><th></th></tr></thead>
+        <table><thead><tr><th>Funcionário</th><th>Descrição</th><th>Salário mensal</th><th>Horas/mês</th><th>Tempo execução (min)</th><th></th></tr></thead>
         <tbody>${maoDeObraRows}</tbody></table>
         <button type="button" class="add-linha" data-grupo="maoDeObra">+ funcionário</button>
       </div>
@@ -642,11 +670,56 @@ function linhaEditavelHtml_(produto, chave) {
         <button type="button" class="cancelar">Cancelar</button>
         <button type="button" class="salvar">Salvar</button>
       </div>
+
+      <datalist id="precifTiposList">
+        ${[...new Set((precifRendimento || []).map(r => r.tipoProduto))].map(t => `<option value="${escapeHtml_(t)}">`).join('')}
+      </datalist>
+      <datalist id="precifTamanhosList">
+        ${[...new Set((precifRendimento || []).map(r => r.tamanho))].map(t => `<option value="${escapeHtml_(t)}">`).join('')}
+      </datalist>
     </div>
   </td></tr>`;
 }
 
 function canaisConfigOuVazio_() { return (precifConfig && precifConfig.canais) || {}; }
+
+function buscarRendimento_(tipoProduto, tamanho) {
+  return (precifRendimento || []).find(r =>
+    r.tipoProduto.toLowerCase() === String(tipoProduto || '').trim().toLowerCase() &&
+    r.tamanho.toLowerCase() === String(tamanho || '').trim().toLowerCase()
+  ) || null;
+}
+
+function atualizarSugestaoRendimento_(subrow) {
+  const tipoProduto = subrow.querySelector('.tipoProduto').value;
+  const tamanho = subrow.querySelector('.tamanho').value;
+  const el = subrow.querySelector('.out-sugestaoRendimento');
+  const r = buscarRendimento_(tipoProduto, tamanho);
+  if (!r) { el.innerHTML = ''; return; }
+  const texto = r.metros2
+    ? `Rendimento: ${r.metros} m (+ ${r.metros2} m acabamento)`
+    : `Rendimento: ${r.metros} m`;
+  el.innerHTML = `<span class="precif-canal-tag">${texto}</span> <button type="button" class="usar-rendimento" data-metros="${r.metros}" data-metros2="${r.metros2 || ''}">aplicar na 1ª matéria-prima</button>`;
+}
+
+function aplicarMaterialCatalogo_(select) {
+  const idx = parseInt(select.value, 10);
+  const m = isNaN(idx) ? null : (precifMateriais || [])[idx];
+  if (!m) return;
+  const tr = select.closest('tr');
+  tr.querySelector('.m-descricao').value = (m.fornecedor ? m.fornecedor + ' - ' : '') + m.material;
+  tr.querySelector('.m-valorUnitario').value = m.valor;
+}
+
+function aplicarFuncionarioCatalogo_(select) {
+  const idx = parseInt(select.value, 10);
+  const f = isNaN(idx) ? null : (precifFuncionarios || [])[idx];
+  if (!f) return;
+  const tr = select.closest('tr');
+  tr.querySelector('.f-descricao').value = f.nome;
+  tr.querySelector('.f-salarioMensal').value = f.salarioMensal;
+  tr.querySelector('.f-horasMes').value = f.horasMes;
+}
 
 function ligarEventosPrecifTabela_(tbl) {
   tbl.querySelectorAll('.editar').forEach(btn => btn.addEventListener('click', () => abrirEdicaoProduto_(btn.dataset.id)));
@@ -657,14 +730,34 @@ function ligarEventosPrecifTabela_(tbl) {
   if (!subrow) return;
 
   subrow.addEventListener('input', (e) => {
+    if (e.target.classList.contains('tipoProduto') || e.target.classList.contains('tamanho')) atualizarSugestaoRendimento_(subrow);
     if (e.target.matches('input')) recalcularSubrow_(subrow);
   });
 
   subrow.addEventListener('change', (e) => {
-    if (e.target.classList.contains('canal')) aplicarPresetCanal_(subrow, e.target.value);
+    if (e.target.classList.contains('canal')) { aplicarPresetCanal_(subrow, e.target.value); return; }
+    if (e.target.classList.contains('m-catalogo')) { aplicarMaterialCatalogo_(e.target); recalcularSubrow_(subrow); return; }
+    if (e.target.classList.contains('f-catalogo')) { aplicarFuncionarioCatalogo_(e.target); recalcularSubrow_(subrow); return; }
   });
 
   subrow.addEventListener('click', (e) => {
+    const usarRendBtn = e.target.closest('.usar-rendimento');
+    if (usarRendBtn) {
+      const materiaisBody = subrow.querySelector('[data-grupo="materiais"] tbody');
+      const linhas = materiaisBody.querySelectorAll('tr');
+      if (linhas[0]) linhas[0].querySelector('.m-qtdUtilizada').value = usarRendBtn.dataset.metros;
+      if (usarRendBtn.dataset.metros2) {
+        let segunda = linhas[1];
+        if (!segunda) {
+          segunda = document.createElement('tr');
+          segunda.innerHTML = materialLinhaTds_({});
+          materiaisBody.appendChild(segunda);
+        }
+        segunda.querySelector('.m-qtdUtilizada').value = usarRendBtn.dataset.metros2;
+      }
+      recalcularSubrow_(subrow);
+      return;
+    }
     const addBtn = e.target.closest('.add-linha');
     if (addBtn) {
       const grupo = addBtn.dataset.grupo;

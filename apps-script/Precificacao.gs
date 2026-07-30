@@ -86,11 +86,11 @@ function getPrecificacaoConfig_() {
     iExtra1Nome = idx('extra1Nome'), iExtra1Pct = idx('extra1Pct'), iExtra2Nome = idx('extra2Nome'),
     iExtra2Pct = idx('extra2Pct'), iDespesasFixas = idx('despesasFixasPct'), iConfirmado = idx('confirmado');
 
-  let despesasFixasPctPadrao = 0;
+  let despesasFixasPctManual = 0;
   const canais = {};
   rows.forEach(r => {
     const canal = r[iCanal];
-    if (canal === '_GLOBAL') { despesasFixasPctPadrao = num_(r[iDespesasFixas]); return; }
+    if (canal === '_GLOBAL') { despesasFixasPctManual = num_(r[iDespesasFixas]); return; }
     canais[canal] = {
       impostosPct: num_(r[iImpostos]), comissaoPct: num_(r[iComissao]),
       extra1Nome: r[iExtra1Nome] || '', extra1Pct: num_(r[iExtra1Pct]),
@@ -98,7 +98,62 @@ function getPrecificacaoConfig_() {
       confirmado: r[iConfirmado] === true || String(r[iConfirmado]).toUpperCase() === 'TRUE'
     };
   });
-  return { despesasFixasPctPadrao, canais };
+  return { despesasFixasPctPadrao: getDespesasFixasPct_(despesasFixasPctManual), canais };
+}
+
+/**
+ * % de despesas fixas usada como padrão na calculadora: soma da aba
+ * _Despesas_Fixas ÷ média da Receita Bruta dos últimos meses já
+ * sincronizados na DRE. Sem despesas cadastradas, ou sem meses
+ * suficientes na DRE ainda, cai no valor manual da aba
+ * _Precificacao_Config (linha _GLOBAL) como reserva.
+ */
+function getDespesasFixasPct_(fallbackManual) {
+  const { rows: despesas } = sheetData_(ABA_DESPESAS_FIXAS);
+  const totalDespesas = despesas.reduce((soma, r) => soma + num_(r[1]), 0);
+  if (totalDespesas <= 0) return fallbackManual;
+
+  const { rows: dreRows } = sheetData_(ABA_DRE);
+  const receitaPorMes = {};
+  dreRows.forEach(r => {
+    const mes = r[0], grupo = r[1], valor = r[2];
+    if (grupo !== 'Receita Bruta') return;
+    receitaPorMes[mes] = (receitaPorMes[mes] || 0) + num_(valor);
+  });
+  const meses = Object.keys(receitaPorMes).sort().slice(-3);
+  if (!meses.length) return fallbackManual;
+  const mediaReceita = meses.reduce((soma, m) => soma + receitaPorMes[m], 0) / meses.length;
+  if (!mediaReceita) return fallbackManual;
+  return totalDespesas / mediaReceita;
+}
+
+function getPrecificacaoMateriaisCatalogo_() {
+  const { headers, rows } = sheetData_(ABA_PRECIFICACAO_MATERIAIS);
+  const idx = (n) => headers.indexOf(n);
+  const iFornecedor = idx('fornecedor'), iMaterial = idx('material'), iLargura = idx('largura'),
+    iRendimento = idx('rendimento'), iValor = idx('valor');
+  return rows.filter(r => r[iMaterial]).map(r => ({
+    fornecedor: r[iFornecedor] || '', material: r[iMaterial],
+    largura: num_(r[iLargura]), rendimento: num_(r[iRendimento]), valor: num_(r[iValor])
+  }));
+}
+
+function getPrecificacaoRendimentoCatalogo_() {
+  const { headers, rows } = sheetData_(ABA_PRECIFICACAO_RENDIMENTO);
+  const idx = (n) => headers.indexOf(n);
+  const iTipo = idx('tipoProduto'), iTamanho = idx('tamanho'), iMetros = idx('metros'), iMetros2 = idx('metros2');
+  return rows.filter(r => r[iTipo]).map(r => ({
+    tipoProduto: r[iTipo], tamanho: String(r[iTamanho]), metros: num_(r[iMetros]), metros2: num_(r[iMetros2])
+  }));
+}
+
+function getPrecificacaoFuncionariosCatalogo_() {
+  const { headers, rows } = sheetData_(ABA_PRECIFICACAO_FUNCIONARIOS);
+  const idx = (n) => headers.indexOf(n);
+  const iNome = idx('nome'), iSalario = idx('salarioMensal'), iHoras = idx('horasMes'), iAtivo = idx('ativo');
+  return rows
+    .filter(r => r[iNome] && (r[iAtivo] === true || String(r[iAtivo]).toUpperCase() === 'TRUE' || r[iAtivo] === ''))
+    .map(r => ({ nome: r[iNome], salarioMensal: num_(r[iSalario]), horasMes: num_(r[iHoras]) }));
 }
 
 /** Grava (cria ou atualiza) um produto. Retorna o produto salvo, já com id/snapshots/timestamps. */

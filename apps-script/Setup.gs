@@ -16,6 +16,10 @@ const ABA_FLUXO_CAIXA = 'Fluxo de Caixa';
 const ABA_DRE = 'DRE';
 const ABA_PRECIFICACAO = 'Precificação';
 const ABA_PRECIFICACAO_CONFIG = '_Precificacao_Config';
+const ABA_PRECIFICACAO_MATERIAIS = '_Precificacao_Materiais';
+const ABA_PRECIFICACAO_RENDIMENTO = '_Precificacao_Rendimento';
+const ABA_PRECIFICACAO_FUNCIONARIOS = '_Precificacao_Funcionarios';
+const ABA_DESPESAS_FIXAS = '_Despesas_Fixas';
 
 // IDs reais das planilhas FPV 2026 (uma por canal) — usados para espelhar
 // a Precificação ao vivo via IMPORTRANGE, sem recriar as fórmulas.
@@ -38,6 +42,10 @@ function setupWorkbook() {
   setupPrecificacao_(ss);
   setupPrecificacaoCatalogo_(ss);
   setupPrecificacaoConfig_(ss);
+  setupPrecificacaoMateriais_(ss);
+  setupPrecificacaoRendimento_(ss);
+  setupPrecificacaoFuncionarios_(ss);
+  setupDespesasFixas_(ss);
 
   SpreadsheetApp.flush();
   Logger.log('Setup concluído. Confira as abas: %s', ss.getSheets().map(s => s.getName()).join(', '));
@@ -233,4 +241,141 @@ function setupPrecificacaoConfig_(ss) {
   ];
   sheet.getRange(2, 1, linhas.length, linhas[0].length).setValues(linhas);
   sheet.autoResizeColumns(1, 9);
+}
+
+/**
+ * Catálogo de tecidos/materiais — fornecedor, material, largura e valor
+ * (preço por metro, usado pra preencher automaticamente o valor unitário
+ * na calculadora quando você escolhe o material). "largura" e
+ * "rendimento" são só referência (como você mesma anotou), não entram em
+ * nenhuma conta ainda. Editável direto na planilha; a calculadora sempre
+ * lê daqui. Semeado uma vez com o que você mandou — adicione o resto
+ * quando quiser, sem precisar mexer em código.
+ */
+function setupPrecificacaoMateriais_(ss) {
+  const sheet = getOrCreateSheet_(ss, ABA_PRECIFICACAO_MATERIAIS);
+  const jaTinhaDados = sheet.getLastRow() > 1;
+  ensureHeader_(sheet, ['fornecedor', 'material', 'largura', 'rendimento', 'valor']);
+  if (jaTinhaDados) return;
+
+  const linhas = [
+    ['', 'Cetim Elastano', '', '', 5.99],
+    ['', 'Cetim Poliéster', '', '', 2.99],
+    ['Tritan', 'Malha PV', 1.2, 2.3, 48.90],
+    ['Tritan', 'Piquet', 1.2, 2, 59.90],
+    ['Copat', 'Moletom 3 cabos', 180, 150, 49.90],
+    ['Metatex', 'Moletom 3 cabos', 180, 140, 48.39],
+    ['Metatex', 'Moletom 2 cabos', 180, 170, 48.39],
+    ['Metatex', 'Moletom Dry', 185, 165, 44.42],
+    ['All Free', 'Moletom 2 cabos', 180, 200, 35.00]
+  ];
+  sheet.getRange(2, 1, linhas.length, linhas[0].length).setValues(linhas);
+  sheet.autoResizeColumns(1, 5);
+}
+
+/**
+ * Rendimento (metros de tecido) por tipo de produto + tamanho — usado
+ * pra sugerir automaticamente a quantidade de material na calculadora
+ * quando você escolhe o tipo de peça e o tamanho. "metros2" é pra peças
+ * com um segundo tecido (ex: pijama infantil manga+calça usa metros do
+ * tecido principal + metros do punho/acabamento) — fica em branco quando
+ * não se aplica. Editável direto na planilha.
+ */
+function setupPrecificacaoRendimento_(ss) {
+  const sheet = getOrCreateSheet_(ss, ABA_PRECIFICACAO_RENDIMENTO);
+  const jaTinhaDados = sheet.getLastRow() > 1;
+  ensureHeader_(sheet, ['tipoProduto', 'tamanho', 'metros', 'metros2']);
+  if (jaTinhaDados) return;
+
+  const linhas = [
+    ['Robe manga curta', 'PP', 1.26, ''], ['Robe manga curta', 'P', 1.28, ''], ['Robe manga curta', 'M', 1.43, ''],
+    ['Robe manga curta', 'G', 1.53, ''], ['Robe manga curta', 'GG', 1.60, ''], ['Robe manga curta', 'G1', 2.18, ''],
+    ['Robe manga curta', 'G2', 2.20, ''], ['Robe manga curta', 'G3', 2.26, ''],
+    ['Robe manga 3/4', 'PP', 1.40, ''], ['Robe manga 3/4', 'P', 1.40, ''], ['Robe manga 3/4', 'M', 1.53, ''],
+    ['Robe manga 3/4', 'G', 1.59, ''], ['Robe manga 3/4', 'GG', 1.74, ''], ['Robe manga 3/4', 'G1', 2.34, ''],
+    ['Robe manga 3/4', 'G2', 2.35, ''], ['Robe manga 3/4', 'G3', 2.42, ''],
+    ['Robe manga longa', 'PP', 1.68, ''], ['Robe manga longa', 'P', 1.68, ''], ['Robe manga longa', 'M', 1.83, ''],
+    ['Robe manga longa', 'G', 1.86, ''], ['Robe manga longa', 'GG', 1.90, ''], ['Robe manga longa', 'G1', 2.45, ''],
+    ['Robe manga longa', 'G2', 2.57, ''], ['Robe manga longa', 'G3', 2.64, ''],
+    ['Robe infantil', '2', 0.80, ''], ['Robe infantil', '4', 0.94, ''], ['Robe infantil', '6', 0.94, ''],
+    ['Robe infantil', '8', 0.92, ''], ['Robe infantil', '10', 1.10, ''], ['Robe infantil', '12', 1.24, ''],
+    ['Robe infantil', '14', 1.28, ''],
+    ['Robe manga flare tule', 'PP', 1.68, ''], ['Robe manga flare tule', 'P', 1.68, ''], ['Robe manga flare tule', 'M', 1.83, ''],
+    ['Robe manga flare tule', 'G', 1.86, ''], ['Robe manga flare tule', 'GG', 1.90, ''], ['Robe manga flare tule', 'G1', 2.45, ''],
+    ['Robe manga flare tule', 'G2', 2.57, ''], ['Robe manga flare tule', 'G3', 2.64, ''],
+    ['Robe manga 3/4 longo', 'PP', 1.82, ''], ['Robe manga 3/4 longo', 'P', 1.82, ''], ['Robe manga 3/4 longo', 'M', 1.93, ''],
+    ['Robe manga 3/4 longo', 'G', 3.00, ''], ['Robe manga 3/4 longo', 'GG', 3.25, ''], ['Robe manga 3/4 longo', 'G1', 3.18, ''],
+    ['Robe manga 3/4 longo', 'G2', 3.25, ''], ['Robe manga 3/4 longo', 'G3', 3.27, ''],
+    ['Robe manga longa longo', 'PP', 2.08, ''], ['Robe manga longa longo', 'P', 2.08, ''], ['Robe manga longa longo', 'M', 2.22, ''],
+    ['Robe manga longa longo', 'G', 3.00, ''], ['Robe manga longa longo', 'GG', 3.25, ''], ['Robe manga longa longo', 'G1', 3.18, ''],
+    ['Robe manga longa longo', 'G2', 3.25, ''], ['Robe manga longa longo', 'G3', 3.27, ''],
+    ['Saquinhos de Cetim', '-', 0.25, ''],
+    ['Pijama Americano Manga Curta e Short', 'P', 1.51, ''], ['Pijama Americano Manga Curta e Short', 'M', 1.53, ''],
+    ['Pijama Americano Manga Curta e Short', 'G', 1.71, ''], ['Pijama Americano Manga Curta e Short', 'GG', 1.92, ''],
+    ['Pijama Americano Manga Curta e Short', 'G1', 2.03, ''],
+    ['Pijama Americano Manga Curta e Calça', 'P', 2.20, ''], ['Pijama Americano Manga Curta e Calça', 'M', 2.26, ''],
+    ['Pijama Americano Manga Curta e Calça', 'G', 2.36, ''], ['Pijama Americano Manga Curta e Calça', 'GG', 2.52, ''],
+    ['Pijama Americano Manga Curta e Calça', 'G1', 2.70, ''],
+    ['Pijama Americano Manga Longa e Calça', 'P', 2.34, ''], ['Pijama Americano Manga Longa e Calça', 'M', 2.46, ''],
+    ['Pijama Americano Manga Longa e Calça', 'G', 2.58, ''], ['Pijama Americano Manga Longa e Calça', 'GG', 2.78, ''],
+    ['Pijama Americano Manga Longa e Shorts', 'P', 1.92, ''], ['Pijama Americano Manga Longa e Shorts', 'M', 1.97, ''],
+    ['Pijama Americano Manga Longa e Shorts', 'G', 2.02, ''], ['Pijama Americano Manga Longa e Shorts', 'GG', 2.21, ''],
+    ['Pijama Americano Infantil', '2', 0.65, ''], ['Pijama Americano Infantil', '4', 0.65, ''], ['Pijama Americano Infantil', '6', 1.00, ''],
+    ['Pijama Americano Infantil', '8', 1.00, ''], ['Pijama Americano Infantil', '10', 1.40, ''], ['Pijama Americano Infantil', '12', 1.40, ''],
+    ['Pijama Americano Infantil', '14', 1.40, ''],
+    ['Pijama Americano Infantil Manga Curta e Calça', '2', 1.45, 0.65], ['Pijama Americano Infantil Manga Curta e Calça', '4', 1.45, 0.65],
+    ['Pijama Americano Infantil Manga Curta e Calça', '6', 1.80, 1.00], ['Pijama Americano Infantil Manga Curta e Calça', '8', 1.80, 1.00],
+    ['Pijama Americano Infantil Manga Curta e Calça', '10', 2.20, 1.40], ['Pijama Americano Infantil Manga Curta e Calça', '12', 2.20, 1.40],
+    ['Pijama Americano Infantil Manga Curta e Calça', '14', 2.20, 1.40],
+    ['Pijama Americano Infantil Manga Longa e Calça', '2', 1.70, 0.70], ['Pijama Americano Infantil Manga Longa e Calça', '4', 1.80, 0.80],
+    ['Pijama Americano Infantil Manga Longa e Calça', '6', 2.00, 1.00], ['Pijama Americano Infantil Manga Longa e Calça', '8', 2.00, 1.00],
+    ['Pijama Americano Infantil Manga Longa e Calça', '10', 2.40, 1.40], ['Pijama Americano Infantil Manga Longa e Calça', '12', 2.40, 1.40],
+    ['Pijama Americano Infantil Manga Longa e Calça', '14', 2.40, 1.40],
+    ['Pijama Americano Infantil Manga Longa e Shorts', '2', 1.50, ''], ['Pijama Americano Infantil Manga Longa e Shorts', '4', 1.60, ''],
+    ['Pijama Americano Infantil Manga Longa e Shorts', '6', 1.80, ''], ['Pijama Americano Infantil Manga Longa e Shorts', '8', 1.80, ''],
+    ['Pijama Americano Infantil Manga Longa e Shorts', '10', 2.20, ''], ['Pijama Americano Infantil Manga Longa e Shorts', '12', 2.20, ''],
+    ['Pijama Americano Infantil Manga Longa e Shorts', '14', 2.20, ''],
+    ['Camisa Pijama Verão', 'P', 1.04, ''], ['Camisa Pijama Verão', 'M', 1.04, ''], ['Camisa Pijama Verão', 'G', 1.12, ''],
+    ['Camisa Pijama Verão', 'GG', 1.18, ''],
+    ['Camisa Pijama Inverno', 'P', 1.29, ''], ['Camisa Pijama Inverno', 'M', 1.34, ''], ['Camisa Pijama Inverno', 'G', 1.33, ''],
+    ['Camisa Pijama Inverno', 'GG', 1.44, ''],
+    ['Calça Pijama', 'P', 1.18, ''], ['Calça Pijama', 'M', 1.25, ''], ['Calça Pijama', 'G', 1.29, ''], ['Calça Pijama', 'GG', 1.36, ''],
+    ['Short Pijama', 'P', 0.56, ''], ['Short Pijama', 'M', 0.65, ''], ['Short Pijama', 'G', 0.66, ''], ['Short Pijama', 'GG', 0.79, ''],
+    ['Pantufa de Cetim', 'PP', 0.30, ''], ['Pantufa de Cetim', 'P', 0.30, ''], ['Pantufa de Cetim', 'M', 0.30, ''],
+    ['Pantufa de Cetim', 'G', 0.30, ''], ['Pantufa de Cetim', 'GG', 0.30, ''],
+    ['Roupão Manga 3/4', 'PP', 1.40, ''], ['Roupão Manga 3/4', 'P', 1.40, ''], ['Roupão Manga 3/4', 'M', 1.53, ''],
+    ['Roupão Manga 3/4', 'G', 1.59, ''], ['Roupão Manga 3/4', 'GG', 1.74, ''], ['Roupão Manga 3/4', 'G1', 2.34, ''],
+    ['Roupão Manga 3/4', 'G2', 2.35, ''], ['Roupão Manga 3/4', 'G3', 2.42, ''],
+    ['Roupão Manga Longa', 'PP', 1.68, ''], ['Roupão Manga Longa', 'P', 1.68, ''], ['Roupão Manga Longa', 'M', 1.83, ''],
+    ['Roupão Manga Longa', 'G', 1.86, ''], ['Roupão Manga Longa', 'GG', 1.90, ''], ['Roupão Manga Longa', 'G1', 2.45, ''],
+    ['Roupão Manga Longa', 'G2', 2.57, ''], ['Roupão Manga Longa', 'G3', 2.64, ''],
+    ['Moletom', 'PP', 1.32, ''], ['Moletom', 'P', 1.46, ''], ['Moletom', 'M', 1.5, ''], ['Moletom', 'G', 1.57, ''],
+    ['Moletom', 'GG', 1.63, ''], ['Moletom', 'G1', 1.61, ''], ['Moletom', 'G2', 1.63, ''], ['Moletom', 'G3', 1.65, '']
+  ];
+  sheet.getRange(2, 1, linhas.length, linhas[0].length).setValues(linhas);
+  sheet.autoResizeColumns(1, 4);
+}
+
+/**
+ * Cadastro de funcionários/prestadores pra mão de obra reutilizável — na
+ * calculadora, escolher um nome aqui preenche salário e horas/mês
+ * sozinho. Começa vazio (você preenche); a calculadora funciona mesmo
+ * sem nenhuma linha aqui (digita manual como hoje).
+ */
+function setupPrecificacaoFuncionarios_(ss) {
+  const sheet = getOrCreateSheet_(ss, ABA_PRECIFICACAO_FUNCIONARIOS);
+  ensureHeader_(sheet, ['nome', 'salarioMensal', 'horasMes', 'ativo']);
+}
+
+/**
+ * Despesas fixas reais, item a item (aluguel, salários, energia, etc.).
+ * A % de despesas fixas usada na calculadora passa a ser calculada
+ * sozinha: soma desta aba ÷ média da Receita Bruta dos últimos meses na
+ * DRE (ver getDespesasFixasPct_ em Precificacao.gs). Se a DRE ainda não
+ * tiver dados suficientes, cai no valor manual da aba _Precificacao_Config
+ * como reserva. Começa vazia — preencha com suas despesas reais.
+ */
+function setupDespesasFixas_(ss) {
+  const sheet = getOrCreateSheet_(ss, ABA_DESPESAS_FIXAS);
+  ensureHeader_(sheet, ['descricao', 'valorMensal']);
 }
