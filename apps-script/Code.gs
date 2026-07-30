@@ -63,6 +63,7 @@ function onOpen() {
     .addItem('Instalar sincronização automática (2h)', 'criarGatilhoSync')
     .addSeparator()
     .addItem('1) Configurar setup da planilha', 'setupWorkbook')
+    .addItem('2) Importar produtos do NuvemShop (uma vez)', 'importarProdutosNuvemShop_')
     .addToUi();
 }
 
