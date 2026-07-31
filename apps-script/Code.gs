@@ -56,6 +56,17 @@ function doPost(e) {
   }
 }
 
+/**
+ * Atalho temporário: o arquivo ImportarNuvemShop.gs é grande demais pro
+ * "menu de funções" do editor conseguir listar as funções dele direito
+ * (é só um bug visual da interface, o código roda normal). Rode esta
+ * função daqui — ela só chama a de verdade. Pode apagar os dois depois
+ * de importar uma vez.
+ */
+function _rodarImportacaoNuvemShop() {
+  importarProdutosNuvemShop_();
+}
+
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('Painel Financeiro')
