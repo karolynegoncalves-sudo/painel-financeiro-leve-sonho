@@ -74,6 +74,15 @@ function _rodarImportacaoNuvemShop() {
   importarProdutosNuvemShop_();
 }
 
+/**
+ * Atalho temporário: carga única dos custos fixos reais (aluguel,
+ * pró-labore, contas, folha da Thayssa/Natália/Andréia). Rode uma vez e
+ * pode apagar esta função e SeedDespesasFixas.gs depois.
+ */
+function _rodarSeedDespesasFixas() {
+  seedDespesasFixasReais_();
+}
+
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('Painel Financeiro')
