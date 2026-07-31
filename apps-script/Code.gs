@@ -25,6 +25,9 @@ function doGet(e) {
     case 'precificacaoMateriais': return jsonResponse_({ email: email, materiais: getPrecificacaoMateriaisCatalogo_() });
     case 'precificacaoRendimento': return jsonResponse_({ email: email, rendimento: getPrecificacaoRendimentoCatalogo_() });
     case 'precificacaoFuncionarios': return jsonResponse_({ email: email, funcionarios: getPrecificacaoFuncionariosCatalogo_() });
+    case 'precificacaoMaoDeObraPecas': return jsonResponse_({ email: email, maoDeObraPecas: getPrecificacaoMaoDeObraPecasCatalogo_() });
+    case 'precificacaoCorte': return jsonResponse_({ email: email, corte: getPrecificacaoCorteCatalogo_() });
+    case 'despesasFixas': return jsonResponse_({ email: email, despesas: getDespesasFixasList_() });
     case 'kpis': return jsonResponse_({ email: email, kpis: getKpis_() });
     default: return jsonResponse_({ error: 'unknown_view' });
   }
@@ -47,6 +50,10 @@ function doPost(e) {
         return jsonResponse_({ ok: true, email: email, produto: salvarPrecificacaoProduto_(body.produto, email) });
       case 'excluirProduto':
         return jsonResponse_({ ok: true, email: email, id: excluirPrecificacaoProduto_(body.id, email) });
+      case 'salvarDespesaFixa':
+        return jsonResponse_({ ok: true, email: email, despesa: salvarDespesaFixa_(body.despesa, email) });
+      case 'excluirDespesaFixa':
+        return jsonResponse_({ ok: true, email: email, id: excluirDespesaFixa_(body.id, email) });
       default:
         return jsonResponse_({ ok: false, error: 'unknown_action' });
     }

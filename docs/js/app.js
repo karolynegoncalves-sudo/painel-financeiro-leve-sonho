@@ -28,6 +28,9 @@ let precifDraftOrigem = null;    // valores iniciais pro produto sendo criado/du
 let precifMateriais = null;      // catálogo de tecidos/materiais (_Precificacao_Materiais)
 let precifRendimento = null;     // tabela tipoProduto+tamanho -> metros (_Precificacao_Rendimento)
 let precifFuncionarios = null;   // cadastro de funcionários (_Precificacao_Funcionarios)
+let precifMaoDeObraPecas = null; // mão de obra por peça (_Precificacao_MaoDeObra_Pecas)
+let precifCorte = null;          // corte por peça (_Precificacao_Corte)
+let precifDespesasFixas = null;  // despesas fixas mensais (_Despesas_Fixas)
 
 const CANAL_LABELS = {
   NuvemShop_Cartao: 'NuvemShop (Cartão)',
@@ -257,20 +260,36 @@ async function safeRenderTab(view) {
     if (view === 'precificacao') {
       if (precifProdutos === null || precifConfig === null) {
         el.innerHTML = '<div class="state-msg">Carregando...</div>';
-        const [dataProdutos, dataConfig, dataMateriais, dataRendimento, dataFuncionarios] = await Promise.all([
+        const [dataProdutos, dataConfig, dataMateriais, dataRendimento, dataFuncionarios, dataMaoDeObraPecas, dataCorte] = await Promise.all([
           apiFetch_('precificacao', idToken),
           apiFetch_('precificacaoConfig', idToken),
           apiFetch_('precificacaoMateriais', idToken),
           apiFetch_('precificacaoRendimento', idToken),
-          apiFetch_('precificacaoFuncionarios', idToken)
+          apiFetch_('precificacaoFuncionarios', idToken),
+          apiFetch_('precificacaoMaoDeObraPecas', idToken),
+          apiFetch_('precificacaoCorte', idToken)
         ]);
         precifProdutos = (dataProdutos && dataProdutos.produtos) || [];
         precifConfig = (dataConfig && dataConfig.config) || { despesasFixasPctPadrao: 0, canais: {} };
         precifMateriais = (dataMateriais && dataMateriais.materiais) || [];
         precifRendimento = (dataRendimento && dataRendimento.rendimento) || [];
         precifFuncionarios = (dataFuncionarios && dataFuncionarios.funcionarios) || [];
+        precifMaoDeObraPecas = (dataMaoDeObraPecas && dataMaoDeObraPecas.maoDeObraPecas) || [];
+        precifCorte = (dataCorte && dataCorte.corte) || [];
       }
       return renderPrecificacao(el);
+    }
+    if (view === 'configuracoes') {
+      if (precifDespesasFixas === null || precifConfig === null) {
+        el.innerHTML = '<div class="state-msg">Carregando...</div>';
+        const [dataDespesas, dataConfig] = await Promise.all([
+          apiFetch_('despesasFixas', idToken),
+          apiFetch_('precificacaoConfig', idToken)
+        ]);
+        precifDespesasFixas = (dataDespesas && dataDespesas.despesas) || [];
+        if (precifConfig === null) precifConfig = (dataConfig && dataConfig.config) || { despesasFixasPctPadrao: 0, canais: {} };
+      }
+      return renderConfiguracoes(el);
     }
     if (!FLUXO_ROWS) { el.innerHTML = '<div class="state-msg">Carregando...</div>'; return; }
     const rowsFiltradas = FLUXO_ROWS.filter(r => r.date >= FILTER.start && r.date <= FILTER.end);
@@ -589,8 +608,19 @@ function maoDeObraLinhaTds_(f) {
     <td><input type="number" step="0.01" class="f-tempoExecucaoMinutos" value="${f.tempoExecucaoMinutos || ''}"></td>
     <td><button type="button" class="del-linha">✕</button></td>`;
 }
+function outrosCatalogoOptions_() {
+  const mdo = (precifMaoDeObraPecas || []).map((m, i) =>
+    `<option value="mdo:${i}">${escapeHtml_(m.funcionario + ' - ' + m.tipoPeca)} (R$${m.valor.toFixed(2)}${m.unidade ? ' ' + escapeHtml_(m.unidade) : ''})</option>`
+  ).join('');
+  const corte = (precifCorte || []).map((c, i) =>
+    `<option value="corte:${i}">${escapeHtml_('Corte - ' + c.tipoPeca)} (R$${c.valor.toFixed(2)})</option>`
+  ).join('');
+  return mdo + corte;
+}
+
 function outrosLinhaTds_(o) {
-  return `<td><input type="text" class="o-descricao" placeholder="ex: Embalagem" value="${escapeHtml_(o.descricao || '')}"></td>
+  return `<td><select class="o-catalogo"><option value="">— catálogo —</option>${outrosCatalogoOptions_()}</select></td>
+    <td><input type="text" class="o-descricao" placeholder="ex: Embalagem" value="${escapeHtml_(o.descricao || '')}"></td>
     <td><input type="number" step="0.01" class="o-valor" value="${o.valor || ''}"></td>
     <td><button type="button" class="del-linha">✕</button></td>`;
 }
@@ -640,7 +670,7 @@ function linhaEditavelHtml_(produto, chave) {
 
       <div class="precif-linegroup" data-grupo="outros">
         <h4>Outros materiais/serviços</h4>
-        <table><thead><tr><th>Descrição</th><th>Valor</th><th></th></tr></thead>
+        <table><thead><tr><th>Catálogo (mão de obra/corte)</th><th>Descrição</th><th>Valor</th><th></th></tr></thead>
         <tbody>${outrosRows}</tbody></table>
         <button type="button" class="add-linha" data-grupo="outros">+ item</button>
       </div>
@@ -721,6 +751,24 @@ function aplicarFuncionarioCatalogo_(select) {
   tr.querySelector('.f-horasMes').value = f.horasMes;
 }
 
+function aplicarOutrosCatalogo_(select) {
+  const [tipo, idxStr] = String(select.value || '').split(':');
+  const idx = parseInt(idxStr, 10);
+  if (isNaN(idx)) return;
+  const tr = select.closest('tr');
+  if (tipo === 'mdo') {
+    const m = (precifMaoDeObraPecas || [])[idx];
+    if (!m) return;
+    tr.querySelector('.o-descricao').value = m.funcionario + ' - ' + m.tipoPeca;
+    tr.querySelector('.o-valor').value = m.valor;
+  } else if (tipo === 'corte') {
+    const c = (precifCorte || [])[idx];
+    if (!c) return;
+    tr.querySelector('.o-descricao').value = 'Corte - ' + c.tipoPeca;
+    tr.querySelector('.o-valor').value = c.valor;
+  }
+}
+
 function ligarEventosPrecifTabela_(tbl) {
   tbl.querySelectorAll('.editar').forEach(btn => btn.addEventListener('click', () => abrirEdicaoProduto_(btn.dataset.id)));
   tbl.querySelectorAll('.duplicar').forEach(btn => btn.addEventListener('click', () => duplicarProduto_(btn.dataset.id)));
@@ -738,6 +786,7 @@ function ligarEventosPrecifTabela_(tbl) {
     if (e.target.classList.contains('canal')) { aplicarPresetCanal_(subrow, e.target.value); return; }
     if (e.target.classList.contains('m-catalogo')) { aplicarMaterialCatalogo_(e.target); recalcularSubrow_(subrow); return; }
     if (e.target.classList.contains('f-catalogo')) { aplicarFuncionarioCatalogo_(e.target); recalcularSubrow_(subrow); return; }
+    if (e.target.classList.contains('o-catalogo')) { aplicarOutrosCatalogo_(e.target); recalcularSubrow_(subrow); return; }
   });
 
   subrow.addEventListener('click', (e) => {
@@ -916,6 +965,91 @@ async function salvarProdutoUi_(subrow) {
   precifExpandidoId = null;
   precifDraftOrigem = null;
   renderPrecificacaoTabela_();
+}
+
+/* ---------------- Configurações (despesas fixas / salários) ---------------- */
+
+function renderConfiguracoes(el) {
+  const despesas = precifDespesasFixas || [];
+  const total = despesas.reduce((s, d) => s + d.valorMensal, 0);
+  const pctAtual = (precifConfig && precifConfig.despesasFixasPctPadrao) || 0;
+
+  el.innerHTML = `
+    <div class="section-head">
+      <h2 class="section-title">Configurações</h2>
+      <div class="section-desc">Despesas fixas mensais (aluguel, salários, energia, softwares...). A % de despesas fixas usada na calculadora de Precificação é calculada sozinha a partir daqui ÷ a receita média dos últimos meses.</div>
+    </div>
+    <div class="precif-summary">
+      <div class="tile"><div class="l">Total despesas fixas/mês</div><div class="v">${fmtBRL(total, 2)}</div></div>
+      <div class="tile"><div class="l">% usada na calculadora</div><div class="v">${fmtPctSimples_(pctAtual)}</div></div>
+      <div class="tile"><div class="l">Itens cadastrados</div><div class="v">${despesas.length}</div></div>
+    </div>
+    <div class="panel">
+      <h3>Despesas fixas (inclua salários/pró-labore aqui também, uma linha por pessoa)</h3>
+      <div style="overflow-x:auto;"><table class="simple" id="despesasTabela"></table></div>
+    </div>
+  `;
+  renderDespesasTabela_();
+}
+
+function renderDespesasTabela_() {
+  const tbl = document.getElementById('despesasTabela');
+  if (!tbl) return;
+  const despesas = precifDespesasFixas || [];
+  let html = '<tr><th>Descrição</th><th>Valor mensal (R$)</th><th></th></tr>';
+  despesas.forEach(d => {
+    html += `<tr data-id="${d.id}">
+      <td><input type="text" class="d-descricao" value="${escapeHtml_(d.descricao)}"></td>
+      <td><input type="number" step="0.01" class="d-valor" value="${d.valorMensal}"></td>
+      <td><div class="precif-row-acoes">
+        <button type="button" class="salvar-despesa">Salvar</button>
+        <button type="button" class="excluir excluir-despesa">Excluir</button>
+      </div></td>
+    </tr>`;
+  });
+  html += `<tr data-id="">
+    <td><input type="text" class="d-descricao" placeholder="ex: Aluguel, Salário Margarida..."></td>
+    <td><input type="number" step="0.01" class="d-valor" placeholder="0,00"></td>
+    <td><div class="precif-row-acoes"><button type="button" class="salvar-despesa">+ adicionar</button></div></td>
+  </tr>`;
+  tbl.innerHTML = html;
+
+  tbl.querySelectorAll('.salvar-despesa').forEach(btn => btn.addEventListener('click', () => salvarDespesaUi_(btn)));
+  tbl.querySelectorAll('.excluir-despesa').forEach(btn => btn.addEventListener('click', () => excluirDespesaUi_(btn)));
+}
+
+async function salvarDespesaUi_(btn) {
+  const tr = btn.closest('tr');
+  const id = tr.dataset.id || '';
+  const descricao = tr.querySelector('.d-descricao').value.trim();
+  const valorMensal = parseFloat(tr.querySelector('.d-valor').value) || 0;
+  if (!descricao) { alert('Preenche a descrição antes de salvar.'); return; }
+  btn.disabled = true;
+  const resp = await apiPost_('salvarDespesaFixa', { despesa: { id: id, descricao: descricao, valorMensal: valorMensal } });
+  btn.disabled = false;
+  if (!resp || !resp.ok) { alert('Não deu pra salvar: ' + ((resp && resp.error) || 'erro desconhecido')); return; }
+  await recarregarConfiguracoes_();
+  renderConfiguracoes(document.getElementById('tab-configuracoes'));
+}
+
+async function excluirDespesaUi_(btn) {
+  const tr = btn.closest('tr');
+  const id = tr.dataset.id;
+  if (!id) return;
+  if (!confirm('Excluir essa despesa fixa?')) return;
+  const resp = await apiPost_('excluirDespesaFixa', { id: id });
+  if (!resp || !resp.ok) { alert('Não deu pra excluir: ' + ((resp && resp.error) || 'erro desconhecido')); return; }
+  await recarregarConfiguracoes_();
+  renderConfiguracoes(document.getElementById('tab-configuracoes'));
+}
+
+async function recarregarConfiguracoes_() {
+  const [dataDespesas, dataConfig] = await Promise.all([
+    apiFetch_('despesasFixas', idToken),
+    apiFetch_('precificacaoConfig', idToken)
+  ]);
+  precifDespesasFixas = (dataDespesas && dataDespesas.despesas) || [];
+  precifConfig = (dataConfig && dataConfig.config) || precifConfig;
 }
 
 /* ---------------- Boot ---------------- */

@@ -68,7 +68,7 @@ window.PrecifCalc = (function () {
   }
 
   function ladderSugerido_(custoProduto, despesasFixasPct, custoVariavelPct) {
-    return [0, 0.05, 0.10, 0.20, 0.50].map(margemAlvoPct => ({
+    return [0, 0.05, 0.10, 0.15, 0.20, 0.25, 0.30].map(margemAlvoPct => ({
       margemAlvoPct,
       precoSugerido: precoSugerido_(custoProduto, despesasFixasPct, custoVariavelPct, margemAlvoPct)
     }));

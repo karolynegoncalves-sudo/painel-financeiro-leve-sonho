@@ -19,6 +19,8 @@ const ABA_PRECIFICACAO_CONFIG = '_Precificacao_Config';
 const ABA_PRECIFICACAO_MATERIAIS = '_Precificacao_Materiais';
 const ABA_PRECIFICACAO_RENDIMENTO = '_Precificacao_Rendimento';
 const ABA_PRECIFICACAO_FUNCIONARIOS = '_Precificacao_Funcionarios';
+const ABA_PRECIFICACAO_MAODEOBRA_PECAS = '_Precificacao_MaoDeObra_Pecas';
+const ABA_PRECIFICACAO_CORTE = '_Precificacao_Corte';
 const ABA_DESPESAS_FIXAS = '_Despesas_Fixas';
 
 // IDs reais das planilhas FPV 2026 (uma por canal) — usados para espelhar
@@ -45,6 +47,8 @@ function setupWorkbook() {
   setupPrecificacaoMateriais_(ss);
   setupPrecificacaoRendimento_(ss);
   setupPrecificacaoFuncionarios_(ss);
+  setupPrecificacaoMaoDeObraPecas_(ss);
+  setupPrecificacaoCorte_(ss);
   setupDespesasFixas_(ss);
 
   SpreadsheetApp.flush();
@@ -368,6 +372,69 @@ function setupPrecificacaoFuncionarios_(ss) {
 }
 
 /**
+ * Mão de obra por peça — valor fixo pago por peça feita, por
+ * funcionária/prestadora (é assim que você paga de verdade, não por
+ * salário/hora). Na calculadora, escolher funcionária + tipo de peça
+ * preenche sozinho a linha de "Outros materiais/serviços" com o valor
+ * certo. "Vista C" é a prestadora dos caseados (acabamento), separada
+ * das costureiras. Semeado com os valores que você mandou — edite ou
+ * adicione linhas direto na planilha quando quiser.
+ */
+function setupPrecificacaoMaoDeObraPecas_(ss) {
+  const sheet = getOrCreateSheet_(ss, ABA_PRECIFICACAO_MAODEOBRA_PECAS);
+  const jaTinhaDados = sheet.getLastRow() > 1;
+  ensureHeader_(sheet, ['funcionario', 'tipoPeca', 'valor', 'unidade']);
+  if (jaTinhaDados) return;
+
+  const costureirasPadrao = ['Margarida', 'Deise', 'Cristina', 'Vilma'];
+  const tabelaPadrao = [
+    ['Robe', 5.00], ['Pijama', 11.00], ['Scrunchie', 0.30], ['Saquinho', 0.30],
+    ['Camiseta gola careca', 2.50], ['Camiseta gola V', 2.50], ['Bermuda', 2.00]
+  ];
+  const tabelaNair = [
+    ['Robe', 8.00], ['Pijama', 12.00], ['Scrunchie', 0.30], ['Saquinho', 0.30],
+    ['Camiseta gola careca', 2.50], ['Camiseta gola V', 2.50], ['Bermuda', 2.00],
+    ['Painel', 2.50, 'm²'], ['Chemise', 11.00]
+  ];
+  const tabelaVistaC = [
+    ['Caseado', 0.50, 'por botão'], ['Pijama adulto', 2.50], ['Pijama Infantil', 2.00],
+    ['Chemise', 3.50], ['Camisa polo', 1.00]
+  ];
+
+  const linhas = [];
+  costureirasPadrao.forEach(nome => {
+    tabelaPadrao.forEach(([tipoPeca, valor]) => linhas.push([nome, tipoPeca, valor, '']));
+  });
+  tabelaNair.forEach(([tipoPeca, valor, unidade]) => linhas.push(['Nair', tipoPeca, valor, unidade || '']));
+  tabelaVistaC.forEach(([tipoPeca, valor, unidade]) => linhas.push(['Vista C', tipoPeca, valor, unidade || '']));
+
+  sheet.getRange(2, 1, linhas.length, 4).setValues(linhas);
+  sheet.autoResizeColumns(1, 4);
+}
+
+/**
+ * Corte por peça — valor fixo do corte, por tipo de peça (não depende de
+ * quem costura). Padrão R$1,00/peça; peças com mais de uma parte (ex:
+ * pijama = camisa + short) contam como mais de uma peça. Editável direto
+ * na planilha.
+ */
+function setupPrecificacaoCorte_(ss) {
+  const sheet = getOrCreateSheet_(ss, ABA_PRECIFICACAO_CORTE);
+  const jaTinhaDados = sheet.getLastRow() > 1;
+  ensureHeader_(sheet, ['tipoPeca', 'valor']);
+  if (jaTinhaDados) return;
+
+  const linhas = [
+    ['Robe', 1.00], ['Pijama', 2.00], ['Scrunchie', 1.00], ['Saquinho', 1.00],
+    ['Camiseta gola careca', 1.00], ['Camiseta gola V', 1.00], ['Bermuda', 1.00],
+    ['Painel', 1.00], ['Chemise', 1.00], ['Pijama adulto', 1.00], ['Pijama Infantil', 1.00],
+    ['Camisa polo', 1.00]
+  ];
+  sheet.getRange(2, 1, linhas.length, 2).setValues(linhas);
+  sheet.autoResizeColumns(1, 2);
+}
+
+/**
  * Despesas fixas reais, item a item (aluguel, salários, energia, etc.).
  * A % de despesas fixas usada na calculadora passa a ser calculada
  * sozinha: soma desta aba ÷ média da Receita Bruta dos últimos meses na
@@ -377,5 +444,5 @@ function setupPrecificacaoFuncionarios_(ss) {
  */
 function setupDespesasFixas_(ss) {
   const sheet = getOrCreateSheet_(ss, ABA_DESPESAS_FIXAS);
-  ensureHeader_(sheet, ['descricao', 'valorMensal']);
+  ensureHeader_(sheet, ['id', 'descricao', 'valorMensal']);
 }

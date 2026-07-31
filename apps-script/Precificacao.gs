@@ -109,8 +109,9 @@ function getPrecificacaoConfig_() {
  * _Precificacao_Config (linha _GLOBAL) como reserva.
  */
 function getDespesasFixasPct_(fallbackManual) {
-  const { rows: despesas } = sheetData_(ABA_DESPESAS_FIXAS);
-  const totalDespesas = despesas.reduce((soma, r) => soma + num_(r[1]), 0);
+  const { headers, rows: despesas } = sheetData_(ABA_DESPESAS_FIXAS);
+  const iValor = headers.indexOf('valorMensal');
+  const totalDespesas = despesas.reduce((soma, r) => soma + num_(r[iValor]), 0);
   if (totalDespesas <= 0) return fallbackManual;
 
   const { rows: dreRows } = sheetData_(ABA_DRE);
@@ -125,6 +126,67 @@ function getDespesasFixasPct_(fallbackManual) {
   const mediaReceita = meses.reduce((soma, m) => soma + receitaPorMes[m], 0) / meses.length;
   if (!mediaReceita) return fallbackManual;
   return totalDespesas / mediaReceita;
+}
+
+function getDespesasFixasList_() {
+  const { headers, rows } = sheetData_(ABA_DESPESAS_FIXAS);
+  const idx = (n) => headers.indexOf(n);
+  const iId = idx('id'), iDescricao = idx('descricao'), iValor = idx('valorMensal');
+  return rows.filter(r => r[iDescricao]).map(r => ({ id: r[iId], descricao: r[iDescricao], valorMensal: num_(r[iValor]) }));
+}
+
+/** Grava (cria ou atualiza) uma despesa fixa. */
+function salvarDespesaFixa_(despesa, email) {
+  if (!despesa || !despesa.descricao || !(Number(despesa.valorMensal) >= 0)) {
+    throw new Error('Despesa inválida: descrição e valor mensal são obrigatórios.');
+  }
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_DESPESAS_FIXAS);
+    const { headers, rows } = sheetData_(ABA_DESPESAS_FIXAS);
+    const idx = (n) => headers.indexOf(n);
+    const iId = idx('id');
+
+    let id = despesa.id;
+    let linhaExistente = -1;
+    if (id) {
+      for (let i = 0; i < rows.length; i++) {
+        if (rows[i][iId] === id) { linhaExistente = i + 2; break; }
+      }
+    }
+    if (!id || linhaExistente === -1) { id = Utilities.getUuid(); linhaExistente = -1; }
+
+    const linha = [id, despesa.descricao, num_(despesa.valorMensal)];
+    if (linhaExistente === -1) sheet.appendRow(linha);
+    else sheet.getRange(linhaExistente, 1, 1, linha.length).setValues([linha]);
+
+    return { id: id, descricao: despesa.descricao, valorMensal: num_(despesa.valorMensal) };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Exclui uma despesa fixa de verdade (é só uma linha de configuração, não histórico financeiro). */
+function excluirDespesaFixa_(id, email) {
+  if (!id) throw new Error('id é obrigatório.');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_DESPESAS_FIXAS);
+    const { headers, rows } = sheetData_(ABA_DESPESAS_FIXAS);
+    const idx = (n) => headers.indexOf(n);
+    const iId = idx('id');
+    for (let i = 0; i < rows.length; i++) {
+      if (rows[i][iId] === id) {
+        sheet.deleteRow(i + 2);
+        return id;
+      }
+    }
+    throw new Error('Despesa não encontrada.');
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function getPrecificacaoMateriaisCatalogo_() {
@@ -154,6 +216,22 @@ function getPrecificacaoFuncionariosCatalogo_() {
   return rows
     .filter(r => r[iNome] && (r[iAtivo] === true || String(r[iAtivo]).toUpperCase() === 'TRUE' || r[iAtivo] === ''))
     .map(r => ({ nome: r[iNome], salarioMensal: num_(r[iSalario]), horasMes: num_(r[iHoras]) }));
+}
+
+function getPrecificacaoMaoDeObraPecasCatalogo_() {
+  const { headers, rows } = sheetData_(ABA_PRECIFICACAO_MAODEOBRA_PECAS);
+  const idx = (n) => headers.indexOf(n);
+  const iFuncionario = idx('funcionario'), iTipoPeca = idx('tipoPeca'), iValor = idx('valor'), iUnidade = idx('unidade');
+  return rows.filter(r => r[iFuncionario] && r[iTipoPeca]).map(r => ({
+    funcionario: r[iFuncionario], tipoPeca: r[iTipoPeca], valor: num_(r[iValor]), unidade: r[iUnidade] || ''
+  }));
+}
+
+function getPrecificacaoCorteCatalogo_() {
+  const { headers, rows } = sheetData_(ABA_PRECIFICACAO_CORTE);
+  const idx = (n) => headers.indexOf(n);
+  const iTipoPeca = idx('tipoPeca'), iValor = idx('valor');
+  return rows.filter(r => r[iTipoPeca]).map(r => ({ tipoPeca: r[iTipoPeca], valor: num_(r[iValor]) }));
 }
 
 /** Grava (cria ou atualiza) um produto. Retorna o produto salvo, já com id/snapshots/timestamps. */
