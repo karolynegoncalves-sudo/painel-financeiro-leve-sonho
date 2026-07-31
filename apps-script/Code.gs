@@ -54,6 +54,9 @@ function doPost(e) {
         return jsonResponse_({ ok: true, email: email, despesa: salvarDespesaFixa_(body.despesa, email) });
       case 'excluirDespesaFixa':
         return jsonResponse_({ ok: true, email: email, id: excluirDespesaFixa_(body.id, email) });
+      case 'seedDespesasFixas':
+        seedDespesasFixasReais_();
+        return jsonResponse_({ ok: true, email: email, despesas: getDespesasFixasList_() });
       default:
         return jsonResponse_({ ok: false, error: 'unknown_action' });
     }
