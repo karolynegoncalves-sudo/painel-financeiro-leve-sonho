@@ -75,6 +75,15 @@ function _rodarImportacaoNuvemShop() {
 }
 
 /**
+ * Atalho temporário: funções terminadas em "_" não aparecem no menu de
+ * funções pra rodar manualmente. Rode esta daqui — só chama a de baixo.
+ * Pode apagar os dois depois de importar uma vez.
+ */
+function _rodarSeedDespesasFixas() {
+  seedDespesasFixasReais_();
+}
+
+/**
  * Carga única dos custos fixos reais (aluguel, pró-labore, contas, folha
  * da Thayssa/Natália/Andréia). Limpa a aba `_Despesas_Fixas` e regrava do
  * zero — rode uma vez e pode apagar esta função depois.
