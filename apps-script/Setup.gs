@@ -22,6 +22,7 @@ const ABA_PRECIFICACAO_FUNCIONARIOS = '_Precificacao_Funcionarios';
 const ABA_PRECIFICACAO_MAODEOBRA_PECAS = '_Precificacao_MaoDeObra_Pecas';
 const ABA_PRECIFICACAO_CORTE = '_Precificacao_Corte';
 const ABA_DESPESAS_FIXAS = '_Despesas_Fixas';
+const ABA_VENDAS = 'Vendas';
 
 // IDs reais das planilhas FPV 2026 (uma por canal) — usados para espelhar
 // a Precificação ao vivo via IMPORTRANGE, sem recriar as fórmulas.

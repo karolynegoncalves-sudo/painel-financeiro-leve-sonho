@@ -29,6 +29,7 @@ function doGet(e) {
     case 'precificacaoCorte': return jsonResponse_({ email: email, corte: getPrecificacaoCorteCatalogo_() });
     case 'despesasFixas': return jsonResponse_({ email: email, despesas: getDespesasFixasList_() });
     case 'kpis': return jsonResponse_({ email: email, kpis: getKpis_() });
+    case 'vendas': return jsonResponse_({ email: email, rows: getVendasRows_() });
     default: return jsonResponse_({ error: 'unknown_view' });
   }
 }

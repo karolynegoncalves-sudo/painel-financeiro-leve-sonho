@@ -221,3 +221,14 @@ footer.app-footer{margin-top:50px; padding:26px 0; border-top:1px solid var(--li
   background:var(--panel); font-variant-numeric:tabular-nums;
 }
 #tblDre td{font-variant-numeric:tabular-nums;}
+
+/* Seletor caixa x competencia na DRE */
+.regime-switch{display:inline-flex; gap:0; margin:0 0 14px; border:1px solid var(--line); border-radius:8px; overflow:hidden; background:var(--panel);}
+.regime-switch button{
+  border:0; background:transparent; cursor:pointer; padding:7px 18px;
+  font-family:'IBM Plex Mono',monospace; font-size:11px; text-transform:uppercase;
+  letter-spacing:.04em; color:var(--muted);
+}
+.regime-switch button + button{border-left:1px solid var(--line);}
+.regime-switch button.ativo{background:var(--sage); color:#fff;}
+.regime-switch button:disabled{opacity:.45; cursor:not-allowed;}

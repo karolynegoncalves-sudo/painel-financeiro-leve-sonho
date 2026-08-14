@@ -17,6 +17,8 @@ const PALETTE = { sage: '#557571', sageSoft: '#9DB8B5', terracotta: '#D49A89', t
 let idToken = sessionStorage.getItem('id_token') || null;
 const cache = {};
 let FLUXO_ROWS = null; // [{date, tipo, grupoDRE, categoria, contato, banco, valor}]
+let VENDAS_ROWS = null; // [{date, canal, cliente, numero, situacao, contaReceita, total}]
+let DRE_REGIME = 'caixa'; // 'caixa' (dinheiro que entrou) | 'competencia' (venda que aconteceu)
 
 /* ---------------- Precificação: estado local ---------------- */
 let precifProdutos = null;       // array de produtos vinda do backend (cache mutável local)
@@ -81,6 +83,12 @@ async function verificarESeguir_(token) {
     return;
   }
   FLUXO_ROWS = parseFluxoRows_(data);
+  // Vendas e opcional: se a aba ainda nao foi sincronizada, o painel
+  // continua funcionando so no regime de caixa.
+  try {
+    const dv = await apiFetch_('vendas', token);
+    VENDAS_ROWS = (dv && !dv.error) ? parseVendasRows_(dv) : [];
+  } catch (e) { VENDAS_ROWS = []; }
   document.getElementById('userEmail').textContent = data.email || '';
   document.getElementById('loginGate').style.display = 'none';
   document.getElementById('app').style.display = 'block';
@@ -140,6 +148,19 @@ function parseFluxoRows_(data) {
       valor: Math.abs(Number(r[iValor]) || 0)
     };
   }).filter(r => !isNaN(r.date.getTime()));
+}
+
+/* Vendas vem como lista de objetos (nao {headers,rows} como o fluxo). */
+function parseVendasRows_(data) {
+  return (data.rows || []).map(r => ({
+    date: new Date(String(r.data).slice(0, 10) + 'T00:00:00'),
+    canal: r.canal || 'Sem canal',
+    cliente: r.cliente || '',
+    numero: r.numero || '',
+    situacao: r.situacao || '',
+    contaReceita: r.contaReceita !== false,
+    total: Number(r.total) || 0
+  })).filter(r => !isNaN(r.date.getTime()));
 }
 
 /* ---------------- Filtro de período ---------------- */
@@ -492,34 +513,131 @@ function renderFluxoCaixa(el, rows) {
 /* ---------------- DRE ---------------- */
 
 function renderDre(el, rows) {
+  const temVendas = (VENDAS_ROWS || []).length > 0;
+  const competencia = DRE_REGIME === 'competencia' && temVendas;
+
   el.innerHTML = `
     <div class="section-head">
       <h2 class="section-title">DRE</h2>
-      <div class="section-desc">Agrupado por categoria do Bling (aba _DRE_Mapa da planilha define o agrupamento — editável sem mexer em código) no período selecionado.</div>
+      <div class="section-desc">${competencia
+        ? 'Receita pela <b>data da venda</b> (competência) — mostra o quanto você vendeu, mesmo que o dinheiro ainda não tenha entrado.'
+        : 'Receita pela <b>data do recebimento</b> (caixa) — mostra o dinheiro que efetivamente entrou. Agrupado pela aba <code>_DRE_Mapa</code>.'}</div>
     </div>
     ${renderFiltroBar_()}
-    ${!rows.length ? '<div class="state-msg">Sem lançamentos nesse período.</div>' : `
-    <div class="panel">
-      <h3>DRE do período</h3>
-      <div style="overflow-x:auto;"><table class="simple" id="tblDre"></table></div>
+    <div class="regime-switch">
+      <button type="button" data-regime="caixa" class="${competencia ? '' : 'ativo'}">Caixa</button>
+      <button type="button" data-regime="competencia" class="${competencia ? 'ativo' : ''}" ${temVendas ? '' : 'disabled title="Rode syncVendas() no Apps Script pra habilitar"'}>Competência</button>
     </div>
-    `}
+    <div id="dreCorpo"></div>
   `;
   ligarFiltroBar_(el);
-  if (!rows.length) return;
+  el.querySelectorAll('.regime-switch button[data-regime]').forEach(b => {
+    b.addEventListener('click', () => {
+      if (b.disabled) return;
+      DRE_REGIME = b.dataset.regime;
+      renderDre(el, rows);
+    });
+  });
+
+  const corpo = el.querySelector('#dreCorpo');
+  if (competencia) renderDreCompetencia_(corpo);
+  else renderDreCaixa_(corpo, rows);
+}
+
+/* Regime de caixa: o que ja existia — grupos do _DRE_Mapa sobre o fluxo. */
+function renderDreCaixa_(corpo, rows) {
+  if (!rows.length) { corpo.innerHTML = '<div class="state-msg">Sem lançamentos nesse período.</div>'; return; }
+  corpo.innerHTML = `<div class="panel"><h3>DRE do período</h3>
+    <div style="overflow-x:auto;"><table class="simple" id="tblDre"></table></div></div>`;
 
   const serie = serieTemporal_(rows, FILTER.start, FILTER.end);
   const grupos = [...new Set(rows.map(r => r.grupoDRE))];
   const porGrupoColuna = serie.map(b => agregarPorGrupo_(b.rows));
 
-  const tbl = document.getElementById('tblDre');
   let html = '<tr><th>Grupo</th>' + serie.map(b => `<th>${b.label}</th>`).join('') + '<th>Total</th></tr>';
   grupos.forEach(g => {
     const valores = porGrupoColuna.map(pg => pg[g] || 0);
     const total = valores.reduce((a, b) => a + b, 0);
     html += `<tr><td>${g}</td>` + valores.map(v => `<td>${fmtBRL(v, 2)}</td>`).join('') + `<td><b>${fmtBRL(total, 2)}</b></td></tr>`;
   });
-  tbl.innerHTML = html;
+  document.getElementById('tblDre').innerHTML = html;
+}
+
+/*
+ * Regime de competência: receita bruta pela data do pedido, por canal.
+ * Cancelado nao entra (contaReceita = false na aba Vendas).
+ *
+ * Ainda e so a linha de receita — deducoes e CMV por competencia exigem
+ * a taxa e o custo por pedido, que sao o proximo passo. Por isso a tela
+ * mostra so o que da pra afirmar com os dados que existem hoje.
+ */
+function renderDreCompetencia_(corpo) {
+  const todas = (VENDAS_ROWS || []).filter(v => v.date >= FILTER.start && v.date <= FILTER.end);
+  const vendas = todas.filter(v => v.contaReceita);
+  if (!todas.length) { corpo.innerHTML = '<div class="state-msg">Sem vendas nesse período.</div>'; return; }
+
+  const canceladas = todas.filter(v => !v.contaReceita);
+  const totalBruto = vendas.reduce((s, v) => s + v.total, 0);
+  const ticket = vendas.length ? totalBruto / vendas.length : 0;
+
+  corpo.innerHTML = `
+    <div class="kpi-grid">
+      <div class="kpi ok">
+        <div class="kpi-label">Receita bruta (competência)</div>
+        <div class="kpi-value">${fmtBRL(totalBruto)}</div>
+        <div class="kpi-foot">${vendas.length} pedido(s) no período</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">Ticket médio</div>
+        <div class="kpi-value">${fmtBRL(ticket)}</div>
+        <div class="kpi-foot">Por pedido faturado</div>
+      </div>
+      <div class="kpi ${canceladas.length ? 'bad' : ''}">
+        <div class="kpi-label">Cancelados no período</div>
+        <div class="kpi-value">${canceladas.length}</div>
+        <div class="kpi-foot">${fmtBRL(canceladas.reduce((s, v) => s + v.total, 0))} fora da receita</div>
+      </div>
+    </div>
+    <div class="panel"><h3>Receita por canal</h3>
+      <div style="overflow-x:auto;"><table class="simple" id="tblDre"></table></div></div>
+    <div class="panel"><h3>Caixa × Competência</h3>
+      <div id="dreComparativo"></div></div>
+  `;
+
+  const serie = serieTemporal_(vendas, FILTER.start, FILTER.end);
+  const canais = [...new Set(vendas.map(v => v.canal))].sort();
+  const porCanalColuna = serie.map(b => {
+    const acc = {};
+    b.rows.forEach(v => { acc[v.canal] = (acc[v.canal] || 0) + v.total; });
+    return acc;
+  });
+
+  let html = '<tr><th>Canal</th>' + serie.map(b => `<th>${b.label}</th>`).join('') + '<th>Total</th></tr>';
+  canais.forEach(c => {
+    const valores = porCanalColuna.map(pc => pc[c] || 0);
+    const total = valores.reduce((a, b) => a + b, 0);
+    html += `<tr><td>${c}</td>` + valores.map(v => `<td>${fmtBRL(v, 2)}</td>`).join('') + `<td><b>${fmtBRL(total, 2)}</b></td></tr>`;
+  });
+  const totColuna = porCanalColuna.map(pc => Object.values(pc).reduce((a, b) => a + b, 0));
+  html += '<tr><td><b>Total</b></td>' + totColuna.map(v => `<td><b>${fmtBRL(v, 2)}</b></td>`).join('')
+        + `<td><b>${fmtBRL(totalBruto, 2)}</b></td></tr>`;
+  document.getElementById('tblDre').innerHTML = html;
+
+  // comparativo com o regime de caixa, que e a duvida que gera essa tela
+  const rowsCaixa = (FLUXO_ROWS || []).filter(r => r.date >= FILTER.start && r.date <= FILTER.end);
+  const receitaCaixa = rowsCaixa
+    .filter(r => r.tipo === 'entrada' && String(r.grupoDRE).indexOf('Receita Bruta') >= 0)
+    .reduce((s, r) => s + r.valor, 0);
+  const dif = totalBruto - receitaCaixa;
+  document.getElementById('dreComparativo').innerHTML = `
+    <table class="simple">
+      <tr><td>Vendi no período (competência)</td><td style="text-align:right;"><b>${fmtBRL(totalBruto)}</b></td></tr>
+      <tr><td>Recebi no período (caixa)</td><td style="text-align:right;"><b>${fmtBRL(receitaCaixa)}</b></td></tr>
+      <tr><td>${dif >= 0 ? 'Vendido e ainda não recebido' : 'Recebido de vendas anteriores'}</td>
+          <td style="text-align:right;"><b>${fmtBRL(Math.abs(dif))}</b></td></tr>
+    </table>
+    <p class="section-desc" style="margin-top:10px;">A diferença é normal: marketplace libera o dinheiro dias depois da venda. Ela vira problema só se crescer mês a mês sem parar.</p>
+  `;
 }
 
 /* ---------------- Precificação ---------------- */
