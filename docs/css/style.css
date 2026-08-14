@@ -206,3 +206,18 @@ footer.app-footer{margin-top:50px; padding:26px 0; border-top:1px solid var(--li
   .top-inner{flex-direction:column; align-items:flex-start;}
   .top-meta{text-align:left;}
 }
+
+/* DRE: primeira coluna (grupo) fixa, pra nao sumir ao rolar o periodo
+   de lado; e valores alinhados a direita, que e como se le numero. */
+#tblDre th:first-child, #tblDre td:first-child{
+  position:sticky; left:0; z-index:2;
+  background:var(--panel); min-width:210px;
+  box-shadow:1px 0 0 var(--line);
+}
+#tblDre th:not(:first-child), #tblDre td:not(:first-child){
+  text-align:right; white-space:nowrap;
+}
+#tblDre td:last-child, #tblDre th:last-child{
+  background:var(--panel); font-variant-numeric:tabular-nums;
+}
+#tblDre td{font-variant-numeric:tabular-nums;}

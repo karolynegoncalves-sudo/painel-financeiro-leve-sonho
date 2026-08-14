@@ -321,12 +321,39 @@ function totais_(rows) {
 }
 
 /** Agrupa linhas em intervalos (dia se período <=45 dias, senão mês), pra desenhar séries temporais. */
+/* Segunda-feira da semana da data (semana comeca na segunda, como no Bling). */
+function inicioSemana_(d) {
+  const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  x.setDate(x.getDate() - ((x.getDay() + 6) % 7));
+  return x;
+}
+
+/*
+ * Quebra os lancamentos em colunas. Tres granularidades, escolhidas pelo
+ * tamanho do periodo — antes so existia dia ou mes, e um mes inteiro virava
+ * ~30 colunas, que nao cabem na tela.
+ */
 function serieTemporal_(rows, start, end) {
   const dias = Math.round((end - start) / 86400000) + 1;
-  const porDia = dias <= 45;
+  const modo = dias <= 14 ? 'dia' : (dias <= 92 ? 'semana' : 'mes');
+
+  const chave = (d) => {
+    if (modo === 'dia') return toDateInputValue_(d);
+    if (modo === 'semana') return toDateInputValue_(inicioSemana_(d));
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+  };
+  const label = (k) => {
+    if (modo === 'mes') return monthLabel(k);
+    const ini = new Date(k + 'T00:00:00');
+    if (modo === 'dia') return dayLabel(ini);
+    // semana: rotulo de intervalo, recortado no periodo filtrado
+    let fim = new Date(ini.getFullYear(), ini.getMonth(), ini.getDate() + 6);
+    const iniVis = ini < start ? start : ini;
+    if (fim > end) fim = end;
+    return dayLabel(iniVis) + '–' + dayLabel(fim);
+  };
+
   const buckets = {};
-  const chave = (d) => porDia ? toDateInputValue_(d) : (d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'));
-  const label = (k) => porDia ? dayLabel(new Date(k + 'T00:00:00')) : monthLabel(k);
   rows.forEach(r => {
     const k = chave(r.date);
     buckets[k] = buckets[k] || [];

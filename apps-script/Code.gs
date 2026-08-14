@@ -208,3 +208,63 @@ function getKpis_() {
     };
   });
 }
+
+/**
+ * Atalho pro menu de funções (as terminadas em "_" não aparecem lá).
+ */
+function _rodarCorrigirDreMapa() {
+  const r = corrigirDreMapa_();
+  Logger.log('Categorias corrigidas: ' + r.corrigidas + ' | já certas: ' + r.jaCertas + ' | não encontradas: ' + r.naoAchadas);
+}
+
+/**
+ * Conserta o agrupamento de categorias que estavam distorcendo a DRE.
+ *
+ * Diferente do seed, esta função ROLA MESMO por cima do que já existe —
+ * mas só nas categorias listadas aqui, e só se o grupo estiver diferente.
+ * Qualquer outro ajuste manual da Karolyne no `_DRE_Mapa` fica intacto.
+ *
+ * Motivo de cada troca (levantado do DRE real do Bling de julho/2026):
+ *
+ *  - "Rendimento de aplicação financeira" acumulava R$ 10.420,05 em julho,
+ *    mas isso é resgate da Caixinha do Nubank: dinheiro dela voltando da
+ *    poupança, não faturamento. Contar como receita inflava o resultado.
+ *    (Perde-se o juro de verdade junto, que é centavos perto disso.)
+ *
+ *  - "Descontos concedidos" acumulava R$ 8.422,70, que é a comissão da
+ *    Shopee — cada venda unitária entra bruta em "Vendas de produtos" e a
+ *    taxa sai nessa categoria. É dedução da receita, não despesa
+ *    financeira. Fica junto de "Taxas do marketplace" pra ficar coerente.
+ */
+function corrigirDreMapa_() {
+  const CORRECOES = {
+    '14639321646': 'Não Operacional (ignorar na DRE)', // Rendimento de aplicação financeira
+    '14639321695': 'Deduções da Receita',              // Descontos concedidos
+    '14639321698': 'Deduções da Receita'               // Taxas do marketplace
+  };
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(ABA_DRE_MAPA);
+  if (!sheet) throw new Error('Aba ' + ABA_DRE_MAPA + ' não existe. Rode o setup antes.');
+
+  const ultimaLinha = sheet.getLastRow();
+  if (ultimaLinha < 2) throw new Error('Aba ' + ABA_DRE_MAPA + ' está vazia.');
+
+  const ids = sheet.getRange(2, 1, ultimaLinha - 1, 1).getValues();
+  const grupos = sheet.getRange(2, 5, ultimaLinha - 1, 1).getValues();
+
+  let corrigidas = 0, jaCertas = 0;
+  const vistos = {};
+  for (let i = 0; i < ids.length; i++) {
+    const id = String(ids[i][0]).trim();
+    if (!CORRECOES.hasOwnProperty(id)) continue;
+    vistos[id] = true;
+    if (String(grupos[i][0]).trim() === CORRECOES[id]) { jaCertas++; continue; }
+    grupos[i][0] = CORRECOES[id];
+    corrigidas++;
+  }
+  if (corrigidas) sheet.getRange(2, 5, grupos.length, 1).setValues(grupos);
+
+  const naoAchadas = Object.keys(CORRECOES).filter(function (id) { return !vistos[id]; });
+  return { corrigidas: corrigidas, jaCertas: jaCertas, naoAchadas: naoAchadas.join(', ') || '(nenhuma)' };
+}
