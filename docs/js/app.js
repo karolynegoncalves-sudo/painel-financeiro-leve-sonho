@@ -12,7 +12,7 @@ const monthLabel = (p) => {
 };
 const dayLabel = (d) => String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0');
 
-const PALETTE = { sage: '#557571', sageSoft: '#9DB8B5', terracotta: '#D49A89', terracottaDark: '#B97A67', peach: '#F7D1BA', brick: '#AB3B32', amber: '#B9791F', ink: '#2B2926', muted: '#C9BFB4' };
+const PALETTE = { entrada: '#2F6F4E', saida: '#C0392B', sage: '#557571', sageSoft: '#9DB8B5', terracotta: '#D49A89', terracottaDark: '#B97A67', peach: '#F7D1BA', brick: '#AB3B32', amber: '#B9791F', ink: '#2B2926', muted: '#C9BFB4' };
 
 let idToken = sessionStorage.getItem('id_token') || null;
 const cache = {};
@@ -86,14 +86,17 @@ async function verificarESeguir_(token) {
   // Vendas e opcional: se a aba ainda nao foi sincronizada, o painel
   // continua funcionando so no regime de caixa.
   try {
-    const dv = await apiFetch_('vendas', token);
+    const [dv, dd] = await Promise.all([apiFetch_('vendas', token), apiFetch_('despesasFixas', token)]);
     VENDAS_ROWS = (dv && !dv.error) ? parseVendasRows_(dv) : [];
+    // despesas fixas sobem no boot porque o ponto de equilibrio precisa delas
+    // ja na primeira tela, nao so quando abrir Configuracoes
+    if (dd && !dd.error) precifDespesasFixas = dd.despesas || [];
   } catch (e) { VENDAS_ROWS = []; }
   document.getElementById('userEmail').textContent = data.email || '';
   document.getElementById('loginGate').style.display = 'none';
   document.getElementById('app').style.display = 'block';
   setupTabs();
-  safeRenderTab('kpis');
+  safeRenderTab('hoje');
 }
 
 document.getElementById('btnSair').addEventListener('click', () => {
@@ -134,20 +137,28 @@ function parseFluxoRows_(data) {
   const headers = (data.rows && data.rows.headers) || [];
   const rows = (data.rows && data.rows.rows) || [];
   const idx = (n) => headers.indexOf(n);
-  const iData = idx('data'), iTipo = idx('tipo'), iGrupo = idx('grupoDRE'), iCategoria = idx('categoriaNome'),
-    iContato = idx('contatoNome'), iBanco = idx('contaBancariaNome'), iValor = idx('valor');
+  const iData = idx('data'), iTipo = idx('tipo'), iSit = idx('situacao'), iGrupo = idx('grupoDRE'),
+    iCategoria = idx('categoriaNome'), iContato = idx('contatoNome'),
+    iBanco = idx('contaBancariaNome'), iValor = idx('valor');
   return rows.map(r => {
     const date = new Date(String(r[iData]).slice(0, 10) + 'T00:00:00');
+    // Situacoes do Bling: 1 em aberto, 2 baixada, 3 parcial, 5 cancelada.
+    // Desconhecida entra como paga, pra nao sumir lancamento sem aviso.
+    const sit = String(iSit >= 0 ? r[iSit] : '2').trim();
     return {
       date,
       tipo: r[iTipo],
+      situacao: sit,
+      cancelada: sit === '5',
+      aberta: sit === '1',
+      paga: sit !== '1' && sit !== '5',
       grupoDRE: r[iGrupo] || '(sem mapear)',
       categoria: r[iCategoria] || '(sem categoria)',
       contato: r[iContato] || '',
       banco: r[iBanco] || '',
       valor: Math.abs(Number(r[iValor]) || 0)
     };
-  }).filter(r => !isNaN(r.date.getTime()));
+  }).filter(r => !isNaN(r.date.getTime()) && !r.cancelada);
 }
 
 /* Vendas vem como lista de objetos (nao {headers,rows} como o fluxo). */
@@ -313,10 +324,14 @@ async function safeRenderTab(view) {
       return renderConfiguracoes(el);
     }
     if (!FLUXO_ROWS) { el.innerHTML = '<div class="state-msg">Carregando...</div>'; return; }
+    if (view === 'hoje') return renderHoje(el);
     const rowsFiltradas = FLUXO_ROWS.filter(r => r.date >= FILTER.start && r.date <= FILTER.end);
-    if (view === 'kpis') return renderKpis(el, rowsFiltradas);
+    // KPIs e DRE sao regime de CAIXA: so entra o que foi efetivamente pago/recebido.
+    // O Fluxo de Caixa mostra os dois, com a situacao visivel e filtravel.
+    const rowsPagas = rowsFiltradas.filter(r => r.paga);
+    if (view === 'kpis') return renderKpis(el, rowsPagas);
     if (view === 'fluxoCaixa') return renderFluxoCaixa(el, rowsFiltradas);
-    if (view === 'dre') return renderDre(el, rowsFiltradas);
+    if (view === 'dre') return renderDre(el, rowsPagas);
   } catch (e) {
     el.innerHTML = '<div class="state-msg">Erro ao desenhar esta aba (' + e.message + ').</div>';
   }
@@ -384,6 +399,195 @@ function serieTemporal_(rows, start, end) {
   return chaves.map(k => ({ chave: k, label: label(k), rows: buckets[k] }));
 }
 
+/* ---------------- Os 5 indicadores ---------------- */
+/*
+ * Baseados no cardapio da apostila Acelera Time Financeiro (p.59) e nas
+ * 4 perguntas da p.58: caixa esta saudavel / clientes estao pagando /
+ * estamos pagando bem / a empresa esta ganhando dinheiro.
+ *
+ * PMP ficou de fora de proposito: a Leve Sonho compra tecido a vista e
+ * paga salario em dia, entao prazo de fornecedor nao e alavanca hoje.
+ */
+
+/** 1) Saldo por conta financeira, somando tudo que ja foi pago/recebido. */
+function saldoPorConta_() {
+  const porConta = {};
+  (FLUXO_ROWS || []).forEach(r => {
+    if (!r.paga) return;
+    const nome = r.banco || '(sem conta)';
+    porConta[nome] = (porConta[nome] || 0) + (r.tipo === 'entrada' ? r.valor : -r.valor);
+  });
+  return porConta;
+}
+
+/**
+ * 2) Projecao / necessidade de caixa nos proximos N dias.
+ * So conta o que ainda esta EM ABERTO, pelo vencimento. O que ja venceu e
+ * nao foi baixado entra como atrasado — e o que costuma pegar de surpresa.
+ */
+function projecaoCaixa_(dias) {
+  const hoje = startOfDay_(new Date());
+  const limite = endOfDay_(addDays_(hoje, dias));
+  let aReceber = 0, aPagar = 0, vencidoReceber = 0, vencidoPagar = 0;
+  (FLUXO_ROWS || []).forEach(r => {
+    if (!r.aberta) return;
+    if (r.date < hoje) {
+      if (r.tipo === 'entrada') vencidoReceber += r.valor; else vencidoPagar += r.valor;
+      return;
+    }
+    if (r.date > limite) return;
+    if (r.tipo === 'entrada') aReceber += r.valor; else aPagar += r.valor;
+  });
+  const saldoHoje = Object.values(saldoPorConta_()).reduce((a, b) => a + b, 0);
+  return {
+    saldoHoje, aReceber, aPagar, vencidoReceber, vencidoPagar,
+    necessidade: aPagar - aReceber,
+    projetado: saldoHoje + aReceber - aPagar
+  };
+}
+
+/** 3) PMR: quantos dias, em media, o dinheiro leva pra chegar depois da venda. */
+function pmr_(rows) {
+  const aReceber = (FLUXO_ROWS || [])
+    .filter(r => r.aberta && r.tipo === 'entrada')
+    .reduce((s, r) => s + r.valor, 0);
+  const receita = totais_(rows).receitaBruta;
+  const dias = Math.round((FILTER.end - FILTER.start) / 86400000) + 1;
+  return { aReceber, receita, pmr: receita ? (aReceber / receita) * dias : 0 };
+}
+
+/**
+ * 4) Margem de contribuicao por canal.
+ * v1: receita do canal menos as taxas daquele canal. Ainda NAO desconta o
+ * custo do produto (CMV) — isso depende do custo por SKU, que e a trilha
+ * de estoque. Por isso a tela chama de "antes do CMV", pra nao dar a
+ * impressao de que essa e a margem final.
+ */
+function margemPorCanal_(rows) {
+  const vendas = (VENDAS_ROWS || []).filter(v => v.date >= FILTER.start && v.date <= FILTER.end && v.contaReceita);
+  const receitaPorCanal = {};
+  vendas.forEach(v => { receitaPorCanal[v.canal] = (receitaPorCanal[v.canal] || 0) + v.total; });
+
+  const receitaTotal = Object.values(receitaPorCanal).reduce((a, b) => a + b, 0);
+  const taxasTotal = rows
+    .filter(r => r.tipo === 'saida' && String(r.grupoDRE).indexOf('Dedu') >= 0)
+    .reduce((s, r) => s + r.valor, 0);
+
+  // sem taxa carimbada por canal no financeiro, rateia proporcional a receita
+  return Object.keys(receitaPorCanal).sort().map(canal => {
+    const receita = receitaPorCanal[canal];
+    const taxa = receitaTotal ? taxasTotal * (receita / receitaTotal) : 0;
+    const mc = receita - taxa;
+    return { canal, receita, taxa, mc, mcPct: receita ? mc / receita : 0 };
+  });
+}
+
+/** 5) Ponto de equilibrio: quanto precisa faturar pra pagar o custo fixo. */
+function pontoEquilibrio_(rows) {
+  const fixasMes = (precifDespesasFixas || [])
+    .filter(d => d.ativo !== false)
+    .reduce((s, d) => s + (Number(d.valorMensal || d.valor || 0)), 0);
+  const canais = margemPorCanal_(rows);
+  const receita = canais.reduce((s, c) => s + c.receita, 0);
+  const mc = canais.reduce((s, c) => s + c.mc, 0);
+  const mcPct = receita ? mc / receita : 0;
+  const faturamentoNecessario = mcPct > 0 ? fixasMes / mcPct : 0;
+  return { fixasMes, receita, mcPct, faturamentoNecessario, cobertura: faturamentoNecessario ? receita / faturamentoNecessario : 0 };
+}
+
+/* ---------------- Hoje (o que olhar no dia) ---------------- */
+/*
+ * Tela de rotina diaria. Nao usa o filtro de periodo de proposito: a
+ * pergunta aqui e sempre "e hoje?". Responde as duas primeiras perguntas
+ * da apostila — caixa esta saudavel, e tem algo vencendo.
+ */
+function renderHoje(el) {
+  const p7 = projecaoCaixa_(7);
+  const p15 = projecaoCaixa_(15);
+  const p30 = projecaoCaixa_(30);
+  const contas = saldoPorConta_();
+  const hoje = startOfDay_(new Date());
+
+  const vencemHoje = (FLUXO_ROWS || []).filter(r => r.aberta && startOfDay_(r.date).getTime() === hoje.getTime());
+  const atrasadas = (FLUXO_ROWS || []).filter(r => r.aberta && r.date < hoje).sort((a, b) => a.date - b.date);
+  const proximas = (FLUXO_ROWS || []).filter(r => r.aberta && r.date >= hoje && r.date <= addDays_(hoje, 7)).sort((a, b) => a.date - b.date);
+
+  const apertado = p7.projetado < 0;
+  const atencao = !apertado && p15.projetado < 0;
+
+  el.innerHTML = `
+    <div class="section-head">
+      <h2 class="section-title">Hoje</h2>
+      <div class="section-desc">${fmtDataBR(hoje)} — o que precisa da sua atenção agora. Esta tela ignora o filtro de período.</div>
+    </div>
+
+    <div class="kpi-grid">
+      <div class="kpi ${p7.saldoHoje >= 0 ? 'ok' : 'bad'}">
+        <div class="kpi-label">Saldo em caixa</div>
+        <div class="kpi-value">${fmtBRL(p7.saldoHoje)}</div>
+        <div class="kpi-foot">Somando todas as contas</div>
+      </div>
+      <div class="kpi ${apertado ? 'bad' : (atencao ? 'warn' : 'ok')}">
+        <div class="kpi-label">Projeção 7 dias</div>
+        <div class="kpi-value">${fmtBRL(p7.projetado)}</div>
+        <div class="kpi-foot">${p7.necessidade > 0 ? 'Faltam ' + fmtBRL(p7.necessidade) + ' pra fechar a semana' : 'Semana coberta'}</div>
+      </div>
+      <div class="kpi ${p30.projetado >= 0 ? 'ok' : 'warn'}">
+        <div class="kpi-label">Projeção 30 dias</div>
+        <div class="kpi-value">${fmtBRL(p30.projetado)}</div>
+        <div class="kpi-foot">A receber ${fmtBRL(p30.aReceber)} · a pagar ${fmtBRL(p30.aPagar)}</div>
+      </div>
+      <div class="kpi ${atrasadas.length ? 'bad' : 'ok'}">
+        <div class="kpi-label">Vencidas em aberto</div>
+        <div class="kpi-value">${atrasadas.length}</div>
+        <div class="kpi-foot">${atrasadas.length ? fmtBRL(p7.vencidoPagar) + ' a pagar · ' + fmtBRL(p7.vencidoReceber) + ' a receber' : 'Nada atrasado'}</div>
+      </div>
+    </div>
+
+    ${apertado ? '<div class="alerta bad">O caixa não fecha os próximos 7 dias. Veja o que dá pra antecipar de recebível ou adiar de pagamento.</div>' : ''}
+    ${atencao ? '<div class="alerta warn">A semana fecha, mas os próximos 15 dias ficam negativos. Vale olhar com antecedência.</div>' : ''}
+
+    <div class="grid-2">
+      <div class="panel">
+        <h3>Saldo por conta</h3>
+        <table class="simple" id="tblContas"></table>
+      </div>
+      <div class="panel">
+        <h3>Vence hoje</h3>
+        ${vencemHoje.length ? '<table class="simple" id="tblHoje"></table>' : '<div class="state-msg">Nada vencendo hoje.</div>'}
+      </div>
+    </div>
+
+    ${atrasadas.length ? `<div class="panel"><h3>Atrasadas <span class="badge-bad">${atrasadas.length}</span></h3>
+      <div style="overflow-x:auto;"><table class="simple" id="tblAtrasadas"></table></div></div>` : ''}
+
+    <div class="panel">
+      <h3>Próximos 7 dias</h3>
+      ${proximas.length ? '<div style="overflow-x:auto;"><table class="simple" id="tblProximas"></table></div>' : '<div class="state-msg">Nada previsto pros próximos 7 dias.</div>'}
+    </div>
+  `;
+
+  const tc = document.getElementById('tblContas');
+  let h = '<tr><th>Conta</th><th>Saldo</th></tr>';
+  Object.keys(contas).sort((a, b) => contas[b] - contas[a]).forEach(k => {
+    h += `<tr><td>${escapeHtml_(k)}</td><td class="num ${contas[k] >= 0 ? 'val-in' : 'val-out'}">${fmtBRL(contas[k], 2)}</td></tr>`;
+  });
+  h += `<tr><td><b>Total</b></td><td class="num"><b>${fmtBRL(p7.saldoHoje, 2)}</b></td></tr>`;
+  tc.innerHTML = h;
+
+  const linhaConta = (r) => `<tr>
+      <td>${fmtDataBR(r.date)}</td>
+      <td>${escapeHtml_(r.contato || '—')}</td>
+      <td>${escapeHtml_(r.categoria)}</td>
+      <td class="num ${r.tipo === 'entrada' ? 'val-in' : 'val-out'}">${r.tipo === 'entrada' ? '' : '−'}${fmtBRL(r.valor, 2)}</td>
+    </tr>`;
+  const cab = '<tr><th>Venc.</th><th>Quem</th><th>Categoria</th><th>Valor</th></tr>';
+
+  if (vencemHoje.length) document.getElementById('tblHoje').innerHTML = cab + vencemHoje.map(linhaConta).join('');
+  if (atrasadas.length) document.getElementById('tblAtrasadas').innerHTML = cab + atrasadas.map(linhaConta).join('');
+  if (proximas.length) document.getElementById('tblProximas').innerHTML = cab + proximas.map(linhaConta).join('');
+}
+
 /* ---------------- KPIs & Gráficos ---------------- */
 
 function renderKpis(el, rows) {
@@ -391,8 +595,11 @@ function renderKpis(el, rows) {
   const margem = receitaBruta ? resultadoLiquido / receitaBruta : 0;
   const [prevStart, prevEnd] = periodoAnterior_(FILTER.start, FILTER.end);
   const rowsAnterior = FLUXO_ROWS.filter(r => r.date >= prevStart && r.date <= prevEnd);
-  const anterior = totais_(rowsAnterior);
+  const anterior = totais_(rowsAnterior.filter(r => r.paga));
   const variacaoReceita = anterior.receitaBruta ? (receitaBruta / anterior.receitaBruta - 1) : null;
+  const indPmr = pmr_(rows);
+  const eq = pontoEquilibrio_(rows);
+  const canais = margemPorCanal_(rows);
 
   el.innerHTML = `
     <div class="section-head">
@@ -402,7 +609,7 @@ function renderKpis(el, rows) {
     ${renderFiltroBar_()}
     <div class="kpi-grid">
       <div class="kpi ${receitaBruta >= 0 ? 'ok' : 'bad'}">
-        <div class="kpi-label">Receita bruta</div>
+        <div class="kpi-label">Receita recebida</div>
         <div class="kpi-value">${fmtBRL(receitaBruta)}</div>
         <div class="kpi-foot">${variacaoReceita === null ? 'Sem período anterior comparável' : fmtPct(variacaoReceita) + ' vs. período anterior'}</div>
       </div>
@@ -411,16 +618,24 @@ function renderKpis(el, rows) {
         <div class="kpi-value">${fmtBRL(resultadoLiquido)}</div>
         <div class="kpi-foot">${resultadoLiquido >= 0 ? 'Positivo no período' : 'Negativo no período'}</div>
       </div>
-      <div class="kpi ${margem >= 0 ? 'ok' : 'warn'}">
-        <div class="kpi-label">Margem líquida</div>
-        <div class="kpi-value">${fmtPct(margem)}</div>
-        <div class="kpi-foot">Resultado líquido ÷ receita bruta</div>
+      <div class="kpi ${indPmr.pmr <= 15 ? 'ok' : 'warn'}">
+        <div class="kpi-label">PMR — prazo de recebimento</div>
+        <div class="kpi-value">${indPmr.pmr.toFixed(0)} dias</div>
+        <div class="kpi-foot">${fmtBRL(indPmr.aReceber)} vendidos e ainda não recebidos</div>
       </div>
-      <div class="kpi">
-        <div class="kpi-label">Lançamentos no período</div>
-        <div class="kpi-value">${rows.length}</div>
-        <div class="kpi-foot">${fmtDataBR(FILTER.start)} – ${fmtDataBR(FILTER.end)}</div>
+      <div class="kpi ${eq.cobertura >= 1 ? 'ok' : (eq.cobertura >= 0.7 ? 'warn' : 'bad')}">
+        <div class="kpi-label">Ponto de equilíbrio</div>
+        <div class="kpi-value">${eq.faturamentoNecessario ? fmtPctSimples_(eq.cobertura) : '—'}</div>
+        <div class="kpi-foot">${eq.faturamentoNecessario
+          ? (eq.cobertura >= 1 ? 'Custo fixo pago' : 'Faltam ' + fmtBRL(eq.faturamentoNecessario - eq.receita) + ' de faturamento')
+          : 'Cadastre as despesas fixas em Configurações'}</div>
       </div>
+    </div>
+
+    <div class="panel">
+      <h3>Margem de contribuição por canal</h3>
+      <div class="sub">Receita pela data da venda, menos a taxa do canal. Duas ressalvas: a taxa é rateada proporcionalmente (o financeiro não carimba taxa por canal) e <b>ainda não desconta o custo do produto</b>. Serve pra comparar canais entre si, não como margem final.</div>
+      <div style="overflow-x:auto;"><table class="simple" id="tblCanais"></table></div>
     </div>
     <div class="panel">
       <h3>Receita bruta x Resultado líquido</h3>
@@ -429,6 +644,21 @@ function renderKpis(el, rows) {
     </div>
   `;
   ligarFiltroBar_(el);
+
+  const tblC = document.getElementById('tblCanais');
+  if (canais.length) {
+    let h = '<tr><th>Canal</th><th>Receita</th><th>Taxa do canal</th><th>Margem de contrib.</th><th>%</th></tr>';
+    canais.sort((a, b) => b.receita - a.receita).forEach(c => {
+      h += `<tr><td>${escapeHtml_(c.canal)}</td>`
+        + `<td class="num val-in">${fmtBRL(c.receita, 2)}</td>`
+        + `<td class="num val-out">−${fmtBRL(c.taxa, 2)}</td>`
+        + `<td class="num val-in">${fmtBRL(c.mc, 2)}</td>`
+        + `<td class="num">${fmtPctSimples_(c.mcPct)}</td></tr>`;
+    });
+    tblC.innerHTML = h;
+  } else {
+    tblC.outerHTML = '<div class="state-msg">Sem vendas no período (a aba Vendas alimenta esta tabela).</div>';
+  }
 
   const serie = serieTemporal_(rows, FILTER.start, FILTER.end);
   const serieReceita = serie.map(b => totais_(b.rows).receitaBruta);
@@ -452,11 +682,17 @@ function renderKpis(el, rows) {
 
 /* ---------------- Fluxo de Caixa ---------------- */
 
+/* Estado dos filtros da tabela do Fluxo de Caixa (independente do periodo). */
+const FLUXO_F = { busca: '', categoria: '', contato: '', tipo: '', situacao: '' };
+
 function renderFluxoCaixa(el, rows) {
+  const categorias = [...new Set(rows.map(r => r.categoria))].sort();
+  const contatos = [...new Set(rows.map(r => r.contato).filter(Boolean))].sort();
+
   el.innerHTML = `
     <div class="section-head">
       <h2 class="section-title">Fluxo de Caixa</h2>
-      <div class="section-desc">Contas a pagar e a receber do Bling (caixas e bancos) no período selecionado.</div>
+      <div class="section-desc">Contas a pagar e a receber do Bling no período. Mostra o que já foi pago <b>e</b> o que ainda está em aberto — use o filtro Situação pra separar.</div>
     </div>
     ${renderFiltroBar_()}
     ${!rows.length ? '<div class="state-msg">Sem lançamentos nesse período.</div>' : `
@@ -471,7 +707,26 @@ function renderFluxoCaixa(el, rows) {
       </div>
     </div>
     <div class="panel">
-      <h3>Lançamentos do período (${rows.length})</h3>
+      <h3>Lançamentos</h3>
+      <div class="tbl-filtros">
+        <input type="text" id="fxBusca" placeholder="Buscar por nome, categoria, conta..." value="${escapeHtml_(FLUXO_F.busca)}">
+        <select id="fxCategoria"><option value="">Todas as categorias</option>
+          ${categorias.map(c => `<option value="${escapeHtml_(c)}" ${FLUXO_F.categoria === c ? 'selected' : ''}>${escapeHtml_(c)}</option>`).join('')}
+        </select>
+        <select id="fxContato"><option value="">Todos os contatos</option>
+          ${contatos.map(c => `<option value="${escapeHtml_(c)}" ${FLUXO_F.contato === c ? 'selected' : ''}>${escapeHtml_(c)}</option>`).join('')}
+        </select>
+        <select id="fxTipo"><option value="">Entradas e saídas</option>
+          <option value="entrada" ${FLUXO_F.tipo === 'entrada' ? 'selected' : ''}>Só entradas</option>
+          <option value="saida" ${FLUXO_F.tipo === 'saida' ? 'selected' : ''}>Só saídas</option>
+        </select>
+        <select id="fxSituacao"><option value="">Pagas e em aberto</option>
+          <option value="paga" ${FLUXO_F.situacao === 'paga' ? 'selected' : ''}>Só pagas</option>
+          <option value="aberta" ${FLUXO_F.situacao === 'aberta' ? 'selected' : ''}>Só em aberto</option>
+        </select>
+        <button type="button" id="fxLimpar" class="link-btn">Limpar</button>
+      </div>
+      <div id="fxResumo" class="tbl-resumo"></div>
       <div style="overflow-x:auto;"><table class="simple" id="tblFluxo"></table></div>
     </div>
     `}
@@ -490,24 +745,78 @@ function renderFluxoCaixa(el, rows) {
   new Chart(document.getElementById('chartCaixaMensal'), {
     type: 'bar',
     data: { labels: serie.map(b => b.label), datasets: [
-      { label: 'Entradas', data: entradas, backgroundColor: PALETTE.sageSoft },
-      { label: 'Saídas', data: saidas, backgroundColor: PALETTE.terracotta }
+      { label: 'Entradas', data: entradas, backgroundColor: PALETTE.entrada },
+      { label: 'Saídas', data: saidas, backgroundColor: PALETTE.saida }
     ] },
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' }, tooltip: { callbacks: { label: (c) => c.dataset.label + ': ' + fmtBRL(c.raw) } } }, scales: { y: { ticks: { callback: (v) => fmtBRL(v) } } } }
   });
 
   new Chart(document.getElementById('chartCaixaCategorias'), {
     type: 'bar',
-    data: { labels: topCategorias.map(c => c[0]), datasets: [{ label: 'Total', data: topCategorias.map(c => c[1]), backgroundColor: PALETTE.terracottaDark, borderRadius: 3 }] },
+    data: { labels: topCategorias.map(c => c[0]), datasets: [{ label: 'Total', data: topCategorias.map(c => c[1]), backgroundColor: PALETTE.saida, borderRadius: 3 }] },
     options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => fmtBRL(c.raw) } } }, scales: { x: { ticks: { callback: (v) => fmtBRL(v) } } } }
   });
 
-  const tbl = document.getElementById('tblFluxo');
-  let html = '<tr><th>Data</th><th>Tipo</th><th>Categoria</th><th>Contato</th><th>Banco</th><th>Valor</th></tr>';
-  rows.slice().sort((a, b) => b.date - a.date).slice(0, 100).forEach(r => {
-    html += `<tr><td>${fmtDataBR(r.date)}</td><td>${r.tipo}</td><td>${r.categoria}</td><td>${r.contato}</td><td>${r.banco}</td><td>${fmtBRL(r.valor, 2)}</td></tr>`;
+  const redesenhar = () => desenharTabelaFluxo_(rows);
+  const liga = (id, campo) => document.getElementById(id).addEventListener('change', (e) => { FLUXO_F[campo] = e.target.value; redesenhar(); });
+  liga('fxCategoria', 'categoria');
+  liga('fxContato', 'contato');
+  liga('fxTipo', 'tipo');
+  liga('fxSituacao', 'situacao');
+  document.getElementById('fxBusca').addEventListener('input', (e) => { FLUXO_F.busca = e.target.value; redesenhar(); });
+  document.getElementById('fxLimpar').addEventListener('click', () => {
+    FLUXO_F.busca = ''; FLUXO_F.categoria = ''; FLUXO_F.contato = ''; FLUXO_F.tipo = ''; FLUXO_F.situacao = '';
+    renderFluxoCaixa(el, rows);
   });
-  tbl.innerHTML = html;
+  redesenhar();
+}
+
+const LIMITE_LINHAS_FLUXO = 300;
+
+function desenharTabelaFluxo_(rows) {
+  const busca = FLUXO_F.busca.trim().toLowerCase();
+  const filtradas = rows.filter(r => {
+    if (FLUXO_F.categoria && r.categoria !== FLUXO_F.categoria) return false;
+    if (FLUXO_F.contato && r.contato !== FLUXO_F.contato) return false;
+    if (FLUXO_F.tipo && r.tipo !== FLUXO_F.tipo) return false;
+    if (FLUXO_F.situacao === 'paga' && !r.paga) return false;
+    if (FLUXO_F.situacao === 'aberta' && !r.aberta) return false;
+    if (busca) {
+      const alvo = (r.contato + ' ' + r.categoria + ' ' + r.banco + ' ' + r.grupoDRE).toLowerCase();
+      if (alvo.indexOf(busca) < 0) return false;
+    }
+    return true;
+  });
+
+  const totEnt = filtradas.filter(r => r.tipo === 'entrada').reduce((s, r) => s + r.valor, 0);
+  const totSai = filtradas.filter(r => r.tipo === 'saida').reduce((s, r) => s + r.valor, 0);
+  document.getElementById('fxResumo').innerHTML =
+    '<span>' + filtradas.length + ' lançamento(s)</span>'
+    + '<span class="val-in">entradas ' + fmtBRL(totEnt, 2) + '</span>'
+    + '<span class="val-out">saídas ' + fmtBRL(totSai, 2) + '</span>'
+    + '<span class="' + (totEnt - totSai >= 0 ? 'val-in' : 'val-out') + '">saldo ' + fmtBRL(totEnt - totSai, 2) + '</span>';
+
+  const ordenadas = filtradas.slice().sort((a, b) => b.date - a.date);
+  let html = '<tr><th>Data</th><th>Situação</th><th>Quem</th><th>Categoria</th><th>Grupo DRE</th><th>Conta</th><th>Valor</th></tr>';
+  ordenadas.slice(0, LIMITE_LINHAS_FLUXO).forEach(r => {
+    html += '<tr class="' + (r.aberta ? 'linha-aberta' : '') + '">'
+      + '<td>' + fmtDataBR(r.date) + '</td>'
+      + '<td>' + (r.aberta
+          ? '<span class="pill pill-aberta">em aberto</span>'
+          : '<span class="pill pill-paga">' + (r.tipo === 'entrada' ? 'recebida' : 'paga') + '</span>') + '</td>'
+      + '<td>' + escapeHtml_(r.contato || '—') + '</td>'
+      + '<td>' + escapeHtml_(r.categoria) + '</td>'
+      + '<td>' + escapeHtml_(r.grupoDRE) + '</td>'
+      + '<td>' + escapeHtml_(r.banco || '—') + '</td>'
+      + '<td class="num ' + (r.tipo === 'entrada' ? 'val-in' : 'val-out') + '">'
+        + (r.tipo === 'entrada' ? '' : '\u2212') + fmtBRL(r.valor, 2) + '</td>'
+      + '</tr>';
+  });
+  if (ordenadas.length > LIMITE_LINHAS_FLUXO) {
+    html += '<tr><td colspan="7" class="state-msg">Mostrando os ' + LIMITE_LINHAS_FLUXO
+      + ' mais recentes de ' + ordenadas.length + '. Use os filtros pra reduzir.</td></tr>';
+  }
+  document.getElementById('tblFluxo').innerHTML = html;
 }
 
 /* ---------------- DRE ---------------- */
