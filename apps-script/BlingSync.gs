@@ -28,8 +28,11 @@ function syncBling() {
     novos += sincronizarTipo_('pagar', token, sheet, existentes, contasBancarias, mapaCategoria);
     novos += sincronizarTipo_('receber', token, sheet, existentes, contasBancarias, mapaCategoria);
 
+    const atualizadas = atualizarContasEmAberto_(token, sheet);
+    const remapeadas = reaplicarMapaDre_(sheet, mapaCategoria);
+
     recalcularDre_();
-    logSync_('syncBling', 'ok', novos + ' lançamento(s) novo(s)');
+    logSync_('syncBling', 'ok', novos + ' nova(s), ' + atualizadas + ' atualizada(s), ' + remapeadas + ' remapeada(s)');
   } catch (err) {
     logSync_('syncBling', 'erro', String(err));
     throw err;
@@ -203,4 +206,93 @@ function recalcularDre_() {
   if (linhas.length) {
     dre.getRange(2, 1, linhas.length, 3).setValues(linhas);
   }
+}
+
+
+/**
+ * Reconfere no Bling as contas que a planilha ainda tem como EM ABERTO.
+ *
+ * Por que isso e necessario: sincronizarTipo_ e append-only — se a conta
+ * ja existe na planilha, ele pula. Entao uma conta gravada em aberto
+ * ficava em aberto pra sempre, mesmo depois de baixada no Bling. Foi o
+ * que fez o painel acusar 38 contas vencidas (incluindo o pro-labore da
+ * Karolyne, ja pago) quando o Bling so tinha 1 conta a pagar vencida.
+ *
+ * So reconfere as em aberto: sao poucas perto do total e sao justamente
+ * as unicas cujo status ainda pode mudar.
+ */
+function atualizarContasEmAberto_(token, sheet) {
+  const ultimaLinha = sheet.getLastRow();
+  if (ultimaLinha < 2) return 0;
+
+  const COL_DATA = 1, COL_SITUACAO = 3, COL_ORIGEM_ID = 13, COL_ORIGEM_TIPO = 14;
+  const dados = sheet.getRange(2, 1, ultimaLinha - 1, 14).getValues();
+
+  // uma conta pode ocupar varias linhas (rateio por categoria)
+  const linhasPorConta = {};
+  dados.forEach(function (linha, i) {
+    if (String(linha[COL_SITUACAO - 1]).trim() !== '1') return;
+    const chave = linha[COL_ORIGEM_TIPO - 1] + ':' + linha[COL_ORIGEM_ID - 1];
+    if (!linhasPorConta[chave]) linhasPorConta[chave] = [];
+    linhasPorConta[chave].push(i + 2); // numero da linha na planilha
+  });
+
+  let atualizadas = 0;
+  Object.keys(linhasPorConta).forEach(function (chave) {
+    const partes = chave.split(':');
+    const tipo = partes[0], id = partes[1];
+    if (!tipo || !id) return;
+
+    const resp = fetchBling_('https://www.bling.com.br/Api/v3/contas/' + tipo + '/' + id, token);
+    const d = resp && resp.data;
+    if (!d) return; // conta apagada no Bling ou erro: deixa como esta
+
+    const situacaoNova = String(d.situacao || '1');
+    const vencimentoNovo = d.vencimento || d.dataEmissao || '';
+    if (situacaoNova === '1') return; // continua em aberto, nada a fazer
+
+    linhasPorConta[chave].forEach(function (linha) {
+      sheet.getRange(linha, COL_SITUACAO).setValue(situacaoNova);
+      if (vencimentoNovo) sheet.getRange(linha, COL_DATA).setValue(vencimentoNovo);
+    });
+    atualizadas++;
+  });
+
+  return atualizadas;
+}
+
+/**
+ * Reescreve a coluna grupoDRE de TODAS as linhas a partir do _DRE_Mapa atual.
+ *
+ * O grupo e gravado na linha no momento do sync. Como o sync nunca
+ * reescrevia, corrigir o mapa so valia pras linhas novas — a Caixinha do
+ * Nubank continuava contando como Resultado Financeiro no historico
+ * inteiro, mesmo depois de reclassificada. Isso aqui e so planilha, nao
+ * chama a API, entao roda rapido e pode rodar sempre.
+ */
+function reaplicarMapaDre_(sheet, mapaCategoria) {
+  const ultimaLinha = sheet.getLastRow();
+  if (ultimaLinha < 2) return 0;
+
+  const COL_CATEGORIA_ID = 4, COL_GRUPO = 6;
+  const categorias = sheet.getRange(2, COL_CATEGORIA_ID, ultimaLinha - 1, 1).getValues();
+  const grupos = sheet.getRange(2, COL_GRUPO, ultimaLinha - 1, 1).getValues();
+
+  let mudou = 0;
+  for (let i = 0; i < categorias.length; i++) {
+    const mapCat = mapaCategoria[String(categorias[i][0]).trim()];
+    if (!mapCat || !mapCat.grupoDRE) continue;
+    if (String(grupos[i][0]).trim() === mapCat.grupoDRE) continue;
+    grupos[i][0] = mapCat.grupoDRE;
+    mudou++;
+  }
+  if (mudou) sheet.getRange(2, COL_GRUPO, grupos.length, 1).setValues(grupos);
+  return mudou;
+}
+
+/** Atalho pro menu: reaplica o mapa sem esperar o proximo sync. */
+function _rodarReaplicarMapaDre() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const n = reaplicarMapaDre_(ss.getSheetByName(ABA_FLUXO_CAIXA), getMapaCategoria_());
+  Logger.log('Linhas remapeadas: ' + n);
 }
