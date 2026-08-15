@@ -409,21 +409,24 @@ function serieTemporal_(rows, start, end) {
  * paga salario em dia, entao prazo de fornecedor nao e alavanca hoje.
  */
 
-/** 1) Saldo por conta financeira, somando tudo que ja foi pago/recebido. */
-function saldoPorConta_() {
-  const porConta = {};
-  (FLUXO_ROWS || []).forEach(r => {
-    if (!r.paga) return;
-    const nome = r.banco || '(sem conta)';
-    porConta[nome] = (porConta[nome] || 0) + (r.tipo === 'entrada' ? r.valor : -r.valor);
-  });
-  return porConta;
-}
+/*
+ * 1) Saldo em caixa: NAO e calculado aqui.
+ *
+ * Somar os lancamentos sincronizados nao devolve o saldo bancario —
+ * os lancamentos avulsos do Caixas e Bancos do Bling nao aparecem na
+ * API (mesmo motivo que impediu apagar os lotes antigos por script).
+ * Resultado: entram quase todas as entradas e falta parte das saidas.
+ * Na pratica deu R$ 446 mil contra ~R$ 1 mil de saldo real.
+ *
+ * Enquanto nao houver saldo informado, o painel mostra so o que ele
+ * sabe de verdade: quanto entra e quanto sai, pelo vencimento das
+ * contas em aberto. Melhor nao ter o numero do que ter um errado.
+ */
 
 /**
- * 2) Projecao / necessidade de caixa nos proximos N dias.
- * So conta o que ainda esta EM ABERTO, pelo vencimento. O que ja venceu e
- * nao foi baixado entra como atrasado — e o que costuma pegar de surpresa.
+ * 2) Movimento previsto nos proximos N dias, a partir das contas EM ABERTO.
+ * Confiavel: sai direto do vencimento das contas do Bling.
+ * O que ja venceu e nao foi baixado entra separado como atrasado.
  */
 function projecaoCaixa_(dias) {
   const hoje = startOfDay_(new Date());
@@ -438,12 +441,7 @@ function projecaoCaixa_(dias) {
     if (r.date > limite) return;
     if (r.tipo === 'entrada') aReceber += r.valor; else aPagar += r.valor;
   });
-  const saldoHoje = Object.values(saldoPorConta_()).reduce((a, b) => a + b, 0);
-  return {
-    saldoHoje, aReceber, aPagar, vencidoReceber, vencidoPagar,
-    necessidade: aPagar - aReceber,
-    projetado: saldoHoje + aReceber - aPagar
-  };
+  return { aReceber, aPagar, vencidoReceber, vencidoPagar, necessidade: aPagar - aReceber };
 }
 
 /** 3) PMR: quantos dias, em media, o dinheiro leva pra chegar depois da venda. */
@@ -505,15 +503,11 @@ function renderHoje(el) {
   const p7 = projecaoCaixa_(7);
   const p15 = projecaoCaixa_(15);
   const p30 = projecaoCaixa_(30);
-  const contas = saldoPorConta_();
   const hoje = startOfDay_(new Date());
 
   const vencemHoje = (FLUXO_ROWS || []).filter(r => r.aberta && startOfDay_(r.date).getTime() === hoje.getTime());
   const atrasadas = (FLUXO_ROWS || []).filter(r => r.aberta && r.date < hoje).sort((a, b) => a.date - b.date);
   const proximas = (FLUXO_ROWS || []).filter(r => r.aberta && r.date >= hoje && r.date <= addDays_(hoje, 7)).sort((a, b) => a.date - b.date);
-
-  const apertado = p7.projetado < 0;
-  const atencao = !apertado && p15.projetado < 0;
 
   el.innerHTML = `
     <div class="section-head">
@@ -522,64 +516,62 @@ function renderHoje(el) {
     </div>
 
     <div class="kpi-grid">
-      <div class="kpi ${p7.saldoHoje >= 0 ? 'ok' : 'bad'}">
-        <div class="kpi-label">Saldo em caixa</div>
-        <div class="kpi-value">${fmtBRL(p7.saldoHoje)}</div>
-        <div class="kpi-foot">Somando todas as contas</div>
+      <div class="kpi ${p7.necessidade > 0 ? 'warn' : 'ok'}">
+        <div class="kpi-label">Precisa nos 7 dias</div>
+        <div class="kpi-value">${p7.necessidade > 0 ? fmtBRL(p7.necessidade) : fmtBRL(0)}</div>
+        <div class="kpi-foot">${p7.necessidade > 0
+          ? 'Sai mais do que entra na semana'
+          : 'A semana se paga sozinha'}</div>
       </div>
-      <div class="kpi ${apertado ? 'bad' : (atencao ? 'warn' : 'ok')}">
-        <div class="kpi-label">Projeção 7 dias</div>
-        <div class="kpi-value">${fmtBRL(p7.projetado)}</div>
-        <div class="kpi-foot">${p7.necessidade > 0 ? 'Faltam ' + fmtBRL(p7.necessidade) + ' pra fechar a semana' : 'Semana coberta'}</div>
+      <div class="kpi">
+        <div class="kpi-label">A pagar · 7 dias</div>
+        <div class="kpi-value val-out">${fmtBRL(p7.aPagar)}</div>
+        <div class="kpi-foot">30 dias: ${fmtBRL(p30.aPagar)}</div>
       </div>
-      <div class="kpi ${p30.projetado >= 0 ? 'ok' : 'warn'}">
-        <div class="kpi-label">Projeção 30 dias</div>
-        <div class="kpi-value">${fmtBRL(p30.projetado)}</div>
-        <div class="kpi-foot">A receber ${fmtBRL(p30.aReceber)} · a pagar ${fmtBRL(p30.aPagar)}</div>
+      <div class="kpi">
+        <div class="kpi-label">A receber · 7 dias</div>
+        <div class="kpi-value val-in">${fmtBRL(p7.aReceber)}</div>
+        <div class="kpi-foot">30 dias: ${fmtBRL(p30.aReceber)}</div>
       </div>
       <div class="kpi ${atrasadas.length ? 'bad' : 'ok'}">
         <div class="kpi-label">Vencidas em aberto</div>
         <div class="kpi-value">${atrasadas.length}</div>
-        <div class="kpi-foot">${atrasadas.length ? fmtBRL(p7.vencidoPagar) + ' a pagar · ' + fmtBRL(p7.vencidoReceber) + ' a receber' : 'Nada atrasado'}</div>
+        <div class="kpi-foot">${atrasadas.length
+          ? fmtBRL(p7.vencidoPagar) + ' a pagar · ' + fmtBRL(p7.vencidoReceber) + ' a receber'
+          : 'Nada atrasado'}</div>
       </div>
     </div>
 
-    ${apertado ? '<div class="alerta bad">O caixa não fecha os próximos 7 dias. Veja o que dá pra antecipar de recebível ou adiar de pagamento.</div>' : ''}
-    ${atencao ? '<div class="alerta warn">A semana fecha, mas os próximos 15 dias ficam negativos. Vale olhar com antecedência.</div>' : ''}
+    ${p15.necessidade > 0 ? `<div class="alerta warn">Nos próximos 15 dias sai <b>${fmtBRL(p15.necessidade)}</b> a mais do que entra. Confira se o saldo em conta cobre.</div>` : ''}
+
+    <div class="alerta info">
+      <b>O saldo em conta não aparece aqui de propósito.</b> A API do Bling não expõe os lançamentos
+      avulsos do Caixas e Bancos, então qualquer saldo que eu calculasse viria errado — e errado pra
+      mais. Os valores acima saem do vencimento das contas, que é informação confiável.
+      Pra ver saldo, use o Caixas e Bancos do Bling.
+    </div>
 
     <div class="grid-2">
-      <div class="panel">
-        <h3>Saldo por conta</h3>
-        <table class="simple" id="tblContas"></table>
-      </div>
       <div class="panel">
         <h3>Vence hoje</h3>
         ${vencemHoje.length ? '<table class="simple" id="tblHoje"></table>' : '<div class="state-msg">Nada vencendo hoje.</div>'}
       </div>
+      <div class="panel">
+        <h3>Próximos 7 dias</h3>
+        ${proximas.length ? '<div style="max-height:320px; overflow:auto;"><table class="simple" id="tblProximas"></table></div>' : '<div class="state-msg">Nada previsto pros próximos 7 dias.</div>'}
+      </div>
     </div>
 
     ${atrasadas.length ? `<div class="panel"><h3>Atrasadas <span class="badge-bad">${atrasadas.length}</span></h3>
-      <div style="overflow-x:auto;"><table class="simple" id="tblAtrasadas"></table></div></div>` : ''}
-
-    <div class="panel">
-      <h3>Próximos 7 dias</h3>
-      ${proximas.length ? '<div style="overflow-x:auto;"><table class="simple" id="tblProximas"></table></div>' : '<div class="state-msg">Nada previsto pros próximos 7 dias.</div>'}
-    </div>
+      <div class="sub">Contas com vencimento passado que ainda não foram baixadas no Bling. Pode ser pagamento em atraso de verdade, ou baixa esquecida.</div>
+      <div style="overflow-x:auto; max-height:420px;"><table class="simple" id="tblAtrasadas"></table></div></div>` : ''}
   `;
-
-  const tc = document.getElementById('tblContas');
-  let h = '<tr><th>Conta</th><th>Saldo</th></tr>';
-  Object.keys(contas).sort((a, b) => contas[b] - contas[a]).forEach(k => {
-    h += `<tr><td>${escapeHtml_(k)}</td><td class="num ${contas[k] >= 0 ? 'val-in' : 'val-out'}">${fmtBRL(contas[k], 2)}</td></tr>`;
-  });
-  h += `<tr><td><b>Total</b></td><td class="num"><b>${fmtBRL(p7.saldoHoje, 2)}</b></td></tr>`;
-  tc.innerHTML = h;
 
   const linhaConta = (r) => `<tr>
       <td>${fmtDataBR(r.date)}</td>
       <td>${escapeHtml_(r.contato || '—')}</td>
       <td>${escapeHtml_(r.categoria)}</td>
-      <td class="num ${r.tipo === 'entrada' ? 'val-in' : 'val-out'}">${r.tipo === 'entrada' ? '' : '−'}${fmtBRL(r.valor, 2)}</td>
+      <td class="num ${r.tipo === 'entrada' ? 'val-in' : 'val-out'}">${r.tipo === 'entrada' ? '' : '\u2212'}${fmtBRL(r.valor, 2)}</td>
     </tr>`;
   const cab = '<tr><th>Venc.</th><th>Quem</th><th>Categoria</th><th>Valor</th></tr>';
 
