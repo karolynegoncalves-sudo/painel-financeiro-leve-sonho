@@ -70,13 +70,39 @@ function getOrCreateSheet_(ss, nome) {
   return sheet;
 }
 
+/**
+ * Garante o cabeçalho da aba. Em aba vazia, escreve tudo. Em aba QUE JÁ TEM
+ * DADOS, acrescenta ao final só as colunas que faltam — antes essa função
+ * saía sem fazer nada nesse caso, e por isso `sku`, `taxaFixaReais` e
+ * `unidade` nunca apareciam em quem já tinha linha preenchida: o setup
+ * "rodava com sucesso" e o dado continuava sem lugar.
+ *
+ * Coluna nova entra sempre no FIM, nunca no meio: mexer na ordem
+ * embaralharia as linhas que já existem. Quem lê usa headers.indexOf(nome),
+ * então a posição não importa — e quem grava também precisa fazer isso,
+ * nunca montar a linha por posição fixa.
+ */
 function ensureHeader_(sheet, headers) {
-  const range = sheet.getRange(1, 1, 1, headers.length);
-  if (sheet.getLastRow() === 0 || range.getValues()[0].join('') === '') {
-    range.setValues([headers]);
+  const vazia = sheet.getLastRow() === 0
+    || sheet.getRange(1, 1, 1, headers.length).getValues()[0].join('') === '';
+
+  if (vazia) {
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
     sheet.setFrozenRows(1);
-    sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold').setBackground('#8E2A44').setFontColor('#FFFFFF');
+    sheet.getRange(1, 1, 1, headers.length)
+      .setFontWeight('bold').setBackground('#8E2A44').setFontColor('#FFFFFF');
+    return;
   }
+
+  const atuais = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0]
+    .map(function (h) { return String(h).trim(); });
+  const faltando = headers.filter(function (h) { return atuais.indexOf(h) < 0; });
+  if (!faltando.length) return;
+
+  sheet.getRange(1, atuais.length + 1, 1, faltando.length).setValues([faltando]);
+  sheet.getRange(1, atuais.length + 1, 1, faltando.length)
+    .setFontWeight('bold').setBackground('#8E2A44').setFontColor('#FFFFFF');
+  Logger.log('%s: colunas acrescentadas -> %s', sheet.getName(), faltando.join(', '));
 }
 
 function setupAcesso_(ss) {

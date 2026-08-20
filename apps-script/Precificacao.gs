@@ -331,23 +331,40 @@ function salvarPrecificacaoProduto_(produto, email) {
       linhaExistente = -1;
     }
 
-    const linha = [
-      id, produto.nome, produto.canal, true,
-      produto.sku || '', produto.tipoProduto || '', produto.tamanho || '',
-      JSON.stringify(produto.materiais || []), JSON.stringify(produto.maoDeObra || []),
-      JSON.stringify(produto.outros || []), JSON.stringify(produto.tarifas || {}),
-      despesasFixasPct, num_(produto.precoVenda),
-      custoProduto, snap.lucroPct, snap.margemContribuicaoPct, snap.markup,
-      linhaExistente === -1 ? agora : rows[linhaExistente - 2][idx('criadoEm')],
-      linhaExistente === -1 ? email : rows[linhaExistente - 2][idx('criadoPor')],
-      agora, email
-    ];
+    /* Monta a linha POR NOME de coluna, não por posição. Colunas novas
+       entram no fim do cabeçalho (ver ensureHeader_), então a ordem física
+       varia de planilha pra planilha — gravar posicionalmente escreveria o
+       sku em cima do materiaisJson em quem já tinha a aba antiga. */
+    const valores = {
+      id: id,
+      nome: produto.nome,
+      canal: produto.canal,
+      ativo: true,
+      sku: produto.sku || '',
+      tipoProduto: produto.tipoProduto || '',
+      tamanho: produto.tamanho || '',
+      materiaisJson: JSON.stringify(produto.materiais || []),
+      maoDeObraJson: JSON.stringify(produto.maoDeObra || []),
+      outrosJson: JSON.stringify(produto.outros || []),
+      tarifasJson: JSON.stringify(produto.tarifas || {}),
+      despesasFixasPct: despesasFixasPct,
+      precoVenda: num_(produto.precoVenda),
+      custoProdutoSnapshot: custoProduto,
+      lucroPctSnapshot: snap.lucroPct,
+      margemContribuicaoPctSnapshot: snap.margemContribuicaoPct,
+      markupSnapshot: snap.markup,
+      criadoEm: linhaExistente === -1 ? agora : rows[linhaExistente - 2][idx('criadoEm')],
+      criadoPor: linhaExistente === -1 ? email : rows[linhaExistente - 2][idx('criadoPor')],
+      atualizadoEm: agora,
+      atualizadoPor: email
+    };
+    const linha = headers.map(function (h) {
+      const nome = String(h).trim();
+      return Object.prototype.hasOwnProperty.call(valores, nome) ? valores[nome] : '';
+    });
 
-    if (linhaExistente === -1) {
-      sheet.appendRow(linha);
-    } else {
-      sheet.getRange(linhaExistente, 1, 1, linha.length).setValues([linha]);
-    }
+    const alvo = linhaExistente === -1 ? sheet.getLastRow() + 1 : linhaExistente;
+    sheet.getRange(alvo, 1, 1, linha.length).setValues([linha]);
 
     return {
       id, nome: produto.nome, canal: produto.canal,
