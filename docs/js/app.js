@@ -34,9 +34,12 @@ let precifMaoDeObraPecas = null; // mão de obra por peça (_Precificacao_MaoDeO
 let precifCorte = null;          // corte por peça (_Precificacao_Corte)
 let precifProducao = null;       // tecido e costura por grupo de canal (_Precificacao_Producao)
 let precifAviamentos = null;     // vivo/elástico por tamanho (_Precificacao_Aviamentos_Tamanho)
+let precifAcabamentos = null;    // renda, guipir e vivo opcionais (_Precificacao_Acabamentos)
 /* Estado da Ficha de Preço. Fica fora da função pra sobreviver ao
    redesenho a cada tecla. */
-const FICHA = { modelo: '', tamanho: '', tecido: '', renda: '', metrosRenda: 0.60, canal: '', preco: '' };
+/* `acabamentos` é um mapa nome -> metros dos que estão marcados. Ausente
+   significa não marcado — por isso mapa e não lista de booleanos. */
+const FICHA = { modelo: '', tamanho: '', tecido: '', acabamentos: {}, canal: '', preco: '' };
 let precifDespesasFixas = null;  // despesas fixas mensais (_Despesas_Fixas)
 
 const CANAL_LABELS = {
@@ -297,7 +300,7 @@ async function safeRenderTab(view) {
     if (view === 'precificacao') {
       if (precifProdutos === null || precifConfig === null) {
         el.innerHTML = '<div class="state-msg">Carregando...</div>';
-        const [dataProdutos, dataConfig, dataMateriais, dataRendimento, dataFuncionarios, dataMaoDeObraPecas, dataCorte, dataProducao, dataAviamentos] = await Promise.all([
+        const [dataProdutos, dataConfig, dataMateriais, dataRendimento, dataFuncionarios, dataMaoDeObraPecas, dataCorte, dataProducao, dataAviamentos, dataAcabamentos] = await Promise.all([
           apiFetch_('precificacao', idToken),
           apiFetch_('precificacaoConfig', idToken),
           apiFetch_('precificacaoMateriais', idToken),
@@ -306,7 +309,8 @@ async function safeRenderTab(view) {
           apiFetch_('precificacaoMaoDeObraPecas', idToken),
           apiFetch_('precificacaoCorte', idToken),
           apiFetch_('precificacaoProducao', idToken),
-          apiFetch_('precificacaoAviamentos', idToken)
+          apiFetch_('precificacaoAviamentos', idToken),
+          apiFetch_('precificacaoAcabamentos', idToken)
         ]);
         precifProdutos = (dataProdutos && dataProdutos.produtos) || [];
         precifConfig = (dataConfig && dataConfig.config) || { despesasFixasPctPadrao: 0, canais: {} };
@@ -317,6 +321,7 @@ async function safeRenderTab(view) {
         precifCorte = (dataCorte && dataCorte.corte) || [];
         precifProducao = (dataProducao && dataProducao.producao) || [];
         precifAviamentos = (dataAviamentos && dataAviamentos.aviamentos) || [];
+        precifAcabamentos = (dataAcabamentos && dataAcabamentos.acabamentos) || [];
       }
       return renderPrecificacao(el);
     }
@@ -992,15 +997,16 @@ function renderDreCompetencia_(corpo) {
 
 const ORDEM_TAM = ['PP', 'P', 'M', 'G', 'GG', 'G1', 'G2', 'G3', '2', '4', '6', '8', '10', '12', '14', '-'];
 const PADRAO_CANAL = 'padrão do canal';
-const SEM_RENDA = 'sem renda';
 const MARGEM_QUEIMA = 0.15;
 
-/* Renda entra de dois jeitos, e confundir erra o custo: o TULE
-   SUBSTITUI tecido (a manga é de tule, não se corta manga de cetim),
-   então os metros dele saem do tecido principal. Guipir e chantily
-   são aplicadas por cima — o corte continua inteiro e a renda soma. */
-const RENDAS_SUBSTITUEM = { 'Tule': true };
-const NOMES_RENDA = ['Tule', 'Guipir', 'Guipir larga', 'Renda Chantily'];
+/* Acabamentos são opcionais e COMBINÁVEIS — cada um marcado soma seu
+   custo. A quantidade é por aplicação, não por material: a mesma guipir
+   tem três linhas no catálogo porque o que muda é onde ela vai (manga e
+   barra 5m, com revel 9m, larga 3m). Tratar "guipir" como uma quantidade
+   só erraria o custo em qualquer um dos três casos.
+
+   `substituiTecido` marca quem sai do tecido principal em vez de somar.
+   Só o tule: a manga é de tule e não se corta manga de cetim. */
 
 /* Aviamentos que toda peça leva, independente de tamanho. */
 const AVIAMENTOS_FIXOS = {
@@ -1056,7 +1062,7 @@ function canaisDaConfig_() {
   });
 }
 
-function calcularFicha_(modelo, tamanho, tecido, renda, metrosRenda, canalObj) {
+function calcularFicha_(modelo, tamanho, tecido, escolhidos, canalObj) {
   const rend = rendimentoMapa_();
   const mats = materialPorNome_();
   const avisos = [];
@@ -1074,17 +1080,29 @@ function calcularFicha_(modelo, tamanho, tecido, renda, metrosRenda, canalObj) {
   const mat = mats[nomeTecido];
   if (nomeTecido && !mat) avisos.push('Tecido "' + nomeTecido + '" não está no catálogo de materiais.');
 
-  const matRenda = renda ? mats[renda] : null;
-  if (renda && !matRenda) avisos.push('Renda "' + renda + '" não está no catálogo.');
-  const metrosRnd = matRenda ? Math.max(0, Number(metrosRenda) || 0) : 0;
-  const substitui = !!(renda && RENDAS_SUBSTITUEM[renda]);
-  if (substitui && metrosRnd > totalMetros) {
-    avisos.push('A renda (' + fmtNum_(metrosRnd) + ' m) não cabe no total do modelo (' + fmtNum_(totalMetros) + ' m).');
+  const detAcab = [];
+  let custoAcab = 0, metrosSubstituidos = 0;
+  (precifAcabamentos || []).forEach(a => {
+    const metros = escolhidos[a.acabamento];
+    if (metros === undefined) return;
+    const m = mats[a.material];
+    if (!m) {
+      avisos.push('Acabamento "' + a.acabamento + '" usa "' + a.material + '", que não está no catálogo.');
+      return;
+    }
+    const q = Math.max(0, Number(metros) || 0);
+    const valor = q * m.valorPorMetro;
+    custoAcab += valor;
+    if (a.substituiTecido) metrosSubstituidos += q;
+    detAcab.push({ nome: a.acabamento, metros: q, unit: m.valorPorMetro, valor, substitui: a.substituiTecido });
+  });
+  if (metrosSubstituidos > totalMetros) {
+    avisos.push('Os acabamentos que substituem tecido (' + fmtNum_(metrosSubstituidos)
+      + ' m) não cabem no total do modelo (' + fmtNum_(totalMetros) + ' m).');
   }
-  const metrosPrinc = substitui ? Math.max(0, Math.round((totalMetros - metrosRnd) * 100) / 100) : totalMetros;
+  const metrosPrinc = Math.max(0, Math.round((totalMetros - metrosSubstituidos) * 100) / 100);
 
   const custoTecido = metrosPrinc * (mat ? mat.valorPorMetro : 0);
-  const custoRenda = metrosRnd * (matRenda ? matRenda.valorPorMetro : 0);
 
   const corteReg = (precifCorte || []).find(x => x.tipoPeca === tipoPeca);
   const custoCorte = corteReg ? corteReg.valor : 0;
@@ -1102,12 +1120,12 @@ function calcularFicha_(modelo, tamanho, tecido, renda, metrosRenda, canalObj) {
   });
   const custoTam = detTam.reduce((s, a) => s + a.valor, 0);
 
-  const custo = custoTecido + custoRenda + custoCorte + custoCostura + custoFixos + custoTam;
+  const custo = custoTecido + custoAcab + custoCorte + custoCostura + custoFixos + custoTam;
   const taxaPct = canalObj.imp + canalObj.com + canalObj.ex.reduce((s, e) => s + e[1], 0);
 
   return {
-    canal: canalObj, tipoPeca, totalMetros, metrosPrinc, metrosRnd, renda, matRenda, substitui,
-    mat, nomeTecido, padraoDoCanal, custoTecido, custoRenda, custoCorte, custoCostura,
+    canal: canalObj, tipoPeca, totalMetros, metrosPrinc, metrosSubstituidos, detAcab, custoAcab,
+    mat, nomeTecido, padraoDoCanal, custoTecido, custoCorte, custoCostura,
     fixos, custoFixos, detTam, custoTam, custo, taxaPct, avisos
   };
 }
@@ -1150,7 +1168,7 @@ function renderPrecificacao(el) {
   if (!FICHA.canal || !canais.find(c => c.canal === FICHA.canal)) FICHA.canal = canais[0].canal;
 
   const canalObj = canais.find(c => c.canal === FICHA.canal);
-  const r = calcularFicha_(FICHA.modelo, FICHA.tamanho, FICHA.tecido, FICHA.renda, FICHA.metrosRenda, canalObj);
+  const r = calcularFicha_(FICHA.modelo, FICHA.tamanho, FICHA.tecido, FICHA.acabamentos, canalObj);
   const preco = Number(FICHA.preco) || 0;
 
   const taxaRs = preco * r.taxaPct;
@@ -1174,10 +1192,13 @@ function renderPrecificacao(el) {
       <div class="fp-campo"><label for="fpModelo">Modelo</label><select id="fpModelo">${opt(modelos, FICHA.modelo)}</select></div>
       <div class="fp-campo"><label for="fpTamanho">Tamanho</label><select id="fpTamanho">${opt(tamanhos, FICHA.tamanho)}</select></div>
       <div class="fp-campo"><label for="fpTecido">Tecido principal</label><select id="fpTecido">${opt([PADRAO_CANAL].concat(mats), FICHA.tecido || PADRAO_CANAL)}</select></div>
-      <div class="fp-campo"><label for="fpRenda">Renda</label><select id="fpRenda">${opt([SEM_RENDA].concat(NOMES_RENDA), FICHA.renda || SEM_RENDA)}</select></div>
-      <div class="fp-campo"><label for="fpRendaM">Metros de renda</label><input type="number" id="fpRendaM" step="0.05" min="0" value="${FICHA.metrosRenda}" ${FICHA.renda ? '' : 'disabled'}></div>
       <div class="fp-campo"><label for="fpCanal">Canal</label><select id="fpCanal">${opt(canais.map(c => c.canal), FICHA.canal)}</select></div>
       <div class="fp-campo"><label for="fpPreco">Preço de venda</label><input type="number" id="fpPreco" step="0.10" min="0" value="${FICHA.preco}"></div>
+    </div>
+
+    <div class="fp-card fp-acabamentos">
+      <h3>Acabamentos — marque os que a peça leva</h3>
+      <div class="fp-acab-lista">${listaAcabamentos_()}</div>
     </div>
 
     <div class="fp-painel">
@@ -1212,7 +1233,7 @@ function renderPrecificacao(el) {
     <div class="alerta info">
       <b>Margem de contribuição</b> é o que sobra depois do custo de produzir e das taxas do canal — antes das despesas fixas da empresa (hoje ${fmtPctPlano_(dfx)} do faturamento). É a régua certa para decidir preço e promoção, porque o custo fixo já está pago de qualquer jeito.
       O <b>piso de 15%</b> é a margem mínima para queima de estoque.
-      <b>Renda</b> entra de dois jeitos: o tule <b>substitui</b> tecido, porque a manga é de tule e não se corta manga de cetim; guipir e chantily são aplicadas por cima e só <b>somam</b>.
+      <b>Acabamentos</b> podem ser combinados — cada um marcado soma seu custo, e a quantidade vem preenchida com o padrão da peça. Só o <b>tule</b> desconta metros do tecido principal, porque a manga é de tule e não se corta manga de cetim; guipir, chantily e vivo são aplicados por cima e só somam.
       A <b>taxa fixa</b> da Shopee entra como taxa de canal, não como custo da peça — nas fichas antigas ela estava somada ao custo, o que fazia a peça parecer cara também na Nuvemshop, onde essa cobrança não existe.
     </div>
   `;
@@ -1226,10 +1247,9 @@ function renderPrecificacao(el) {
         const lista = id === 'fpModelo' ? modelos
           : id === 'fpTamanho' ? tamanhos
             : id === 'fpTecido' ? [PADRAO_CANAL].concat(mats)
-              : id === 'fpRenda' ? [SEM_RENDA].concat(NOMES_RENDA)
-                : canais.map(c => c.canal);
+              : canais.map(c => c.canal);
         let v = lista[Number(evt.target.value)] || lista[0];
-        if (v === PADRAO_CANAL || v === SEM_RENDA) v = '';
+        if (v === PADRAO_CANAL) v = '';
         FICHA[campo] = v;
         if (id === 'fpModelo') FICHA.tamanho = '';
       } else {
@@ -1239,8 +1259,44 @@ function renderPrecificacao(el) {
     });
   };
   liga('fpModelo', 'modelo'); liga('fpTamanho', 'tamanho'); liga('fpTecido', 'tecido');
-  liga('fpRenda', 'renda'); liga('fpCanal', 'canal');
-  liga('fpRendaM', 'metrosRenda'); liga('fpPreco', 'preco');
+  liga('fpCanal', 'canal'); liga('fpPreco', 'preco');
+
+  (precifAcabamentos || []).forEach((a, i) => {
+    const cb = document.getElementById('fpAc' + i);
+    const qt = document.getElementById('fpAcM' + i);
+    if (!cb || !qt) return;
+    cb.addEventListener('change', () => {
+      if (cb.checked) FICHA.acabamentos[a.acabamento] = Number(qt.value) || a.metros;
+      else delete FICHA.acabamentos[a.acabamento];
+      renderPrecificacao(el);
+    });
+    qt.addEventListener('input', () => {
+      if (!cb.checked) return;
+      FICHA.acabamentos[a.acabamento] = Number(qt.value) || 0;
+      renderPrecificacao(el);
+    });
+  });
+}
+
+/* Lista de acabamentos com checkbox e quantidade editável. A quantidade
+   nasce com o padrão do catálogo e só fica ativa quando marcado. */
+function listaAcabamentos_() {
+  const acabs = precifAcabamentos || [];
+  if (!acabs.length) return '<div class="state-msg">Nenhum acabamento cadastrado em _Precificacao_Acabamentos.</div>';
+  const mats = materialPorNome_();
+  return acabs.map((a, i) => {
+    const marcado = FICHA.acabamentos[a.acabamento] !== undefined;
+    const metros = marcado ? FICHA.acabamentos[a.acabamento] : a.metros;
+    const m = mats[a.material];
+    return '<div class="fp-acab' + (marcado ? '' : ' off') + '">'
+      + '<input type="checkbox" id="fpAc' + i + '"' + (marcado ? ' checked' : '') + '>'
+      + '<label for="fpAc' + i + '">' + escapeHtml_(a.acabamento)
+      + (a.substituiTecido ? ' <span class="pill md">substitui tecido</span>' : '')
+      + '<small>' + escapeHtml_(a.material) + ' · R$ ' + fmtNum_(m ? m.valorPorMetro : 0) + '/m</small></label>'
+      + '<input type="number" id="fpAcM' + i + '" step="0.05" min="0" value="' + metros + '"'
+      + (marcado ? '' : ' disabled') + '>'
+      + '<span class="un">m</span></div>';
+  }).join('');
 }
 
 function linhasCusto_(r) {
@@ -1252,10 +1308,10 @@ function linhasCusto_(r) {
 
   li(escapeHtml_(r.nomeTecido || 'Tecido') + (r.padraoDoCanal ? ' <span class="pill md">padrão ' + escapeHtml_(r.canal.grupo) + '</span>' : ''),
     fmtNum_(r.metrosPrinc) + ' m × R$ ' + fmtNum_(r.mat ? r.mat.valorPorMetro : 0) + '/m', r.custoTecido);
-  if (r.metrosRnd) {
-    li(escapeHtml_(r.renda) + (r.substitui ? ' <span class="pill md">no lugar do tecido</span>' : ' <span class="pill ok">acréscimo</span>'),
-      fmtNum_(r.metrosRnd) + ' m × R$ ' + fmtNum_(r.matRenda.valorPorMetro) + '/m', r.custoRenda);
-  }
+  r.detAcab.forEach(a => {
+    li(escapeHtml_(a.nome) + (a.substitui ? ' <span class="pill md">no lugar do tecido</span>' : ''),
+      fmtNum_(a.metros) + ' m × R$ ' + fmtNum_(a.unit) + '/m', a.valor);
+  });
   r.detTam.forEach(a => li(escapeHtml_(a.nome), fmtNum_(a.qtd) + ' m × R$ ' + fmtNum_(a.unit) + '/m', a.valor, 'sub'));
   if (r.fixos.length) li('Aviamentos fixos', r.fixos.map(a => a.d).join(' · '), r.custoFixos, 'sub');
   li('Corte', escapeHtml_(r.tipoPeca) + ' · por peça', r.custoCorte);
@@ -1289,7 +1345,7 @@ function avisosFicha_(r, preco, p15) {
 
 function linhasCanais_(canais, preco) {
   return canais.map(c => {
-    const rc = calcularFicha_(FICHA.modelo, FICHA.tamanho, FICHA.tecido, FICHA.renda, FICHA.metrosRenda, c);
+    const rc = calcularFicha_(FICHA.modelo, FICHA.tamanho, FICHA.tecido, FICHA.acabamentos, c);
     const t = preco * rc.taxaPct;
     const s = preco - t - c.fixa - rc.custo;
     const mp = preco ? s / preco : 0;
