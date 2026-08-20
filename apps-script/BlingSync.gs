@@ -47,6 +47,30 @@ function criarGatilhoSync() {
   Logger.log('Gatilho criado: syncBling a cada 2 horas.');
 }
 
+/**
+ * O detalhe de conta a PAGAR devolve o contato so com o id:
+ *     contato = {"id": 16667893174}
+ * enquanto o de conta a RECEBER devolve o objeto inteiro com nome.
+ * Sem isso, toda saida aparecia como "-" no painel (medido em
+ * 20/08/2026: 1.746 de 8.043 contas sem nome, todas a pagar).
+ * Aqui resolvemos o id pelo cadastro de contatos, com cache pra
+ * nao repetir chamada do mesmo fornecedor.
+ */
+const CACHE_CONTATOS_ = {};
+
+function nomeDoContato_(contato, token) {
+  if (!contato) return '';
+  if (contato.nome) return contato.nome;
+  const id = contato.id;
+  if (!id) return '';
+  if (Object.prototype.hasOwnProperty.call(CACHE_CONTATOS_, id)) return CACHE_CONTATOS_[id];
+  const resp = fetchBling_('https://www.bling.com.br/Api/v3/contatos/' + id, token);
+  const nome = (resp && resp.data && resp.data.nome) || '';
+  CACHE_CONTATOS_[id] = nome;
+  Utilities.sleep(200);
+  return nome;
+}
+
 function fetchBling_(url, token) {
   const resp = UrlFetchApp.fetch(url, {
     headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
@@ -125,7 +149,7 @@ function sincronizarTipo_(tipo, token, sheet, existentes, contasBancarias, mapaC
           mapCat.grupoDRE,
           portador.id || '',
           portador.nome || '',
-          (d.contato && d.contato.nome) || '',
+          nomeDoContato_(d.contato, token),
           (d.formaPagamento && d.formaPagamento.descricao) || '',
           d.numeroDocumento || '',
           rateio.valor,
@@ -295,4 +319,67 @@ function _rodarReaplicarMapaDre() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const n = reaplicarMapaDre_(ss.getSheetByName(ABA_FLUXO_CAIXA), getMapaCategoria_());
   Logger.log('Linhas remapeadas: ' + n);
+}
+
+/**
+ * PREENCHE RETROATIVAMENTE o nome do contato nas linhas antigas.
+ *
+ * O sync so grava linha nova, entao corrigir nomeDoContato_ nao
+ * conserta o que ja esta na planilha. Esta funcao varre a aba
+ * Fluxo, acha as linhas com contatoNome vazio e resolve o nome
+ * pelo detalhe da conta.
+ *
+ * Respeita o limite de 6 minutos do Apps Script: para sozinha aos
+ * 4,5 min e grava o que ja fez. E so rodar de novo que ela continua
+ * de onde parou - as linhas ja preenchidas nao voltam a ser lidas.
+ *
+ * Rode por _rodarPreencherContatos.
+ */
+function preencherContatosFaltantes_() {
+  const COL_CONTATO = 9;
+  const COL_ORIGEM_ID = 13;
+  const COL_ORIGEM_TIPO = 14;
+  const LIMITE_MS = 4.5 * 60 * 1000;
+
+  const inicio = Date.now();
+  const token = getBlingAccessToken_();
+  if (!token) { logSync_('preencherContatos', 'erro', 'sem token'); return; }
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(ABA_FLUXO_CAIXA);
+  if (!sheet) { logSync_('preencherContatos', 'erro', 'aba ' + ABA_FLUXO_CAIXA + ' nao encontrada'); return; }
+
+  const ultima = sheet.getLastRow();
+  if (ultima < 2) return;
+
+  const dados = sheet.getRange(2, 1, ultima - 1, COL_ORIGEM_TIPO).getValues();
+  let preenchidos = 0, semNome = 0, parouEm = 0;
+
+  for (let i = 0; i < dados.length; i++) {
+    if (String(dados[i][COL_CONTATO - 1] || '').trim() !== '') continue;
+    const idConta = dados[i][COL_ORIGEM_ID - 1];
+    const tipo = String(dados[i][COL_ORIGEM_TIPO - 1] || '').trim();
+    if (!idConta || (tipo !== 'pagar' && tipo !== 'receber')) continue;
+
+    if (Date.now() - inicio > LIMITE_MS) { parouEm = i + 2; break; }
+
+    const resp = fetchBling_('https://www.bling.com.br/Api/v3/contas/' + tipo + '/' + idConta, token);
+    const d = (resp && resp.data) || null;
+    const nome = d ? nomeDoContato_(d.contato, token) : '';
+    if (nome) {
+      sheet.getRange(i + 2, COL_CONTATO).setValue(nome);
+      preenchidos++;
+    } else {
+      semNome++;
+    }
+    Utilities.sleep(300);
+  }
+
+  logSync_('preencherContatos', 'ok',
+    preenchidos + ' nomes preenchidos, ' + semNome + ' sem nome no Bling'
+    + (parouEm ? ', parei na linha ' + parouEm + ' por tempo - rode de novo' : ', terminou tudo'));
+}
+
+function _rodarPreencherContatos() {
+  preencherContatosFaltantes_();
 }

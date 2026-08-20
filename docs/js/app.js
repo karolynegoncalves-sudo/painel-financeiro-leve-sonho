@@ -499,15 +499,22 @@ function pontoEquilibrio_(rows) {
  * pergunta aqui e sempre "e hoje?". Responde as duas primeiras perguntas
  * da apostila — caixa esta saudavel, e tem algo vencendo.
  */
+/* Filtro de entrada/saida da aba Hoje. Fica fora da funcao pra
+   sobreviver ao redesenho quando a pessoa troca a opcao. */
+const HOJE_F = { tipo: '' };
+
 function renderHoje(el) {
   const p7 = projecaoCaixa_(7);
   const p15 = projecaoCaixa_(15);
   const p30 = projecaoCaixa_(30);
   const hoje = startOfDay_(new Date());
 
-  const vencemHoje = (FLUXO_ROWS || []).filter(r => r.aberta && startOfDay_(r.date).getTime() === hoje.getTime());
-  const atrasadas = (FLUXO_ROWS || []).filter(r => r.aberta && r.date < hoje).sort((a, b) => a.date - b.date);
-  const proximas = (FLUXO_ROWS || []).filter(r => r.aberta && r.date >= hoje && r.date <= addDays_(hoje, 7)).sort((a, b) => a.date - b.date);
+  // o filtro vale so pras tres listas; os KPIs de cima continuam
+  // mostrando o quadro completo, senao "precisa nos 7 dias" mentiria
+  const doTipo = (r) => !HOJE_F.tipo || r.tipo === HOJE_F.tipo;
+  const vencemHoje = (FLUXO_ROWS || []).filter(r => r.aberta && startOfDay_(r.date).getTime() === hoje.getTime()).filter(doTipo);
+  const atrasadas = (FLUXO_ROWS || []).filter(r => r.aberta && r.date < hoje).filter(doTipo).sort((a, b) => a.date - b.date);
+  const proximas = (FLUXO_ROWS || []).filter(r => r.aberta && r.date >= hoje && r.date <= addDays_(hoje, 7)).filter(doTipo).sort((a, b) => a.date - b.date);
 
   el.innerHTML = `
     <div class="section-head">
@@ -551,6 +558,15 @@ function renderHoje(el) {
       Pra ver saldo, use o Caixas e Bancos do Bling.
     </div>
 
+    <div class="tbl-filtros" style="margin-bottom:12px;">
+      <select id="hjTipo">
+        <option value="">Entradas e saídas</option>
+        <option value="entrada" ${HOJE_F.tipo === 'entrada' ? 'selected' : ''}>Só o que entra</option>
+        <option value="saida" ${HOJE_F.tipo === 'saida' ? 'selected' : ''}>Só o que sai</option>
+      </select>
+      ${HOJE_F.tipo ? '<button type="button" id="hjLimpar" class="link-btn">Limpar</button>' : ''}
+    </div>
+
     <div class="grid-2">
       <div class="panel">
         <h3>Vence hoje</h3>
@@ -578,6 +594,11 @@ function renderHoje(el) {
   if (vencemHoje.length) document.getElementById('tblHoje').innerHTML = cab + vencemHoje.map(linhaConta).join('');
   if (atrasadas.length) document.getElementById('tblAtrasadas').innerHTML = cab + atrasadas.map(linhaConta).join('');
   if (proximas.length) document.getElementById('tblProximas').innerHTML = cab + proximas.map(linhaConta).join('');
+
+  const selTipo = document.getElementById('hjTipo');
+  if (selTipo) selTipo.addEventListener('change', (e) => { HOJE_F.tipo = e.target.value; renderHoje(el); });
+  const btnLimpar = document.getElementById('hjLimpar');
+  if (btnLimpar) btnLimpar.addEventListener('click', () => { HOJE_F.tipo = ''; renderHoje(el); });
 }
 
 /* ---------------- KPIs & Gráficos ---------------- */
