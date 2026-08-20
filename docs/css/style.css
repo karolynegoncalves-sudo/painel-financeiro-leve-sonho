@@ -265,3 +265,86 @@ tr.linha-aberta td{background:#FFFDF7;}
 .badge-bad{display:inline-block; background:var(--brick); color:#fff; border-radius:999px;
   padding:0 7px; font-size:11px; margin-left:6px; vertical-align:middle;}
 .alerta.info{background:var(--sage-bg); border-color:var(--sage); color:#2F4A47;}
+
+/* ============================================================
+   FICHA DE PREÇO
+   Uma peça por vez: escolhe modelo/tamanho/tecido/canal e vê o
+   custo linha a linha ao lado do que sobra. Substituiu o catálogo
+   de produtos salvos, que respondia a pergunta errada.
+   ============================================================ */
+
+.fp-controles{
+  display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:14px;
+  background:var(--panel); border:1px solid var(--line); border-radius:9px;
+  padding:18px; box-shadow:var(--shadow); margin-bottom:20px;
+}
+.fp-campo{display:flex; flex-direction:column; gap:5px; min-width:0}
+.fp-campo label{
+  font-size:.68rem; letter-spacing:.11em; text-transform:uppercase;
+  color:var(--muted); font-weight:600;
+}
+.fp-campo select, .fp-campo input[type="number"]{
+  font-family:inherit; font-size:.95rem; color:var(--ink); background:var(--panel);
+  border:1px solid var(--line); border-radius:5px; padding:8px 10px; width:100%;
+}
+.fp-campo input:disabled{opacity:.5}
+.fp-campo select:focus-visible, .fp-campo input:focus-visible{
+  outline:2px solid var(--sage); outline-offset:1px;
+}
+
+.fp-painel{display:grid; grid-template-columns:1fr 1fr; gap:18px; margin-bottom:22px}
+@media (max-width:860px){ .fp-painel{grid-template-columns:1fr} }
+
+.fp-card{
+  background:var(--panel); border:1px solid var(--line); border-radius:9px;
+  box-shadow:var(--shadow); display:flex; flex-direction:column; overflow:hidden;
+}
+.fp-card > h3{
+  font-size:.72rem; font-weight:700; letter-spacing:.11em; text-transform:uppercase;
+  color:var(--muted); margin:0; padding:13px 18px;
+  background:var(--panel-tint); border-bottom:1px solid var(--line);
+}
+
+.fp-linhas{display:flex; flex-direction:column; padding:6px 0}
+.fp-l{
+  display:flex; justify-content:space-between; gap:14px;
+  padding:6px 18px; font-size:.92rem; align-items:baseline;
+}
+.fp-l .rot{color:var(--muted); min-width:0}
+.fp-l .rot small{display:block; font-size:.72rem; color:var(--muted); opacity:.8}
+.fp-l .val{font-variant-numeric:tabular-nums; white-space:nowrap; font-weight:600}
+.fp-l.sub .rot, .fp-l.sub .val{opacity:.72; font-weight:400; font-size:.86rem}
+.fp-l.tot{
+  border-top:1px solid var(--line); margin-top:6px; padding-top:11px;
+  font-weight:700; font-size:1.02rem;
+}
+.fp-l.tot .rot{color:var(--ink)}
+.fp-l.destaque .val{color:var(--sage-dark); font-size:1.12rem}
+.fp-l.neg .val{color:var(--brick)}
+
+/* o número que responde a pergunta: quanto sobra */
+.fp-hero{
+  padding:18px; display:flex; flex-direction:column; gap:3px;
+  border-bottom:1px solid var(--line);
+}
+.fp-hero .k{
+  font-size:.68rem; letter-spacing:.11em; text-transform:uppercase;
+  color:var(--muted); font-weight:600;
+}
+.fp-hero .v{
+  font-family:Fraunces,Georgia,serif; font-size:2.4rem; line-height:1;
+  font-variant-numeric:tabular-nums; letter-spacing:-.02em;
+}
+.fp-hero .n{font-size:.86rem; color:var(--muted)}
+.fp-hero.ok .v{color:var(--sage-dark)}
+.fp-hero.warn .v{color:var(--amber)}
+.fp-hero.crit .v{color:var(--brick)}
+
+.fp-aviso{
+  background:var(--amber-bg); border-left:3px solid var(--amber); color:var(--ink);
+  padding:11px 16px; margin:0 18px 14px; border-radius:0 5px 5px 0; font-size:.88rem;
+}
+
+.fp-tabela tbody tr.fp-atual{background:var(--sage-bg)}
+.fp-tabela tbody tr.fp-atual td:first-child{font-weight:700}
+.fp-tabela td.fp-piso{font-weight:700; color:var(--sage-dark)}

@@ -32,6 +32,11 @@ let precifRendimento = null;     // tabela tipoProduto+tamanho -> metros (_Preci
 let precifFuncionarios = null;   // cadastro de funcionários (_Precificacao_Funcionarios)
 let precifMaoDeObraPecas = null; // mão de obra por peça (_Precificacao_MaoDeObra_Pecas)
 let precifCorte = null;          // corte por peça (_Precificacao_Corte)
+let precifProducao = null;       // tecido e costura por grupo de canal (_Precificacao_Producao)
+let precifAviamentos = null;     // vivo/elástico por tamanho (_Precificacao_Aviamentos_Tamanho)
+/* Estado da Ficha de Preço. Fica fora da função pra sobreviver ao
+   redesenho a cada tecla. */
+const FICHA = { modelo: '', tamanho: '', tecido: '', renda: '', metrosRenda: 0.60, canal: '', preco: '' };
 let precifDespesasFixas = null;  // despesas fixas mensais (_Despesas_Fixas)
 
 const CANAL_LABELS = {
@@ -292,14 +297,16 @@ async function safeRenderTab(view) {
     if (view === 'precificacao') {
       if (precifProdutos === null || precifConfig === null) {
         el.innerHTML = '<div class="state-msg">Carregando...</div>';
-        const [dataProdutos, dataConfig, dataMateriais, dataRendimento, dataFuncionarios, dataMaoDeObraPecas, dataCorte] = await Promise.all([
+        const [dataProdutos, dataConfig, dataMateriais, dataRendimento, dataFuncionarios, dataMaoDeObraPecas, dataCorte, dataProducao, dataAviamentos] = await Promise.all([
           apiFetch_('precificacao', idToken),
           apiFetch_('precificacaoConfig', idToken),
           apiFetch_('precificacaoMateriais', idToken),
           apiFetch_('precificacaoRendimento', idToken),
           apiFetch_('precificacaoFuncionarios', idToken),
           apiFetch_('precificacaoMaoDeObraPecas', idToken),
-          apiFetch_('precificacaoCorte', idToken)
+          apiFetch_('precificacaoCorte', idToken),
+          apiFetch_('precificacaoProducao', idToken),
+          apiFetch_('precificacaoAviamentos', idToken)
         ]);
         precifProdutos = (dataProdutos && dataProdutos.produtos) || [];
         precifConfig = (dataConfig && dataConfig.config) || { despesasFixasPctPadrao: 0, canais: {} };
@@ -308,6 +315,8 @@ async function safeRenderTab(view) {
         precifFuncionarios = (dataFuncionarios && dataFuncionarios.funcionarios) || [];
         precifMaoDeObraPecas = (dataMaoDeObraPecas && dataMaoDeObraPecas.maoDeObraPecas) || [];
         precifCorte = (dataCorte && dataCorte.corte) || [];
+        precifProducao = (dataProducao && dataProducao.producao) || [];
+        precifAviamentos = (dataAviamentos && dataAviamentos.aviamentos) || [];
       }
       return renderPrecificacao(el);
     }
@@ -964,45 +973,347 @@ function renderDreCompetencia_(corpo) {
 
 /* ---------------- Precificação ---------------- */
 
-function renderPrecificacao(el) {
-  const produtos = precifProdutos || [];
+/* ============================================================
+   FICHA DE PREÇO
 
-  const margens = produtos.map(p => p.lucroPctSnapshot || 0);
-  const margemMedia = margens.length ? margens.reduce((a, b) => a + b, 0) / margens.length : 0;
-  const abaixoDe20 = produtos.filter(p => (p.lucroPctSnapshot || 0) < 0.20).length;
-  const markups = produtos.map(p => p.markupSnapshot).filter(m => m > 0);
-  const markupMedio = markups.length ? markups.reduce((a, b) => a + b, 0) / markups.length : 0;
+   Substitui o catálogo de produtos salvos. A pergunta que ela
+   responde é "quanto custa fazer ESTA peça e o que sobra em cada
+   canal", que é a decisão real — o catálogo respondia "quais
+   produtos eu já cadastrei", que ninguém precisava.
+
+   Tudo vem das abas da planilha, nada é fixo aqui:
+     _Precificacao_Rendimento          metros por modelo+tamanho
+     _Precificacao_Materiais           preço por metro
+     _Precificacao_Producao            tecido e costura por canal
+     _Precificacao_Aviamentos_Tamanho  vivo/elástico por tamanho
+     _Precificacao_Corte               corte por tipo de peça
+     _Precificacao_Config              taxas de cada canal
+   ============================================================ */
+
+const ORDEM_TAM = ['PP', 'P', 'M', 'G', 'GG', 'G1', 'G2', 'G3', '2', '4', '6', '8', '10', '12', '14', '-'];
+const PADRAO_CANAL = 'padrão do canal';
+const SEM_RENDA = 'sem renda';
+const MARGEM_QUEIMA = 0.15;
+
+/* Renda entra de dois jeitos, e confundir erra o custo: o TULE
+   SUBSTITUI tecido (a manga é de tule, não se corta manga de cetim),
+   então os metros dele saem do tecido principal. Guipir e chantily
+   são aplicadas por cima — o corte continua inteiro e a renda soma. */
+const RENDAS_SUBSTITUEM = { 'Tule': true };
+const NOMES_RENDA = ['Tule', 'Guipir', 'Guipir larga', 'Renda Chantily'];
+
+/* Aviamentos que toda peça leva, independente de tamanho. */
+const AVIAMENTOS_FIXOS = {
+  Robe: [{ d: 'Linha', v: 0.03 }, { d: 'Fio', v: 0.07 }, { d: 'Saquinho Crystal', v: 0.07 }, { d: 'Envelope Correio', v: 0.56 }],
+  Pijama: [{ d: 'Linha', v: 0.03 }, { d: 'Fio', v: 0.07 }, { d: 'Saquinho Crystal', v: 0.07 }, { d: 'Envelope Correio', v: 0.56 }, { d: 'Botão (5un)', v: 0.62 }, { d: 'Caseado (5 casas)', v: 2.50 }],
+  Saquinho: [],
+  Scrunchie: []
+};
+
+function tipoPecaDe_(modelo) {
+  const m = String(modelo || '').toLowerCase();
+  if (m.indexOf('pijama') > -1) return 'Pijama';
+  if (m.indexOf('saquinho') > -1) return 'Saquinho';
+  if (m.indexOf('scrunchie') > -1) return 'Scrunchie';
+  return 'Robe';
+}
+
+function grupoDoCanal_(canal) {
+  return String(canal || '').indexOf('NuvemShop') === 0 ? 'Nuvemshop' : 'Marketplace';
+}
+
+function rendimentoMapa_() {
+  const mapa = {};
+  (precifRendimento || []).forEach(r => {
+    if (!mapa[r.tipoProduto]) mapa[r.tipoProduto] = {};
+    mapa[r.tipoProduto][r.tamanho] = r.metros;
+  });
+  return mapa;
+}
+
+function materialPorNome_() {
+  const m = {};
+  (precifMateriais || []).forEach(x => { m[x.material] = x; });
+  return m;
+}
+
+function canaisDaConfig_() {
+  const cfg = (precifConfig && precifConfig.canais) || {};
+  return Object.keys(cfg).filter(k => k !== '_GLOBAL').map(k => {
+    const c = cfg[k] || {};
+    const extras = [];
+    if (c.extra1Nome && c.extra1Pct) extras.push([c.extra1Nome, Number(c.extra1Pct) || 0]);
+    if (c.extra2Nome && c.extra2Pct) extras.push([c.extra2Nome, Number(c.extra2Pct) || 0]);
+    return {
+      canal: k,
+      grupo: grupoDoCanal_(k),
+      imp: Number(c.impostosPct) || 0,
+      com: Number(c.comissaoPct) || 0,
+      ex: extras,
+      fixa: Number(c.taxaFixaReais) || 0,
+      ok: c.confirmado === true || String(c.confirmado).toUpperCase() === 'TRUE'
+    };
+  });
+}
+
+function calcularFicha_(modelo, tamanho, tecido, renda, metrosRenda, canalObj) {
+  const rend = rendimentoMapa_();
+  const mats = materialPorNome_();
+  const avisos = [];
+  const tipoPeca = tipoPecaDe_(modelo);
+  const prod = (precifProducao || []).find(x => x.canalGrupo === canalObj.grupo && x.tipoPeca === tipoPeca);
+
+  const totalMetros = (rend[modelo] || {})[tamanho] || 0;
+  if (!totalMetros) avisos.push('Não há rendimento cadastrado para ' + modelo + ' no tamanho ' + tamanho + '.');
+
+  /* tecido vazio = "padrão do canal": marketplace e Nuvemshop não usam o
+     mesmo tecido na mesma peça. Sem isso, trocar de canal mudava a costura
+     mas mantinha o tecido, e a comparação entre canais saía errada. */
+  const nomeTecido = tecido || (prod ? prod.material : '');
+  const padraoDoCanal = !tecido;
+  const mat = mats[nomeTecido];
+  if (nomeTecido && !mat) avisos.push('Tecido "' + nomeTecido + '" não está no catálogo de materiais.');
+
+  const matRenda = renda ? mats[renda] : null;
+  if (renda && !matRenda) avisos.push('Renda "' + renda + '" não está no catálogo.');
+  const metrosRnd = matRenda ? Math.max(0, Number(metrosRenda) || 0) : 0;
+  const substitui = !!(renda && RENDAS_SUBSTITUEM[renda]);
+  if (substitui && metrosRnd > totalMetros) {
+    avisos.push('A renda (' + fmtNum_(metrosRnd) + ' m) não cabe no total do modelo (' + fmtNum_(totalMetros) + ' m).');
+  }
+  const metrosPrinc = substitui ? Math.max(0, Math.round((totalMetros - metrosRnd) * 100) / 100) : totalMetros;
+
+  const custoTecido = metrosPrinc * (mat ? mat.valorPorMetro : 0);
+  const custoRenda = metrosRnd * (matRenda ? matRenda.valorPorMetro : 0);
+
+  const corteReg = (precifCorte || []).find(x => x.tipoPeca === tipoPeca);
+  const custoCorte = corteReg ? corteReg.valor : 0;
+  const custoCostura = prod ? prod.costuraValor : 0;
+  if (!prod) avisos.push('Não há produção cadastrada para ' + tipoPeca + ' em ' + canalObj.grupo + '.');
+
+  const fixos = AVIAMENTOS_FIXOS[tipoPeca] || [];
+  const custoFixos = fixos.reduce((s, a) => s + a.v, 0);
+
+  const porTam = (precifAviamentos || []).filter(a => a.tipoProduto === modelo && a.tamanho === tamanho);
+  const detTam = porTam.map(a => {
+    const m = mats[a.aviamento];
+    const unit = m ? m.valorPorMetro : 0;
+    return { nome: a.aviamento, qtd: a.quantidade, unit: unit, valor: a.quantidade * unit };
+  });
+  const custoTam = detTam.reduce((s, a) => s + a.valor, 0);
+
+  const custo = custoTecido + custoRenda + custoCorte + custoCostura + custoFixos + custoTam;
+  const taxaPct = canalObj.imp + canalObj.com + canalObj.ex.reduce((s, e) => s + e[1], 0);
+
+  return {
+    canal: canalObj, tipoPeca, totalMetros, metrosPrinc, metrosRnd, renda, matRenda, substitui,
+    mat, nomeTecido, padraoDoCanal, custoTecido, custoRenda, custoCorte, custoCostura,
+    fixos, custoFixos, detTam, custoTam, custo, taxaPct, avisos
+  };
+}
+
+function pisoQueima_(custo, taxaPct, taxaFixa) {
+  const den = 1 - taxaPct - MARGEM_QUEIMA;
+  return den > 0 ? (custo + taxaFixa) / den : null;
+}
+
+function fmtNum_(v) {
+  return Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/* O fmtPct global poe "+" em valor positivo, porque foi feito pra
+   variacao ("+12,3% vs mes anterior"). Taxa e margem nao levam sinal:
+   "imposto +7,4%" nao faz sentido. Este aqui e o plano. */
+function fmtPctPlano_(v, dec) {
+  const d = dec === undefined ? 2 : dec;
+  return (Number(v || 0) * 100).toLocaleString('pt-BR',
+    { minimumFractionDigits: d, maximumFractionDigits: d }) + '%';
+}
+
+function renderPrecificacao(el) {
+  const rend = rendimentoMapa_();
+  const modelos = Object.keys(rend).sort();
+  const canais = canaisDaConfig_();
+  const mats = (precifMateriais || []).map(m => m.material)
+    .filter(n => ['Vivo', 'Elástico', 'Botão'].indexOf(n) < 0);
+
+  if (!modelos.length || !canais.length) {
+    el.innerHTML = '<div class="section-head"><h2 class="section-title">Ficha de Preço</h2></div>'
+      + '<div class="state-msg">Faltam dados nas abas de precificação da planilha '
+      + '(rendimento por tamanho e taxas por canal). Rode <code>setupWorkbook</code> no Apps Script.</div>';
+    return;
+  }
+
+  if (!FICHA.modelo || modelos.indexOf(FICHA.modelo) < 0) FICHA.modelo = modelos[0];
+  const tamanhos = Object.keys(rend[FICHA.modelo] || {}).sort((a, b) => ORDEM_TAM.indexOf(a) - ORDEM_TAM.indexOf(b));
+  if (!FICHA.tamanho || tamanhos.indexOf(FICHA.tamanho) < 0) FICHA.tamanho = tamanhos.indexOf('M') > -1 ? 'M' : (tamanhos[0] || '');
+  if (!FICHA.canal || !canais.find(c => c.canal === FICHA.canal)) FICHA.canal = canais[0].canal;
+
+  const canalObj = canais.find(c => c.canal === FICHA.canal);
+  const r = calcularFicha_(FICHA.modelo, FICHA.tamanho, FICHA.tecido, FICHA.renda, FICHA.metrosRenda, canalObj);
+  const preco = Number(FICHA.preco) || 0;
+
+  const taxaRs = preco * r.taxaPct;
+  const sobra = preco - taxaRs - canalObj.fixa - r.custo;
+  const mcPct = preco ? sobra / preco : 0;
+  const p15 = pisoQueima_(r.custo, r.taxaPct, canalObj.fixa);
+  const dfx = (precifConfig && precifConfig.despesasFixasPctPadrao) || 0;
+
+  const opt = (lista, sel) => lista.map((v, i) =>
+    '<option value="' + i + '"' + (v === sel ? ' selected' : '') + '>' + escapeHtml_(v) + '</option>').join('');
+
+  const heroCls = !preco ? '' : mcPct >= 0.30 ? 'ok' : mcPct >= MARGEM_QUEIMA ? 'warn' : 'crit';
 
   el.innerHTML = `
     <div class="section-head">
-      <h2 class="section-title">Precificação</h2>
-      <div class="section-desc">Calculadora editável — escolha o canal, preencha os custos e veja preço, margem e lucro na hora. Fica salvo aqui, não precisa mais abrir a planilha antiga.</div>
+      <h2 class="section-title">Ficha de Preço</h2>
+      <div class="section-desc">Escolha o modelo, o tamanho e o tecido, e veja o custo real de produzir — e quanto sobra depois que cada canal cobra a parte dele.</div>
     </div>
-    <div class="precif-summary">
-      <div class="tile"><div class="l">Produtos cadastrados</div><div class="v">${produtos.length}</div></div>
-      <div class="tile"><div class="l">Margem média</div><div class="v">${produtos.length ? fmtPct(margemMedia) : '—'}</div></div>
-      <div class="tile"><div class="l">Abaixo de 20% de margem</div><div class="v">${abaixoDe20}</div></div>
-      <div class="tile"><div class="l">Markup médio</div><div class="v">${markupMedio ? markupMedio.toFixed(2) + '×' : '—'}</div></div>
+
+    <div class="fp-controles">
+      <div class="fp-campo"><label for="fpModelo">Modelo</label><select id="fpModelo">${opt(modelos, FICHA.modelo)}</select></div>
+      <div class="fp-campo"><label for="fpTamanho">Tamanho</label><select id="fpTamanho">${opt(tamanhos, FICHA.tamanho)}</select></div>
+      <div class="fp-campo"><label for="fpTecido">Tecido principal</label><select id="fpTecido">${opt([PADRAO_CANAL].concat(mats), FICHA.tecido || PADRAO_CANAL)}</select></div>
+      <div class="fp-campo"><label for="fpRenda">Renda</label><select id="fpRenda">${opt([SEM_RENDA].concat(NOMES_RENDA), FICHA.renda || SEM_RENDA)}</select></div>
+      <div class="fp-campo"><label for="fpRendaM">Metros de renda</label><input type="number" id="fpRendaM" step="0.05" min="0" value="${FICHA.metrosRenda}" ${FICHA.renda ? '' : 'disabled'}></div>
+      <div class="fp-campo"><label for="fpCanal">Canal</label><select id="fpCanal">${opt(canais.map(c => c.canal), FICHA.canal)}</select></div>
+      <div class="fp-campo"><label for="fpPreco">Preço de venda</label><input type="number" id="fpPreco" step="0.10" min="0" value="${FICHA.preco}"></div>
     </div>
-    <div class="precif-toolbar">
-      <input type="text" id="precifBusca" placeholder="Buscar por nome..." value="${escapeHtml_(precifBusca)}">
-      <select id="precifFiltroCanal">
-        <option value="">Todos os canais</option>
-        ${Object.keys(CANAL_LABELS).map(c => `<option value="${c}" ${precifFiltroCanal === c ? 'selected' : ''}>${CANAL_LABELS[c]}</option>`).join('')}
-      </select>
-      <button type="button" class="primario" id="precifNovo">+ Novo produto</button>
+
+    <div class="fp-painel">
+      <div class="fp-card">
+        <h3>Custo de produzir</h3>
+        <div class="fp-linhas">${linhasCusto_(r)}</div>
+      </div>
+      <div class="fp-card">
+        <h3>O que sobra nesse canal</h3>
+        <div class="fp-hero ${heroCls}">
+          <span class="k">Margem de contribuição</span>
+          <span class="v">${preco ? fmtPctPlano_(mcPct) : '—'}</span>
+          <span class="n">${preco ? 'R$ ' + fmtNum_(sobra) + ' por peça vendida a R$ ' + fmtNum_(preco) : 'Informe um preço de venda para ver.'}</span>
+        </div>
+        <div class="fp-linhas">${linhasVenda_(r, preco, taxaRs, sobra, p15)}</div>
+        ${avisosFicha_(r, preco, p15)}
+      </div>
     </div>
+
     <div class="panel">
-      <div style="overflow-x:auto;"><table class="simple" id="precifTabela"></table></div>
+      <h3>O mesmo produto em cada canal</h3>
+      <div class="sub">Mesmo preço de venda, taxas diferentes — e o custo também muda, porque marketplace e Nuvemshop não usam o mesmo tecido nem a mesma costureira. <b>Piso</b> é o menor preço que ainda deixa 15% de margem de contribuição.</div>
+      <div style="overflow-x:auto;"><table class="simple fp-tabela">
+        <thead><tr>
+          <th>Canal</th><th class="num">Custo</th><th class="num">Taxa %</th><th class="num">Taxa R$</th>
+          <th class="num">Fixa</th><th class="num">Sobra</th><th class="num">MC</th><th class="num">Piso 15%</th><th>Situação</th>
+        </tr></thead>
+        <tbody>${linhasCanais_(canais, preco)}</tbody>
+      </table></div>
+    </div>
+
+    <div class="alerta info">
+      <b>Margem de contribuição</b> é o que sobra depois do custo de produzir e das taxas do canal — antes das despesas fixas da empresa (hoje ${fmtPctPlano_(dfx)} do faturamento). É a régua certa para decidir preço e promoção, porque o custo fixo já está pago de qualquer jeito.
+      O <b>piso de 15%</b> é a margem mínima para queima de estoque.
+      <b>Renda</b> entra de dois jeitos: o tule <b>substitui</b> tecido, porque a manga é de tule e não se corta manga de cetim; guipir e chantily são aplicadas por cima e só <b>somam</b>.
+      A <b>taxa fixa</b> da Shopee entra como taxa de canal, não como custo da peça — nas fichas antigas ela estava somada ao custo, o que fazia a peça parecer cara também na Nuvemshop, onde essa cobrança não existe.
     </div>
   `;
 
-  document.getElementById('precifBusca').addEventListener('input', (e) => { precifBusca = e.target.value; renderPrecificacaoTabela_(); });
-  document.getElementById('precifFiltroCanal').addEventListener('change', (e) => { precifFiltroCanal = e.target.value; renderPrecificacaoTabela_(); });
-  document.getElementById('precifNovo').addEventListener('click', () => abrirNovoProduto_());
-
-  renderPrecificacaoTabela_();
+  const liga = (id, campo) => {
+    const e = document.getElementById(id);
+    if (!e) return;
+    const ev = e.tagName === 'SELECT' ? 'change' : 'input';
+    e.addEventListener(ev, (evt) => {
+      if (e.tagName === 'SELECT') {
+        const lista = id === 'fpModelo' ? modelos
+          : id === 'fpTamanho' ? tamanhos
+            : id === 'fpTecido' ? [PADRAO_CANAL].concat(mats)
+              : id === 'fpRenda' ? [SEM_RENDA].concat(NOMES_RENDA)
+                : canais.map(c => c.canal);
+        let v = lista[Number(evt.target.value)] || lista[0];
+        if (v === PADRAO_CANAL || v === SEM_RENDA) v = '';
+        FICHA[campo] = v;
+        if (id === 'fpModelo') FICHA.tamanho = '';
+      } else {
+        FICHA[campo] = evt.target.value;
+      }
+      renderPrecificacao(el);
+    });
+  };
+  liga('fpModelo', 'modelo'); liga('fpTamanho', 'tamanho'); liga('fpTecido', 'tecido');
+  liga('fpRenda', 'renda'); liga('fpCanal', 'canal');
+  liga('fpRendaM', 'metrosRenda'); liga('fpPreco', 'preco');
 }
+
+function linhasCusto_(r) {
+  const L = [];
+  const li = (rot, sub, val, cls) =>
+    L.push('<div class="fp-l ' + (cls || '') + '"><span class="rot">' + rot
+      + (sub ? '<small>' + escapeHtml_(sub) + '</small>' : '')
+      + '</span><span class="val">R$ ' + fmtNum_(val) + '</span></div>');
+
+  li(escapeHtml_(r.nomeTecido || 'Tecido') + (r.padraoDoCanal ? ' <span class="pill md">padrão ' + escapeHtml_(r.canal.grupo) + '</span>' : ''),
+    fmtNum_(r.metrosPrinc) + ' m × R$ ' + fmtNum_(r.mat ? r.mat.valorPorMetro : 0) + '/m', r.custoTecido);
+  if (r.metrosRnd) {
+    li(escapeHtml_(r.renda) + (r.substitui ? ' <span class="pill md">no lugar do tecido</span>' : ' <span class="pill ok">acréscimo</span>'),
+      fmtNum_(r.metrosRnd) + ' m × R$ ' + fmtNum_(r.matRenda.valorPorMetro) + '/m', r.custoRenda);
+  }
+  r.detTam.forEach(a => li(escapeHtml_(a.nome), fmtNum_(a.qtd) + ' m × R$ ' + fmtNum_(a.unit) + '/m', a.valor, 'sub'));
+  if (r.fixos.length) li('Aviamentos fixos', r.fixos.map(a => a.d).join(' · '), r.custoFixos, 'sub');
+  li('Corte', escapeHtml_(r.tipoPeca) + ' · por peça', r.custoCorte);
+  li('Costura', escapeHtml_(r.tipoPeca) + ' em ' + escapeHtml_(r.canal.grupo), r.custoCostura);
+  li('Custo de produzir', '', r.custo, 'tot destaque');
+  return L.join('');
+}
+
+function linhasVenda_(r, preco, taxaRs, sobra, p15) {
+  const V = [];
+  const vi = (rot, sub, val, cls) =>
+    V.push('<div class="fp-l ' + (cls || '') + '"><span class="rot">' + rot
+      + (sub ? '<small>' + escapeHtml_(sub) + '</small>' : '')
+      + '</span><span class="val">' + val + '</span></div>');
+  vi('Preço de venda', '', 'R$ ' + fmtNum_(preco));
+  vi('Custo de produzir', '', '− R$ ' + fmtNum_(r.custo));
+  const det = ['imposto ' + fmtPctPlano_(r.canal.imp), 'comissão ' + fmtPctPlano_(r.canal.com)]
+    .concat(r.canal.ex.map(e => e[0] + ' ' + fmtPctPlano_(e[1]))).join(' · ');
+  vi('Taxas do canal (' + fmtPctPlano_(r.taxaPct) + ')', det, '− R$ ' + fmtNum_(taxaRs));
+  if (r.canal.fixa) vi('Taxa fixa por venda', r.canal.canal + ' cobra R$ ' + fmtNum_(r.canal.fixa) + ' por venda', '− R$ ' + fmtNum_(r.canal.fixa));
+  vi('Sobra', '', 'R$ ' + fmtNum_(sobra), 'tot' + (sobra < 0 ? ' neg' : ''));
+  vi('Piso para 15% de margem', 'menor preço que ainda vale a queima', p15 ? 'R$ ' + fmtNum_(p15) : '—', 'destaque');
+  return V.join('');
+}
+
+function avisosFicha_(r, preco, p15) {
+  const a = r.avisos.slice();
+  if (preco && p15 && preco < p15) a.push('A R$ ' + fmtNum_(preco) + ' este produto está abaixo do piso de queima (R$ ' + fmtNum_(p15) + ').');
+  return a.length ? '<div class="fp-aviso">' + a.map(escapeHtml_).join(' ') + '</div>' : '';
+}
+
+function linhasCanais_(canais, preco) {
+  return canais.map(c => {
+    const rc = calcularFicha_(FICHA.modelo, FICHA.tamanho, FICHA.tecido, FICHA.renda, FICHA.metrosRenda, c);
+    const t = preco * rc.taxaPct;
+    const s = preco - t - c.fixa - rc.custo;
+    const mp = preco ? s / preco : 0;
+    const pc = pisoQueima_(rc.custo, rc.taxaPct, c.fixa);
+    /* Quatro faixas, não três: margem positiva mas abaixo do piso não é
+       prejuízo — é venda que não paga a parte dela do custo fixo. */
+    const sit = !preco ? '<span class="pill md">sem preço</span>'
+      : mp >= 0.30 ? '<span class="pill ok">saudável</span>'
+        : mp >= MARGEM_QUEIMA ? '<span class="pill md">só para queima</span>'
+          : mp > 0 ? '<span class="pill no">abaixo do piso</span>'
+            : '<span class="pill no">no prejuízo</span>';
+    return '<tr class="' + (c.canal === FICHA.canal ? 'fp-atual' : '') + '">'
+      + '<td>' + escapeHtml_(c.canal) + (c.ok ? '' : ' <span class="pill md">a confirmar</span>') + '</td>'
+      + '<td class="num">R$ ' + fmtNum_(rc.custo) + '</td>'
+      + '<td class="num">' + fmtPctPlano_(rc.taxaPct) + '</td>'
+      + '<td class="num">R$ ' + fmtNum_(t) + '</td>'
+      + '<td class="num">' + (c.fixa ? 'R$ ' + fmtNum_(c.fixa) : '—') + '</td>'
+      + '<td class="num">R$ ' + fmtNum_(s) + '</td>'
+      + '<td class="num">' + (preco ? fmtPctPlano_(mp) : '—') + '</td>'
+      + '<td class="num fp-piso">' + (pc ? 'R$ ' + fmtNum_(pc) : '—') + '</td>'
+      + '<td>' + sit + '</td></tr>';
+  }).join('');
+}
+
 
 function renderPrecificacaoTabela_() {
   const tbl = document.getElementById('precifTabela');
