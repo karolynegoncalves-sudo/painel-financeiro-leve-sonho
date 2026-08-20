@@ -246,12 +246,47 @@ function setupPrecificacaoConfig_(ss) {
   // cobra R$ 4,00 por venda além da comissão. Isso estava dentro do custo
   // do produto nas fichas FPV, o que inflava o custo da peça e a fazia
   // parecer cara também na Nuvemshop, onde essa taxa não existe.
+  //
+  // TAXAS MEDIDAS EM 20/08/2026 — não são mais estimativa das fichas FPV.
+  // De onde veio cada número:
+  //
+  //   Shopee 16,3% + R$ 4,00
+  //     3.389 pedidos jan-jul, campo taxaComissao do Bling: R$ 16,42 por
+  //     pedido num ticket de R$ 76,34 = 21,5% all-in. Tirando os R$ 4,00
+  //     fixos, sobra 16,3% percentual. Separar importa: a parte fixa pesa
+  //     muito mais em peça barata.
+  //   Shopee Acelera 4,9%
+  //     extrato oficial da API (get_wallet_transaction_list), jan-jul:
+  //     R$ 13.002 de FAST_ESCROW_DEDUCT sobre R$ 258.719 de faturamento.
+  //
+  //   MercadoLivre 18,1% + 5,6% de frete
+  //     /v1/payments/search, 2.024 pagamentos aprovados em 8 meses:
+  //     bruto R$ 148.489, líquido R$ 113.282 = 23,7% de retenção total.
+  //     O Bling registra 18,1% no campo de comissão; a diferença de 5,6
+  //     pontos é frete subsidiado, que não aparece lá. Estava faltando
+  //     no preset antigo (que somava 17,8%).
+  //
+  //   NuvemShop Cartão 3,14% + 10,18% + R$ 0,50
+  //     tabela comercial do Pagar.me: crédito 7-12x = 3,14%; antecipação
+  //     1,85% ao mês. O site vende em até 10x, então a parcela média está
+  //     5,5 meses à frente: 1,85 x 5,5 = 10,18%. Fixos = R$ 0,25 de
+  //     processamento + R$ 0,25 de antifraude.
+  //     O preset antigo usava 13,05% de parcelamento e errava pra cima.
+  //
+  //   NuvemShop Pix 0,69% + R$ 0,25
+  //     tabela do Pagar.me. Conferido contra 50 transações reais:
+  //     R$ 126,90 de taxa sobre R$ 15.294,60 = 0,83% efetivo, que é o
+  //     0,69% mais o peso do fixo no ticket.
+  //
+  //   SHEIN e TikTokShop continuam SEM MEDIÇÃO (confirmado = false).
+  //     Juntos são 4% do faturamento. Os valores abaixo são chute
+  //     herdado das fichas - não use pra decidir preço sem conferir.
   const linhas = [
-    ['NuvemShop_Cartao', 0.0742, 0.03, 'TPV Nuvemshop', 0.01, 'Parcelamento Pagar.ME', 0.1305, 0, '', true],
-    ['NuvemShop_Pix', 0.0742, 0, 'Taxas', 0.0098, '', 0, 0, '', true],
-    ['MercadoLivre', 0.07, 0.14, 'Antecipação', 0.038, '', 0, 0, '', true],
-    ['Shopee', 0.0742, 0.14, 'Transporte', 0.06, 'Antecipa', 0.035, 4.00, '', true],
-    ['SHEIN', 0.07, 0.14, 'Antecipação', 0.038, '', 0, 0, '', true],
+    ['NuvemShop_Cartao', 0.0742, 0.0314, 'Antecipação 10x', 0.1018, '', 0, 0.50, '', true],
+    ['NuvemShop_Pix', 0.0742, 0.0069, '', 0, '', 0, 0.25, '', true],
+    ['MercadoLivre', 0.07, 0.181, 'Frete subsidiado', 0.056, '', 0, 0, '', true],
+    ['Shopee', 0.0742, 0.163, 'Acelera (antecipação)', 0.049, '', 0, 4.00, '', true],
+    ['SHEIN', 0.07, 0.14, 'Antecipação', 0.038, '', 0, 0, '', false],
     ['TikTokShop', 0.07, 0.14, 'Antecipação', 0.038, '', 0, 0, '', false],
     ['_GLOBAL', '', '', '', '', '', '', '', 0.3494, true]
   ];
@@ -784,4 +819,69 @@ function setupPrecificacaoAviamentosTamanho_(ss) {
 function setupDespesasFixas_(ss) {
   const sheet = getOrCreateSheet_(ss, ABA_DESPESAS_FIXAS);
   ensureHeader_(sheet, ['id', 'descricao', 'valorMensal']);
+}
+
+/**
+ * ATUALIZA AS TAXAS DOS CANAIS com os valores medidos em 20/08/2026.
+ *
+ * O setupPrecificacaoConfig_ so semeia quando a aba esta vazia
+ * (`if (jaTinhaDados) return`), entao corrigir o seed nao muda nada
+ * numa planilha que ja rodou. Esta funcao existe pra isso.
+ *
+ * Ela sobrescreve SO os quatro canais que foram medidos contra dado
+ * real (Shopee, MercadoLivre, NuvemShop_Cartao, NuvemShop_Pix).
+ * Nao toca em:
+ *   _GLOBAL      - a despesa fixa e voce que define
+ *   SHEIN        - sem medicao
+ *   TikTokShop   - sem medicao
+ *
+ * Registra no log o valor ANTES e DEPOIS de cada linha, pra dar pra
+ * voltar atras se algum numero nao fizer sentido.
+ *
+ * Rode por _rodarAtualizarTaxasCanais.
+ */
+function atualizarTaxasCanais_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(ABA_PRECIFICACAO_CONFIG);
+  if (!sheet) { logSync_('atualizarTaxas', 'erro', 'aba ' + ABA_PRECIFICACAO_CONFIG + ' nao encontrada'); return; }
+
+  // canal -> [impostosPct, comissaoPct, extra1Nome, extra1Pct,
+  //           extra2Nome, extra2Pct, taxaFixaReais]
+  const MEDIDOS = {
+    'NuvemShop_Cartao': [0.0742, 0.0314, 'Antecipação 10x', 0.1018, '', 0, 0.50],
+    'NuvemShop_Pix':    [0.0742, 0.0069, '', 0, '', 0, 0.25],
+    'MercadoLivre':     [0.07,   0.181,  'Frete subsidiado', 0.056, '', 0, 0],
+    'Shopee':           [0.0742, 0.163,  'Acelera (antecipação)', 0.049, '', 0, 4.00]
+  };
+
+  const ultima = sheet.getLastRow();
+  if (ultima < 2) { logSync_('atualizarTaxas', 'erro', 'aba vazia'); return; }
+
+  const dados = sheet.getRange(2, 1, ultima - 1, 10).getValues();
+  let mexidas = 0;
+
+  for (let i = 0; i < dados.length; i++) {
+    const canal = String(dados[i][0] || '').trim();
+    if (!Object.prototype.hasOwnProperty.call(MEDIDOS, canal)) continue;
+
+    const antes = dados[i].slice(1, 8).join(' | ');
+    const novo = MEDIDOS[canal];
+    // colunas 2..8 = impostosPct .. taxaFixaReais
+    sheet.getRange(i + 2, 2, 1, 7).setValues([novo]);
+    // marca como confirmado (coluna 10)
+    sheet.getRange(i + 2, 10).setValue(true);
+    mexidas++;
+
+    logSync_('atualizarTaxas', 'ok',
+      canal + ' | ANTES: ' + antes + ' | DEPOIS: ' + novo.join(' | '));
+  }
+
+  logSync_('atualizarTaxas', 'ok', mexidas + ' canal(is) atualizado(s) com taxa medida');
+  return mexidas;
+}
+
+function _rodarAtualizarTaxasCanais() {
+  const n = atualizarTaxasCanais_();
+  SpreadsheetApp.getActiveSpreadsheet().toast(
+    n + ' canais atualizados com as taxas medidas', 'Precificação', 8);
 }
