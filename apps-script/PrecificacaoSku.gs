@@ -28,11 +28,22 @@
  *
  * O tecido SECUNDÁRIO é o contrário: fica na regra da família, porque é
  * característica do modelo e não do canal. É por onde entram as RENDAS —
- * tule, guipir, guipir larga e renda chantily são todas renda aplicada sobre
- * o corpo da peça, e a diferença entre elas é só o preço do metro. O robe
- * flare leva 0,60m de renda em qualquer canal; o que muda com o canal é o
- * cetim dos outros 1,23m. No catálogo de rendimento o modelo guarda `metros`
- * já descontado dos 0,60 e `metros2` = 0,60.
+ * tule, guipir, guipir larga e renda chantily.
+ *
+ * ATENÇÃO ao preencher o rendimento de um modelo com renda: elas entram de
+ * dois jeitos diferentes, e trocar um pelo outro erra o custo.
+ *
+ *  - TULE SUBSTITUI tecido. A manga é de tule e não se corta manga de cetim,
+ *    então `metros` vem DESCONTADO dos 0,60 e `metros2` = 0,60. É o caso do
+ *    "Robe manga flare tule": 1,23 de cetim + 0,60 de tule num M.
+ *
+ *  - GUIPIR E CHANTILY SOMAM. São aplicadas por cima da peça pronta, o corte
+ *    continua inteiro: `metros` fica com o total do modelo e `metros2` é só
+ *    o acréscimo.
+ *
+ * O cálculo aqui não sabe a diferença de propósito — ele multiplica `metros`
+ * e `metros2` pelos preços e soma. Quem codifica a regra é o catálogo de
+ * rendimento, uma linha por modelo.
  */
 
 /** Prefixo de família: os dois primeiros blocos do código (RMC-CUR-G-AZL -> RMC-CUR). */
