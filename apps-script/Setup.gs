@@ -21,6 +21,8 @@ const ABA_PRECIFICACAO_RENDIMENTO = '_Precificacao_Rendimento';
 const ABA_PRECIFICACAO_FUNCIONARIOS = '_Precificacao_Funcionarios';
 const ABA_PRECIFICACAO_MAODEOBRA_PECAS = '_Precificacao_MaoDeObra_Pecas';
 const ABA_PRECIFICACAO_CORTE = '_Precificacao_Corte';
+const ABA_PRECIFICACAO_SKU = '_Precificacao_SKU';
+const ABA_PRECIFICACAO_PRODUCAO = '_Precificacao_Producao';
 const ABA_DESPESAS_FIXAS = '_Despesas_Fixas';
 const ABA_VENDAS = 'Vendas';
 
@@ -50,6 +52,8 @@ function setupWorkbook() {
   setupPrecificacaoFuncionarios_(ss);
   setupPrecificacaoMaoDeObraPecas_(ss);
   setupPrecificacaoCorte_(ss);
+  setupPrecificacaoSku_(ss);
+  setupPrecificacaoProducao_(ss);
   setupDespesasFixas_(ss);
 
   SpreadsheetApp.flush();
@@ -212,6 +216,7 @@ function setupPrecificacaoCatalogo_(ss) {
   const sheet = getOrCreateSheet_(ss, ABA_PRECIFICACAO);
   ensureHeader_(sheet, [
     'id', 'nome', 'canal', 'ativo',
+    'sku', 'tipoProduto', 'tamanho',
     'materiaisJson', 'maoDeObraJson', 'outrosJson', 'tarifasJson',
     'despesasFixasPct', 'precoVenda',
     'custoProdutoSnapshot', 'lucroPctSnapshot', 'margemContribuicaoPctSnapshot', 'markupSnapshot',
@@ -443,6 +448,93 @@ function setupPrecificacaoCorte_(ss) {
  * tiver dados suficientes, cai no valor manual da aba _Precificacao_Config
  * como reserva. Começa vazia — preencha com suas despesas reais.
  */
+/**
+ * Regra de custo por família de SKU — o que liga o estoque do Bling aos
+ * catálogos de rendimento, corte e produção. Uma linha por família
+ * (RMC-CUR, PML-LON…) em vez de uma linha por produto: o tamanho sai do
+ * nome do produto no Bling e o rendimento faz o resto, então G3 custa mais
+ * que M sem ninguém cadastrar nada a mais.
+ *
+ * Aqui fica só o que NÃO muda com o canal: qual modelo a peça é, quantos
+ * componentes ela corta e que aviamentos leva. Tecido e costura mudam por
+ * canal e moram em _Precificacao_Producao.
+ *
+ * O corte vem de _Precificacao_Corte, que já guarda o TOTAL por produto:
+ * R$ 1,00 por peça componente, então Robe = 1,00 e Pijama = 2,00 (camisa +
+ * short/calça).
+ * `custoManual` é a saída de emergência: peça sem rendimento no catálogo
+ * (scrunchie, fronha, touca) usa valor fixo e ignora o cálculo.
+ * `aviamentosJson` é [{"descricao":"Linha","valor":0.03}, ...].
+ */
+function setupPrecificacaoSku_(ss) {
+  const sheet = getOrCreateSheet_(ss, ABA_PRECIFICACAO_SKU);
+  const jaTinhaDados = sheet.getLastRow() > 1;
+  ensureHeader_(sheet, [
+    'familia', 'descricao', 'tipoProduto', 'tipoPeca', 'aviamentosJson', 'custoManual', 'ativo'
+  ]);
+  if (jaTinhaDados) return;
+
+  // Aviamentos confirmados nas fichas FPV: linha 0,03 + fio 0,07 +
+  // saquinho crystal 0,07 + envelope correio 0,56 = 0,73 em toda peça.
+  // O pijama soma 5 botões a 0,024 = 0,12.
+  const AVI_BASE = '[{"descricao":"Linha","valor":0.03},{"descricao":"Fio","valor":0.07},{"descricao":"Saquinho Crystal","valor":0.07},{"descricao":"Envelope Correio","valor":0.56}]';
+  const AVI_PIJAMA = '[{"descricao":"Linha","valor":0.03},{"descricao":"Fio","valor":0.07},{"descricao":"Saquinho Crystal","valor":0.07},{"descricao":"Envelope Correio","valor":0.56},{"descricao":"Botão (5un)","valor":0.12}]';
+
+  const linhas = [
+    ['PMC-CUR', 'Pijama Americano Cetim - Manga Curta e Shorts', 'Pijama Americano Manga Curta e Short', 'Pijama', 2, AVI_PIJAMA, '', true],
+    ['RMC-CUR', 'Robe de Cetim - Manga Curta', 'Robe manga curta', 'Robe', 1, AVI_BASE, '', true],
+    ['RIF-CUR', 'Robe de Cetim - Infantil', 'Robe infantil', 'Robe', 1, AVI_BASE, '', true],
+    ['PML-LON', 'Pijama Americano Cetim - Manga Longa e Calça', 'Pijama Americano Manga Longa e Calça', 'Pijama', 2, AVI_PIJAMA, '', true],
+    ['PIF-CUR', 'Pijama Americano Cetim Infantil - Manga Curta e Shorts', 'Pijama Americano Infantil', 'Pijama', 2, AVI_PIJAMA, '', true],
+    ['RME-CUR', 'Robe de Cetim com Elastano - Manga Curta', 'Robe manga curta', 'Robe', 1, AVI_BASE, '', true],
+    ['KSC', 'Kit Saquinhos de Cetim', 'Saquinhos de Cetim', 'Saquinho', 1, '', '', true],
+    // Sem rendimento cadastrado — dependem de custoManual até entrarem no catálogo.
+    ['SCR', 'Scrunchie de Cetim', '', 'Scrunchie', 1, '', '', true],
+    ['SCE', 'Scrunchie de Cetim (código alternativo)', '', 'Scrunchie', 1, '', '', true],
+    ['FRN', 'Fronha de Cetim', '', '', 1, '', '', true],
+    ['TCA', 'Touca de Cetim / Touca Mágica', '', '', 1, '', '', true],
+    ['FXA-CNL', 'Faixa de Cabelo Canelada', '', '', 1, '', '', true],
+    ['RGT-CUR', 'Regata Feminina Canelada', '', '', 1, '', '', true]
+  ];
+  sheet.getRange(2, 1, linhas.length, linhas[0].length).setValues(linhas);
+  sheet.autoResizeColumns(1, 7);
+}
+
+/**
+ * Produção por canal — o que muda conforme onde a peça é vendida.
+ *
+ * Marketplace e Nuvemshop não vendem a mesma peça: o robe de marketplace é
+ * 100% poliéster e a costura sai por R$ 5,00 (Margarida, Deise, Cristina,
+ * Vilma); o da Nuvemshop leva cetim com elastano e a costura é da Nair, por
+ * R$ 8,00. Sem esta aba o custo do mesmo SKU sairia igual nos dois canais,
+ * que é justamente o erro que a média por funcionário produzia.
+ *
+ * `canalGrupo` aceita "Marketplace" ou "Nuvemshop" — grupoDoCanal_() traduz
+ * Shopee/MercadoLivre/SHEIN/TikTok para Marketplace e NuvemShop_Cartao /
+ * NuvemShop_Pix para Nuvemshop.
+ */
+function setupPrecificacaoProducao_(ss) {
+  const sheet = getOrCreateSheet_(ss, ABA_PRECIFICACAO_PRODUCAO);
+  const jaTinhaDados = sheet.getLastRow() > 1;
+  ensureHeader_(sheet, [
+    'canalGrupo', 'tipoPeca', 'material', 'materialSecundario', 'costuraValor', 'ativo'
+  ]);
+  if (jaTinhaDados) return;
+
+  const linhas = [
+    ['Marketplace', 'Robe', 'Cetim Poliéster', '', 5.00, true],
+    ['Nuvemshop', 'Robe', 'Cetim Elastano', '', 8.00, true],
+    ['Marketplace', 'Pijama', 'Cetim Elastano', '', 11.00, true],
+    ['Nuvemshop', 'Pijama', 'Cetim Elastano', '', 11.00, true],
+    ['Marketplace', 'Scrunchie', 'Cetim Poliéster', '', 0.30, true],
+    ['Nuvemshop', 'Scrunchie', 'Cetim Elastano', '', 0.30, true],
+    ['Marketplace', 'Saquinho', 'Cetim Poliéster', '', 0.30, true],
+    ['Nuvemshop', 'Saquinho', 'Cetim Poliéster', '', 0.30, true]
+  ];
+  sheet.getRange(2, 1, linhas.length, linhas[0].length).setValues(linhas);
+  sheet.autoResizeColumns(1, 6);
+}
+
 function setupDespesasFixas_(ss) {
   const sheet = getOrCreateSheet_(ss, ABA_DESPESAS_FIXAS);
   ensureHeader_(sheet, ['id', 'descricao', 'valorMensal']);

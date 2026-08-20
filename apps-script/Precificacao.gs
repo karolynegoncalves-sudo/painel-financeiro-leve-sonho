@@ -48,6 +48,7 @@ function getPrecificacaoCatalogo_() {
   const { headers, rows } = sheetData_(ABA_PRECIFICACAO);
   const idx = (n) => headers.indexOf(n);
   const iId = idx('id'), iNome = idx('nome'), iCanal = idx('canal'), iAtivo = idx('ativo'),
+    iSku = idx('sku'), iTipoProduto = idx('tipoProduto'), iTamanho = idx('tamanho'),
     iMateriais = idx('materiaisJson'), iMaoDeObra = idx('maoDeObraJson'), iOutros = idx('outrosJson'),
     iTarifas = idx('tarifasJson'), iDespesasFixas = idx('despesasFixasPct'), iPreco = idx('precoVenda'),
     iCustoSnap = idx('custoProdutoSnapshot'), iLucroSnap = idx('lucroPctSnapshot'),
@@ -62,6 +63,9 @@ function getPrecificacaoCatalogo_() {
       id: r[iId],
       nome: r[iNome],
       canal: r[iCanal],
+      sku: iSku >= 0 ? (r[iSku] || '') : '',
+      tipoProduto: iTipoProduto >= 0 ? (r[iTipoProduto] || '') : '',
+      tamanho: iTamanho >= 0 ? String(r[iTamanho] || '') : '',
       materiais: parseJson_(r[iMateriais], []),
       maoDeObra: parseJson_(r[iMaoDeObra], []),
       outros: parseJson_(r[iOutros], []),
@@ -268,6 +272,7 @@ function salvarPrecificacaoProduto_(produto, email) {
 
     const linha = [
       id, produto.nome, produto.canal, true,
+      produto.sku || '', produto.tipoProduto || '', produto.tamanho || '',
       JSON.stringify(produto.materiais || []), JSON.stringify(produto.maoDeObra || []),
       JSON.stringify(produto.outros || []), JSON.stringify(produto.tarifas || {}),
       despesasFixasPct, num_(produto.precoVenda),
@@ -285,6 +290,7 @@ function salvarPrecificacaoProduto_(produto, email) {
 
     return {
       id, nome: produto.nome, canal: produto.canal,
+      sku: produto.sku || '', tipoProduto: produto.tipoProduto || '', tamanho: produto.tamanho || '',
       materiais: produto.materiais || [], maoDeObra: produto.maoDeObra || [], outros: produto.outros || [],
       tarifas: produto.tarifas || {}, despesasFixasPct, precoVenda: num_(produto.precoVenda),
       custoProdutoSnapshot: custoProduto, lucroPctSnapshot: snap.lucroPct,

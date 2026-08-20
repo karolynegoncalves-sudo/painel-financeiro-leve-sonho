@@ -27,6 +27,7 @@ function doGet(e) {
     case 'precificacaoFuncionarios': return jsonResponse_({ email: email, funcionarios: getPrecificacaoFuncionariosCatalogo_() });
     case 'precificacaoMaoDeObraPecas': return jsonResponse_({ email: email, maoDeObraPecas: getPrecificacaoMaoDeObraPecasCatalogo_() });
     case 'precificacaoCorte': return jsonResponse_({ email: email, corte: getPrecificacaoCorteCatalogo_() });
+    case 'precificacaoSkuRegras': return jsonResponse_({ email: email, regras: getPrecificacaoSkuRegras_() });
     case 'despesasFixas': return jsonResponse_({ email: email, despesas: getDespesasFixasList_() });
     case 'kpis': return jsonResponse_({ email: email, kpis: getKpis_() });
     case 'vendas': return jsonResponse_({ email: email, rows: getVendasRows_() });
@@ -58,6 +59,12 @@ function doPost(e) {
       case 'seedDespesasFixas':
         seedDespesasFixasReais_();
         return jsonResponse_({ ok: true, email: email, despesas: getDespesasFixasList_() });
+      case 'custosPorSku':
+        return jsonResponse_({ ok: true, email: email, custos: custosPorSku_(body.produtos) });
+      case 'diagnosticoCustoSku':
+        return jsonResponse_({ ok: true, email: email, diagnostico: diagnosticoCustoSku_(body.produtos) });
+      case 'arquivarPrecificacoesSemSku':
+        return jsonResponse_({ ok: true, email: email, resultado: arquivarPrecificacoesSemSku_(email) });
       default:
         return jsonResponse_({ ok: false, error: 'unknown_action' });
     }

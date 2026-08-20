@@ -71,6 +71,24 @@ function nomeDoContato_(contato, token) {
   return nome;
 }
 
+/**
+ * Igual ao fetchBling_, mas devolve tambem o status HTTP.
+ * Precisamos disso pra diferenciar "conta apagada no Bling" (404)
+ * de "deu erro agora" (429, 500, timeout). Sem essa distincao, uma
+ * conta apagada ficava marcada como em aberto pra sempre e o painel
+ * acusava atraso que nao existia.
+ */
+function fetchBlingStatus_(url, token) {
+  const resp = UrlFetchApp.fetch(url, {
+    headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
+    muteHttpExceptions: true
+  });
+  const status = resp.getResponseCode();
+  let json = null;
+  try { json = JSON.parse(resp.getContentText()); } catch (e) { json = null; }
+  return { status: status, json: json };
+}
+
 function fetchBling_(url, token) {
   const resp = UrlFetchApp.fetch(url, {
     headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
@@ -262,14 +280,27 @@ function atualizarContasEmAberto_(token, sheet) {
   });
 
   let atualizadas = 0;
+  let apagadas = 0;
   Object.keys(linhasPorConta).forEach(function (chave) {
     const partes = chave.split(':');
     const tipo = partes[0], id = partes[1];
     if (!tipo || !id) return;
 
-    const resp = fetchBling_('https://www.bling.com.br/Api/v3/contas/' + tipo + '/' + id, token);
-    const d = resp && resp.data;
-    if (!d) return; // conta apagada no Bling ou erro: deixa como esta
+    const r = fetchBlingStatus_('https://www.bling.com.br/Api/v3/contas/' + tipo + '/' + id, token);
+
+    // 404 = a conta foi APAGADA no Bling. Marca como cancelada (5),
+    // que o painel ja ignora. A linha continua na planilha como
+    // historico, mas para de aparecer como conta em aberto.
+    if (r.status === 404) {
+      linhasPorConta[chave].forEach(function (linha) {
+        sheet.getRange(linha, COL_SITUACAO).setValue('5');
+      });
+      apagadas++;
+      return;
+    }
+    // qualquer outro erro (429, 500, timeout): nao mexe, tenta na proxima
+    const d = r.json && r.json.data;
+    if (!d) return;
 
     const situacaoNova = String(d.situacao || '1');
     const vencimentoNovo = d.vencimento || d.dataEmissao || '';
@@ -282,6 +313,9 @@ function atualizarContasEmAberto_(token, sheet) {
     atualizadas++;
   });
 
+  if (apagadas > 0) {
+    logSync_('atualizarContas', 'ok', apagadas + ' conta(s) apagada(s) no Bling marcadas como canceladas');
+  }
   return atualizadas;
 }
 
