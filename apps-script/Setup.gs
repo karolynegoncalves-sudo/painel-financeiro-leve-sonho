@@ -83,6 +83,13 @@ function getOrCreateSheet_(ss, nome) {
  * nunca montar a linha por posição fixa.
  */
 function ensureHeader_(sheet, headers) {
+  /* A grade tem um numero fixo de colunas, e getRange alem dele nao expande:
+     lanca "range exceeds grid limits" e derruba o setup inteiro. A aba
+     Precificacao tinha 18 colunas e o cabecalho novo pede 21 — era por isso
+     que o setup "rodava" mas a coluna sku nunca aparecia. */
+  const maxCols = sheet.getMaxColumns();
+  if (maxCols < headers.length) sheet.insertColumnsAfter(maxCols, headers.length - maxCols);
+
   const vazia = sheet.getLastRow() === 0
     || sheet.getRange(1, 1, 1, headers.length).getValues()[0].join('') === '';
 
