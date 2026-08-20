@@ -272,6 +272,26 @@ function getPrecificacaoAviamentosTamanhoCatalogo_() {
   }));
 }
 
+/**
+ * Acabamentos opcionais e combináveis (renda, guipir, vivo). A quantidade é
+ * por aplicação — a mesma guipir aparece três vezes porque o que muda é onde
+ * ela vai. `substituiTecido` marca quem desconta metros do tecido principal
+ * em vez de somar; hoje só o tule.
+ */
+function getPrecificacaoAcabamentosCatalogo_() {
+  const { headers, rows } = sheetData_(ABA_PRECIFICACAO_ACABAMENTOS);
+  const idx = (n) => headers.indexOf(n);
+  const iNome = idx('acabamento'), iMaterial = idx('material'), iMetros = idx('metros'),
+    iSubstitui = idx('substituiTecido'), iAtivo = idx('ativo');
+  return rows
+    .filter(r => r[iNome] && (r[iAtivo] === true || String(r[iAtivo]).toUpperCase() === 'TRUE' || r[iAtivo] === ''))
+    .map(r => ({
+      acabamento: String(r[iNome]).trim(), material: String(r[iMaterial] || '').trim(),
+      metros: num_(r[iMetros]),
+      substituiTecido: r[iSubstitui] === true || String(r[iSubstitui]).toUpperCase() === 'TRUE'
+    }));
+}
+
 function getPrecificacaoCorteCatalogo_() {
   const { headers, rows } = sheetData_(ABA_PRECIFICACAO_CORTE);
   const idx = (n) => headers.indexOf(n);

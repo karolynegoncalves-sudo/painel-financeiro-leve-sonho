@@ -24,6 +24,7 @@ const ABA_PRECIFICACAO_CORTE = '_Precificacao_Corte';
 const ABA_PRECIFICACAO_SKU = '_Precificacao_SKU';
 const ABA_PRECIFICACAO_PRODUCAO = '_Precificacao_Producao';
 const ABA_PRECIFICACAO_AVIAMENTOS_TAMANHO = '_Precificacao_Aviamentos_Tamanho';
+const ABA_PRECIFICACAO_ACABAMENTOS = '_Precificacao_Acabamentos';
 const ABA_DESPESAS_FIXAS = '_Despesas_Fixas';
 const ABA_VENDAS = 'Vendas';
 
@@ -56,6 +57,7 @@ function setupWorkbook() {
   setupPrecificacaoSku_(ss);
   setupPrecificacaoProducao_(ss);
   setupPrecificacaoAviamentosTamanho_(ss);
+  setupPrecificacaoAcabamentos_(ss);
   setupDespesasFixas_(ss);
 
   SpreadsheetApp.flush();
@@ -814,6 +816,39 @@ function setupPrecificacaoAviamentosTamanho_(ss) {
 
   sheet.getRange(2, 1, linhas.length, 4).setValues(linhas);
   sheet.autoResizeColumns(1, 4);
+}
+
+/**
+ * Acabamentos que a peça pode levar — renda, guipir, vivo. São opcionais e
+ * combináveis: cada um marcado soma o seu custo.
+ *
+ * A quantidade é por aplicação, não por material: a mesma guipir tem três
+ * linhas porque o que muda é ONDE ela vai. Manga e barra gasta 5 m; manga,
+ * barra e revel gasta 9 m; a guipir larga gasta 3 m. Tratar "guipir" como
+ * uma quantidade só erraria o custo em qualquer um dos três casos.
+ *
+ * `substituiTecido` marca quem sai do tecido principal em vez de somar. Só
+ * o tule: a manga é de tule e não se corta manga de cetim. Guipir, chantily
+ * e vivo são aplicados por cima da peça, o corte continua inteiro.
+ *
+ * Medidas passadas pela Karolyne em 20/08/2026.
+ */
+function setupPrecificacaoAcabamentos_(ss) {
+  const sheet = getOrCreateSheet_(ss, ABA_PRECIFICACAO_ACABAMENTOS);
+  const jaTinhaDados = sheet.getLastRow() > 1;
+  ensureHeader_(sheet, ['acabamento', 'material', 'metros', 'substituiTecido', 'ativo']);
+  if (jaTinhaDados) return;
+
+  const linhas = [
+    ['Tule na manga', 'Tule', 0.60, true, true],
+    ['Renda Chantily', 'Renda Chantily', 0.30, false, true],
+    ['Guipir na manga e barra', 'Guipir', 5.00, false, true],
+    ['Guipir na manga, barra e revel', 'Guipir', 9.00, false, true],
+    ['Guipir larga', 'Guipir larga', 3.00, false, true],
+    ['Vivo no robe', 'Vivo', 9.00, false, true]
+  ];
+  sheet.getRange(2, 1, linhas.length, linhas[0].length).setValues(linhas);
+  sheet.autoResizeColumns(1, 5);
 }
 
 function setupDespesasFixas_(ss) {
