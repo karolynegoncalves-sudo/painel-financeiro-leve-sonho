@@ -749,18 +749,27 @@ function migrarMateriais2026_() {
   ];
 
   const log = [];
+  // Nome repetido existe no catálogo — há dois "Moletom 3 cabos" e dois
+  // "Moletom 2 cabos", de fornecedores diferentes. Guarda TODAS as linhas de
+  // cada nome: com um mapa nome -> linha única, só a última era atualizada e
+  // as outras ficavam sem unidade (foi o que aconteceu na primeira rodada).
   const porNome = {};
-  rows.forEach((r, i) => { porNome[String(r[iNome] || '').trim().toLowerCase()] = i + 2; });
+  rows.forEach((r, i) => {
+    const k = String(r[iNome] || '').trim().toLowerCase();
+    (porNome[k] = porNome[k] || []).push(i + 2);
+  });
 
   TECIDOS.forEach(t => {
     const [nome, rend, valor, unid, obs] = t;
-    const linha = porNome[nome.toLowerCase()];
-    if (linha) {
-      const atual = num_(rows[linha - 2][iValor]);
-      if (atual !== valor) { sheet.getRange(linha, iValor + 1).setValue(valor); log.push(nome + ': ' + atual + ' -> ' + valor); }
-      sheet.getRange(linha, iRend + 1).setValue(rend);
-      sheet.getRange(linha, iUnid + 1).setValue(unid);
-      sheet.getRange(linha, iObs + 1).setValue(obs);
+    const linhas = porNome[nome.toLowerCase()];
+    if (linhas && linhas.length) {
+      linhas.forEach(linha => {
+        const atual = num_(rows[linha - 2][iValor]);
+        if (atual !== valor) { sheet.getRange(linha, iValor + 1).setValue(valor); log.push(nome + ' (linha ' + linha + '): ' + atual + ' -> ' + valor); }
+        sheet.getRange(linha, iRend + 1).setValue(rend);
+        sheet.getRange(linha, iUnid + 1).setValue(unid);
+        sheet.getRange(linha, iObs + 1).setValue(obs);
+      });
     } else {
       sheet.appendRow(['', nome, '', rend, valor, unid, obs]);
       log.push(nome + ': cadastrado a ' + valor + '/' + unid);
@@ -769,11 +778,11 @@ function migrarMateriais2026_() {
 
   // Moletons e piquet já estavam na aba com preço por quilo sem dizer isso.
   ['piquet', 'moletom 3 cabos', 'moletom 2 cabos', 'moletom dry'].forEach(nome => {
-    const linha = porNome[nome];
-    if (!linha) return;
-    if (String(rows[linha - 2][iUnid] || '').trim()) return;
-    sheet.getRange(linha, iUnid + 1).setValue('kg');
-    log.push(nome + ': marcado como preço por quilo');
+    (porNome[nome] || []).forEach(linha => {
+      if (String(rows[linha - 2][iUnid] || '').trim()) return;
+      sheet.getRange(linha, iUnid + 1).setValue('kg');
+      log.push(nome + ' (linha ' + linha + '): marcado como preço por quilo');
+    });
   });
 
   SpreadsheetApp.flush();
@@ -873,6 +882,61 @@ function setupPrecificacaoAcabamentos_(ss) {
   ];
   sheet.getRange(2, 1, linhas.length, linhas[0].length).setValues(linhas);
   sheet.autoResizeColumns(1, 5);
+}
+
+/**
+ * CONSERTO da _Precificacao_Config (20/08/2026). Roda uma vez.
+ *
+ * atualizarTaxasCanais_ gravou 10 valores numa aba que tinha 9 colunas,
+ * porque contava com o cabecalho novo que o ensureHeader_ antigo nunca
+ * chegou a escrever. Resultado nos quatro canais medidos: a taxa fixa caiu
+ * dentro de despesasFixasPct e o confirmado foi empurrado pra uma decima
+ * coluna sem nome. A Shopee ficou com "despesa fixa = 4".
+ *
+ * Reescreve a aba inteira com o cabecalho certo e os valores nas colunas
+ * certas. Nao depende do que esta la: os numeros sao os medidos em jan-jul
+ * de 2026, os mesmos de atualizarTaxasCanais_.
+ */
+function consertarConfigTaxas_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(ABA_PRECIFICACAO_CONFIG);
+  if (!sheet) throw new Error('Aba ' + ABA_PRECIFICACAO_CONFIG + ' nao existe. Rode setupWorkbook antes.');
+
+  const cabecalho = ['canal', 'impostosPct', 'comissaoPct', 'extra1Nome', 'extra1Pct',
+    'extra2Nome', 'extra2Pct', 'taxaFixaReais', 'despesasFixasPct', 'confirmado'];
+
+  // canal | impostos | comissao | extra1Nome | extra1Pct | extra2Nome | extra2Pct | taxaFixa | despFixa | confirmado
+  const linhas = [
+    ['NuvemShop_Cartao', 0.0742, 0.0314, 'Antecipação 10x', 0.1018, '', 0, 0.50, '', true],
+    ['NuvemShop_Pix', 0.0742, 0.0069, '', 0, '', 0, 0.25, '', true],
+    ['MercadoLivre', 0.07, 0.181, 'Frete subsidiado', 0.056, '', 0, 0, '', true],
+    ['Shopee', 0.0742, 0.163, 'Acelera (antecipação)', 0.049, '', 0, 4.00, '', true],
+    ['SHEIN', 0.07, 0.14, 'Antecipação', 0.038, '', 0, 0, '', false],
+    ['TikTokShop', 0.07, 0.14, 'Antecipação', 0.038, '', 0, 0, '', false],
+    ['_GLOBAL', '', '', '', '', '', '', '', 0.3494, true]
+  ];
+
+  const antes = sheet.getDataRange().getValues();
+  Logger.log('ANTES (%s linhas x %s colunas):', antes.length, antes[0] ? antes[0].length : 0);
+  antes.forEach(function (l) { Logger.log('  ' + l.join(' | ')); });
+
+  sheet.clear();
+  sheet.getRange(1, 1, 1, cabecalho.length).setValues([cabecalho]);
+  sheet.setFrozenRows(1);
+  sheet.getRange(1, 1, 1, cabecalho.length)
+    .setFontWeight('bold').setBackground('#8E2A44').setFontColor('#FFFFFF');
+  sheet.getRange(2, 1, linhas.length, cabecalho.length).setValues(linhas);
+  sheet.autoResizeColumns(1, cabecalho.length);
+  SpreadsheetApp.flush();
+
+  Logger.log('DEPOIS: %s canais reescritos com %s colunas.', linhas.length, cabecalho.length);
+  Logger.log('Confira: Shopee deve estar com taxaFixaReais = 4 e despesasFixasPct vazio.');
+  return linhas.length;
+}
+
+/** Wrapper pra rodar pelo menu do editor. */
+function _rodarConsertarConfigTaxas() {
+  Logger.log('Canais reescritos: ' + consertarConfigTaxas_());
 }
 
 function setupDespesasFixas_(ss) {
