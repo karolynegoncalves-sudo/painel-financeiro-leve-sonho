@@ -675,8 +675,7 @@ function migrarTuleFlare_() {
 /** Wrapper pra rodar pelo menu do editor. */
 function _rodarMigrarTuleFlare() {
   const log = migrarTuleFlare_();
-  Logger.log(log.length ? log.join('
-') : 'Nada a migrar — já estava tudo aplicado.');
+  Logger.log(log.length ? log.join('\n') : 'Nada a migrar — já estava tudo aplicado.');
 }
 
 /**
@@ -758,8 +757,7 @@ function migrarMateriais2026_() {
 /** Wrapper pra rodar pelo menu do editor. */
 function _rodarMigrarMateriais2026() {
   const log = migrarMateriais2026_();
-  Logger.log(log.length ? log.join('
-') : 'Nada a migrar — já estava tudo aplicado.');
+  Logger.log(log.length ? log.join('\n') : 'Nada a migrar — já estava tudo aplicado.');
 }
 
 /**
