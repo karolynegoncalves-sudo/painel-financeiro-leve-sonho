@@ -23,8 +23,16 @@
  * 2. CANAL. A mesma peça tem custo diferente por onde é vendida: robe de
  *    marketplace é 100% poliéster e a costura sai por R$ 5,00; robe da
  *    Nuvemshop é cetim com elastano e a costura sai por R$ 8,00. Por isso o
- *    tecido e a costura moram em _Precificacao_Producao (canal × tipo de
- *    peça), e não na regra da família.
+ *    tecido principal e a costura moram em _Precificacao_Producao (canal ×
+ *    tipo de peça), e não na regra da família.
+ *
+ * O tecido SECUNDÁRIO é o contrário: fica na regra da família, porque é
+ * característica do modelo e não do canal. É por onde entram as RENDAS —
+ * tule, guipir, guipir larga e renda chantily são todas renda aplicada sobre
+ * o corpo da peça, e a diferença entre elas é só o preço do metro. O robe
+ * flare leva 0,60m de renda em qualquer canal; o que muda com o canal é o
+ * cetim dos outros 1,23m. No catálogo de rendimento o modelo guarda `metros`
+ * já descontado dos 0,60 e `metros2` = 0,60.
  */
 
 /** Prefixo de família: os dois primeiros blocos do código (RMC-CUR-G-AZL -> RMC-CUR). */
@@ -68,7 +76,7 @@ function getPrecificacaoSkuRegras_() {
   const { headers, rows } = sheetData_(ABA_PRECIFICACAO_SKU);
   const idx = (n) => headers.indexOf(n);
   const iFamilia = idx('familia'), iDescricao = idx('descricao'), iTipoProduto = idx('tipoProduto'),
-    iTipoPeca = idx('tipoPeca'), iAviamentos = idx('aviamentosJson'),
+    iTipoPeca = idx('tipoPeca'), iMaterial2 = idx('materialSecundario'), iAviamentos = idx('aviamentosJson'),
     iCustoManual = idx('custoManual'), iAtivo = idx('ativo');
   const parseJson_ = (v, fallback) => { try { return v ? JSON.parse(v) : fallback; } catch (e) { return fallback; } };
 
@@ -79,6 +87,7 @@ function getPrecificacaoSkuRegras_() {
       descricao: r[iDescricao] || '',
       tipoProduto: String(r[iTipoProduto] || '').trim(),
       tipoPeca: String(r[iTipoPeca] || '').trim(),
+      materialSecundario: String(r[iMaterial2] || '').trim(),
       aviamentos: parseJson_(r[iAviamentos], []),
       custoManual: num_(r[iCustoManual])
     }));
@@ -89,7 +98,7 @@ function getPrecificacaoProducao_() {
   const { headers, rows } = sheetData_(ABA_PRECIFICACAO_PRODUCAO);
   const idx = (n) => headers.indexOf(n);
   const iCanal = idx('canalGrupo'), iTipoPeca = idx('tipoPeca'), iMaterial = idx('material'),
-    iMaterial2 = idx('materialSecundario'), iCostura = idx('costuraValor'), iAtivo = idx('ativo');
+    iCostura = idx('costuraValor'), iAtivo = idx('ativo');
 
   return rows
     .filter(r => r[iCanal] && r[iTipoPeca] && (r[iAtivo] === true || String(r[iAtivo]).toUpperCase() === 'TRUE' || r[iAtivo] === ''))
@@ -97,7 +106,6 @@ function getPrecificacaoProducao_() {
       canalGrupo: String(r[iCanal]).trim(),
       tipoPeca: String(r[iTipoPeca]).trim(),
       material: String(r[iMaterial] || '').trim(),
-      materialSecundario: String(r[iMaterial2] || '').trim(),
       costuraValor: num_(r[iCostura])
     }));
 }
@@ -126,6 +134,13 @@ function carregarCatalogosCusto_() {
     corte[c.tipoPeca.trim().toLowerCase()] = num_(c.valor);
   });
 
+  // Aviamentos por tamanho: chave tipoProduto|tamanho -> lista de {aviamento, quantidade}
+  const aviamentosTamanho = {};
+  getPrecificacaoAviamentosTamanhoCatalogo_().forEach(a => {
+    const k = a.tipoProduto.toLowerCase() + '|' + normTamanho_(a.tamanho);
+    (aviamentosTamanho[k] = aviamentosTamanho[k] || []).push(a);
+  });
+
   const producao = {};
   getPrecificacaoProducao_().forEach(p => {
     producao[p.canalGrupo.toLowerCase() + '|' + p.tipoPeca.toLowerCase()] = p;
@@ -134,7 +149,7 @@ function carregarCatalogosCusto_() {
   const regras = {};
   getPrecificacaoSkuRegras_().forEach(r => { regras[r.familia.toUpperCase()] = r; });
 
-  return { materiais, rendimento, corte, producao, regras };
+  return { materiais, rendimento, corte, producao, regras, aviamentosTamanho };
 }
 
 /**
@@ -170,14 +185,14 @@ function custoDoSku_(sku, nomeProduto, canal, cat) {
   const nomeMat = prod ? prod.material : '';
   const mat = nomeMat ? cat.materiais[nomeMat.toLowerCase()] : null;
   if (nomeMat && !mat) avisos.push('Tecido "' + nomeMat + '" não está no catálogo de materiais');
-  const nomeMat2 = prod ? prod.materialSecundario : '';
+  const nomeMat2 = regra.materialSecundario;
   const mat2 = nomeMat2 ? cat.materiais[nomeMat2.toLowerCase()] : null;
   if (nomeMat2 && !mat2) avisos.push('Tecido secundário "' + nomeMat2 + '" não está no catálogo');
 
   const metros = rend ? num_(rend.metros) : 0;
   const metros2 = rend ? num_(rend.metros2) : 0;
-  const custoTecido = metros * (mat ? num_(mat.valor) : 0);
-  const custoTecido2 = metros2 * (mat2 ? num_(mat2.valor) : 0);
+  const custoTecido = metros * (mat ? num_(mat.valorPorMetro) : 0);
+  const custoTecido2 = metros2 * (mat2 ? num_(mat2.valorPorMetro) : 0);
 
   // A aba de corte já guarda o custo total do produto: R$ 1,00 por peça
   // componente, então Robe vale 1,00 e Pijama 2,00 (camisa + short/calça).
@@ -192,15 +207,29 @@ function custoDoSku_(sku, nomeProduto, canal, cat) {
 
   const custoAviamentos = (regra.aviamentos || []).reduce((s, a) => s + num_(a.valor), 0);
 
-  const custo = custoTecido + custoTecido2 + custoCorte + custoCostura + custoAviamentos;
+  // Vivo e elástico: consumo por tamanho × preço por metro do material.
+  const porTamanho = cat.aviamentosTamanho[regra.tipoProduto.toLowerCase() + '|' + tamanho] || [];
+  const detalheAviamentosTamanho = [];
+  let custoAviamentosTamanho = 0;
+  porTamanho.forEach(a => {
+    const m = cat.materiais[a.aviamento.toLowerCase()];
+    if (!m) { avisos.push('Aviamento "' + a.aviamento + '" não está no catálogo de materiais'); return; }
+    const v = a.quantidade * num_(m.valorPorMetro);
+    custoAviamentosTamanho += v;
+    detalheAviamentosTamanho.push({ aviamento: a.aviamento, quantidade: a.quantidade, valor: v });
+  });
+
+  const custo = custoTecido + custoTecido2 + custoCorte + custoCostura
+    + custoAviamentos + custoAviamentosTamanho;
   return {
     sku: sku, familia: familia, canalGrupo: canalGrupo, tipoProduto: regra.tipoProduto, tamanho: tamanho,
     custo: custo, completo: avisos.length === 0, origem: 'calculado',
     detalhe: {
-      material: nomeMat, metros: metros, valorMetro: mat ? num_(mat.valor) : 0, custoTecido: custoTecido,
-      materialSecundario: nomeMat2, metros2: metros2, valorMetro2: mat2 ? num_(mat2.valor) : 0, custoTecido2: custoTecido2,
+      material: nomeMat, metros: metros, valorMetro: mat ? num_(mat.valorPorMetro) : 0, custoTecido: custoTecido,
+      materialSecundario: nomeMat2, metros2: metros2, valorMetro2: mat2 ? num_(mat2.valorPorMetro) : 0, custoTecido2: custoTecido2,
       custoCorte: custoCorte,
-      custoCostura: custoCostura, custoAviamentos: custoAviamentos
+      custoCostura: custoCostura, custoAviamentos: custoAviamentos,
+      custoAviamentosTamanho: custoAviamentosTamanho, aviamentosTamanho: detalheAviamentosTamanho
     },
     avisos: avisos
   };
@@ -236,8 +265,8 @@ function simularCusto_(entrada) {
 
   const metros = rend ? num_(rend.metros) : 0;
   const metros2 = rend ? num_(rend.metros2) : 0;
-  const custoTecido = metros * (mat ? num_(mat.valor) : 0);
-  const custoTecido2 = metros2 * (mat2 ? num_(mat2.valor) : 0);
+  const custoTecido = metros * (mat ? num_(mat.valorPorMetro) : 0);
+  const custoTecido2 = metros2 * (mat2 ? num_(mat2.valorPorMetro) : 0);
   const custoCorte = num_(cat.corte[tipoPeca.toLowerCase()]);
   const custoAviamentos = (entrada.aviamentos || []).reduce((s, a) => s + num_(a.valor), 0);
 
@@ -246,8 +275,8 @@ function simularCusto_(entrada) {
     custo: custoTecido + custoTecido2 + custoCorte + custoCostura + custoAviamentos,
     completo: avisos.length === 0,
     detalhe: {
-      metros: metros, valorMetro: mat ? num_(mat.valor) : 0, custoTecido: custoTecido,
-      metros2: metros2, valorMetro2: mat2 ? num_(mat2.valor) : 0, custoTecido2: custoTecido2,
+      metros: metros, valorMetro: mat ? num_(mat.valorPorMetro) : 0, custoTecido: custoTecido,
+      metros2: metros2, valorMetro2: mat2 ? num_(mat2.valorPorMetro) : 0, custoTecido2: custoTecido2,
       custoCorte: custoCorte,
       custoCostura: custoCostura, custoAviamentos: custoAviamentos
     },

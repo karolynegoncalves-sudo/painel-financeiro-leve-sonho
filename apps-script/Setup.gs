@@ -23,6 +23,7 @@ const ABA_PRECIFICACAO_MAODEOBRA_PECAS = '_Precificacao_MaoDeObra_Pecas';
 const ABA_PRECIFICACAO_CORTE = '_Precificacao_Corte';
 const ABA_PRECIFICACAO_SKU = '_Precificacao_SKU';
 const ABA_PRECIFICACAO_PRODUCAO = '_Precificacao_Producao';
+const ABA_PRECIFICACAO_AVIAMENTOS_TAMANHO = '_Precificacao_Aviamentos_Tamanho';
 const ABA_DESPESAS_FIXAS = '_Despesas_Fixas';
 const ABA_VENDAS = 'Vendas';
 
@@ -54,6 +55,7 @@ function setupWorkbook() {
   setupPrecificacaoCorte_(ss);
   setupPrecificacaoSku_(ss);
   setupPrecificacaoProducao_(ss);
+  setupPrecificacaoAviamentosTamanho_(ss);
   setupDespesasFixas_(ss);
 
   SpreadsheetApp.flush();
@@ -236,21 +238,25 @@ function setupPrecificacaoConfig_(ss) {
   ensureHeader_(sheet, [
     'canal', 'impostosPct', 'comissaoPct',
     'extra1Nome', 'extra1Pct', 'extra2Nome', 'extra2Pct',
-    'despesasFixasPct', 'confirmado'
+    'taxaFixaReais', 'despesasFixasPct', 'confirmado'
   ]);
   if (jaTinhaDados) return;
 
+  // taxaFixaReais: cobrança em reais por venda, não percentual. A Shopee
+  // cobra R$ 4,00 por venda além da comissão. Isso estava dentro do custo
+  // do produto nas fichas FPV, o que inflava o custo da peça e a fazia
+  // parecer cara também na Nuvemshop, onde essa taxa não existe.
   const linhas = [
-    ['NuvemShop_Cartao', 0.0742, 0.03, 'TPV Nuvemshop', 0.01, 'Parcelamento Pagar.ME', 0.1305, '', true],
-    ['NuvemShop_Pix', 0.0742, 0, 'Taxas', 0.0098, '', 0, '', true],
-    ['MercadoLivre', 0.07, 0.14, 'Antecipação', 0.038, '', 0, '', true],
-    ['Shopee', 0.0742, 0.14, 'Transporte', 0.06, 'Antecipa', 0.035, '', true],
-    ['SHEIN', 0.07, 0.14, 'Antecipação', 0.038, '', 0, '', true],
-    ['TikTokShop', 0.07, 0.14, 'Antecipação', 0.038, '', 0, '', false],
-    ['_GLOBAL', '', '', '', '', '', '', 0.3494, true]
+    ['NuvemShop_Cartao', 0.0742, 0.03, 'TPV Nuvemshop', 0.01, 'Parcelamento Pagar.ME', 0.1305, 0, '', true],
+    ['NuvemShop_Pix', 0.0742, 0, 'Taxas', 0.0098, '', 0, 0, '', true],
+    ['MercadoLivre', 0.07, 0.14, 'Antecipação', 0.038, '', 0, 0, '', true],
+    ['Shopee', 0.0742, 0.14, 'Transporte', 0.06, 'Antecipa', 0.035, 4.00, '', true],
+    ['SHEIN', 0.07, 0.14, 'Antecipação', 0.038, '', 0, 0, '', true],
+    ['TikTokShop', 0.07, 0.14, 'Antecipação', 0.038, '', 0, 0, '', false],
+    ['_GLOBAL', '', '', '', '', '', '', '', 0.3494, true]
   ];
   sheet.getRange(2, 1, linhas.length, linhas[0].length).setValues(linhas);
-  sheet.autoResizeColumns(1, 9);
+  sheet.autoResizeColumns(1, 10);
 }
 
 /**
@@ -265,7 +271,7 @@ function setupPrecificacaoConfig_(ss) {
 function setupPrecificacaoMateriais_(ss) {
   const sheet = getOrCreateSheet_(ss, ABA_PRECIFICACAO_MATERIAIS);
   const jaTinhaDados = sheet.getLastRow() > 1;
-  ensureHeader_(sheet, ['fornecedor', 'material', 'largura', 'rendimento', 'valor']);
+  ensureHeader_(sheet, ['fornecedor', 'material', 'largura', 'rendimento', 'valor', 'unidade', 'observacao']);
   if (jaTinhaDados) return;
 
   const linhas = [
@@ -470,34 +476,38 @@ function setupPrecificacaoSku_(ss) {
   const sheet = getOrCreateSheet_(ss, ABA_PRECIFICACAO_SKU);
   const jaTinhaDados = sheet.getLastRow() > 1;
   ensureHeader_(sheet, [
-    'familia', 'descricao', 'tipoProduto', 'tipoPeca', 'aviamentosJson', 'custoManual', 'ativo'
+    'familia', 'descricao', 'tipoProduto', 'tipoPeca', 'materialSecundario',
+    'aviamentosJson', 'custoManual', 'ativo'
   ]);
   if (jaTinhaDados) return;
 
   // Aviamentos confirmados nas fichas FPV: linha 0,03 + fio 0,07 +
   // saquinho crystal 0,07 + envelope correio 0,56 = 0,73 em toda peça.
-  // O pijama soma 5 botões a 0,024 = 0,12.
+  // O pijama soma 5 botões a 0,124 = 0,62. A FPV traz 0,12 aqui porque
+  // divide a cartela por 250 em vez de pelas 50 unidades que ela tem —
+  // valor confirmado pela Karolyne em 20/08/2026.
   const AVI_BASE = '[{"descricao":"Linha","valor":0.03},{"descricao":"Fio","valor":0.07},{"descricao":"Saquinho Crystal","valor":0.07},{"descricao":"Envelope Correio","valor":0.56}]';
-  const AVI_PIJAMA = '[{"descricao":"Linha","valor":0.03},{"descricao":"Fio","valor":0.07},{"descricao":"Saquinho Crystal","valor":0.07},{"descricao":"Envelope Correio","valor":0.56},{"descricao":"Botão (5un)","valor":0.12}]';
+  const AVI_PIJAMA = '[{"descricao":"Linha","valor":0.03},{"descricao":"Fio","valor":0.07},{"descricao":"Saquinho Crystal","valor":0.07},{"descricao":"Envelope Correio","valor":0.56},{"descricao":"Botão (5un)","valor":0.62},{"descricao":"Caseado (5 casas)","valor":2.50}]';
 
   const linhas = [
-    ['PMC-CUR', 'Pijama Americano Cetim - Manga Curta e Shorts', 'Pijama Americano Manga Curta e Short', 'Pijama', 2, AVI_PIJAMA, '', true],
-    ['RMC-CUR', 'Robe de Cetim - Manga Curta', 'Robe manga curta', 'Robe', 1, AVI_BASE, '', true],
-    ['RIF-CUR', 'Robe de Cetim - Infantil', 'Robe infantil', 'Robe', 1, AVI_BASE, '', true],
-    ['PML-LON', 'Pijama Americano Cetim - Manga Longa e Calça', 'Pijama Americano Manga Longa e Calça', 'Pijama', 2, AVI_PIJAMA, '', true],
-    ['PIF-CUR', 'Pijama Americano Cetim Infantil - Manga Curta e Shorts', 'Pijama Americano Infantil', 'Pijama', 2, AVI_PIJAMA, '', true],
-    ['RME-CUR', 'Robe de Cetim com Elastano - Manga Curta', 'Robe manga curta', 'Robe', 1, AVI_BASE, '', true],
-    ['KSC', 'Kit Saquinhos de Cetim', 'Saquinhos de Cetim', 'Saquinho', 1, '', '', true],
+    // familia | descricao | tipoProduto | tipoPeca | materialSecundario | aviamentosJson | custoManual | ativo
+    ['PMC-CUR', 'Pijama Americano Cetim - Manga Curta e Shorts', 'Pijama Americano Manga Curta e Short', 'Pijama', '', AVI_PIJAMA, '', true],
+    ['RMC-CUR', 'Robe de Cetim - Manga Curta', 'Robe manga curta', 'Robe', '', AVI_BASE, '', true],
+    ['RIF-CUR', 'Robe de Cetim - Infantil', 'Robe infantil', 'Robe', '', AVI_BASE, '', true],
+    ['PML-LON', 'Pijama Americano Cetim - Manga Longa e Calça', 'Pijama Americano Manga Longa e Calça', 'Pijama', '', AVI_PIJAMA, '', true],
+    ['PIF-CUR', 'Pijama Americano Cetim Infantil - Manga Curta e Shorts', 'Pijama Americano Infantil', 'Pijama', '', AVI_PIJAMA, '', true],
+    ['RME-CUR', 'Robe de Cetim com Elastano - Manga Curta', 'Robe manga curta', 'Robe', '', AVI_BASE, '', true],
+    ['KSC', 'Kit Saquinhos de Cetim', 'Saquinhos de Cetim', 'Saquinho', '', '', '', true],
     // Sem rendimento cadastrado — dependem de custoManual até entrarem no catálogo.
-    ['SCR', 'Scrunchie de Cetim', '', 'Scrunchie', 1, '', '', true],
-    ['SCE', 'Scrunchie de Cetim (código alternativo)', '', 'Scrunchie', 1, '', '', true],
-    ['FRN', 'Fronha de Cetim', '', '', 1, '', '', true],
-    ['TCA', 'Touca de Cetim / Touca Mágica', '', '', 1, '', '', true],
-    ['FXA-CNL', 'Faixa de Cabelo Canelada', '', '', 1, '', '', true],
-    ['RGT-CUR', 'Regata Feminina Canelada', '', '', 1, '', '', true]
+    ['SCR', 'Scrunchie de Cetim', '', 'Scrunchie', '', '', '', true],
+    ['SCE', 'Scrunchie de Cetim (código alternativo)', '', 'Scrunchie', '', '', '', true],
+    ['FRN', 'Fronha de Cetim', '', '', '', '', '', true],
+    ['TCA', 'Touca de Cetim / Touca Mágica', '', '', '', '', '', true],
+    ['FXA-CNL', 'Faixa de Cabelo Canelada', '', '', '', '', '', true],
+    ['RGT-CUR', 'Regata Feminina Canelada', '', '', '', '', '', true]
   ];
   sheet.getRange(2, 1, linhas.length, linhas[0].length).setValues(linhas);
-  sheet.autoResizeColumns(1, 7);
+  sheet.autoResizeColumns(1, 8);
 }
 
 /**
@@ -517,22 +527,258 @@ function setupPrecificacaoProducao_(ss) {
   const sheet = getOrCreateSheet_(ss, ABA_PRECIFICACAO_PRODUCAO);
   const jaTinhaDados = sheet.getLastRow() > 1;
   ensureHeader_(sheet, [
-    'canalGrupo', 'tipoPeca', 'material', 'materialSecundario', 'costuraValor', 'ativo'
+    'canalGrupo', 'tipoPeca', 'material', 'costuraValor', 'ativo'
   ]);
   if (jaTinhaDados) return;
 
   const linhas = [
-    ['Marketplace', 'Robe', 'Cetim Poliéster', '', 5.00, true],
-    ['Nuvemshop', 'Robe', 'Cetim Elastano', '', 8.00, true],
-    ['Marketplace', 'Pijama', 'Cetim Elastano', '', 11.00, true],
-    ['Nuvemshop', 'Pijama', 'Cetim Elastano', '', 11.00, true],
-    ['Marketplace', 'Scrunchie', 'Cetim Poliéster', '', 0.30, true],
-    ['Nuvemshop', 'Scrunchie', 'Cetim Elastano', '', 0.30, true],
-    ['Marketplace', 'Saquinho', 'Cetim Poliéster', '', 0.30, true],
-    ['Nuvemshop', 'Saquinho', 'Cetim Poliéster', '', 0.30, true]
+    ['Marketplace', 'Robe', 'Cetim Poliéster', 5.00, true],
+    ['Nuvemshop', 'Robe', 'Cetim Elastano', 8.00, true],
+    ['Marketplace', 'Pijama', 'Cetim Elastano', 11.00, true],
+    ['Nuvemshop', 'Pijama', 'Cetim Elastano', 11.00, true],
+    ['Marketplace', 'Scrunchie', 'Cetim Poliéster', 0.30, true],
+    ['Nuvemshop', 'Scrunchie', 'Cetim Elastano', 0.30, true],
+    ['Marketplace', 'Saquinho', 'Cetim Poliéster', 0.30, true],
+    ['Nuvemshop', 'Saquinho', 'Cetim Poliéster', 0.30, true]
   ];
   sheet.getRange(2, 1, linhas.length, linhas[0].length).setValues(linhas);
-  sheet.autoResizeColumns(1, 6);
+  sheet.autoResizeColumns(1, 5);
+}
+
+/**
+ * Migração do tule (20/08/2026) — roda uma vez, é idempotente.
+ *
+ * Regra confirmada pela Karolyne: robe flare gasta o MESMO total de tecido
+ * que o manga longa, mas 0,60m desse total é renda em vez de cetim. Então o
+ * catálogo passa a guardar `metros` já descontado dos 0,60 e `metros2` =
+ * 0,60, e o tecido secundário da família aponta pra renda usada — "Tule"
+ * neste modelo, mas a coluna aceita qualquer uma (guipir, guipir larga,
+ * renda chantily), porque a diferença entre elas é só o preço do metro.
+ *
+ * Faz também duas correções de dados que apareceram na conferência:
+ *  - Cetim Elastano estava com R$ 5,99; o valor certo é R$ 5,89.
+ *  - Cria "Robe manga flare tule longo" derivado do "Robe manga longa longo".
+ *
+ * ATENÇÃO: os tamanhos G a G3 dos modelos "longo" ainda estão sob suspeita
+ * (G1 gasta menos que GG, e os dois modelos longos são idênticos de G pra
+ * cima). O flare tule longo herda esses números — quando remedir, corrija os
+ * dois.
+ */
+function migrarTuleFlare_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const log = [];
+  const METROS_TULE = 0.60;
+
+  // 1) Tule no catálogo de materiais + preço do elastano
+  const shMat = ss.getSheetByName(ABA_PRECIFICACAO_MATERIAIS);
+  const mat = sheetData_(ABA_PRECIFICACAO_MATERIAIS);
+  const iMatNome = mat.headers.indexOf('material'), iMatValor = mat.headers.indexOf('valor');
+  let temTule = false;
+  mat.rows.forEach((r, i) => {
+    const nome = String(r[iMatNome] || '').trim().toLowerCase();
+    if (nome === 'tule') temTule = true;
+    if (nome === 'cetim elastano' && num_(r[iMatValor]) !== 5.89) {
+      shMat.getRange(i + 2, iMatValor + 1).setValue(5.89);
+      log.push('Cetim Elastano: ' + r[iMatValor] + ' -> 5,89');
+    }
+  });
+  if (!temTule) {
+    shMat.appendRow(['', 'Tule', '', '', 22.90]);
+    log.push('Tule cadastrado a R$ 22,90/m');
+  }
+
+  // 2) Rendimento: separa os 0,60 de tule do tecido principal
+  const shRend = ss.getSheetByName(ABA_PRECIFICACAO_RENDIMENTO);
+  const rend = sheetData_(ABA_PRECIFICACAO_RENDIMENTO);
+  const iTipo = rend.headers.indexOf('tipoProduto'), iTam = rend.headers.indexOf('tamanho'),
+    iM = rend.headers.indexOf('metros'), iM2 = rend.headers.indexOf('metros2');
+
+  rend.rows.forEach((r, i) => {
+    if (String(r[iTipo] || '').trim().toLowerCase() !== 'robe manga flare tule') return;
+    if (num_(r[iM2]) > 0) return;                       // já migrado
+    const total = num_(r[iM]);
+    if (total <= METROS_TULE) return;
+    shRend.getRange(i + 2, iM + 1).setValue(Math.round((total - METROS_TULE) * 100) / 100);
+    shRend.getRange(i + 2, iM2 + 1).setValue(METROS_TULE);
+    log.push('flare tule ' + r[iTam] + ': ' + total + ' -> ' + (total - METROS_TULE) + ' cetim + 0,60 tule');
+  });
+
+  // 3) Flare tule longo, derivado do manga longa longo
+  const jaTemLongo = rend.rows.some(r => String(r[iTipo] || '').trim().toLowerCase() === 'robe manga flare tule longo');
+  if (!jaTemLongo) {
+    const novas = rend.rows
+      .filter(r => String(r[iTipo] || '').trim().toLowerCase() === 'robe manga longa longo')
+      .map(r => {
+        const total = num_(r[iM]);
+        return ['Robe manga flare tule longo', r[iTam],
+          Math.round((total - METROS_TULE) * 100) / 100, METROS_TULE];
+      });
+    if (novas.length) {
+      shRend.getRange(shRend.getLastRow() + 1, 1, novas.length, 4).setValues(novas);
+      log.push('Robe manga flare tule longo criado com ' + novas.length + ' tamanhos (derivado do manga longa longo)');
+    }
+  }
+
+  // 4) Famílias de flare passam a apontar o tule como tecido secundário
+  const shSku = ss.getSheetByName(ABA_PRECIFICACAO_SKU);
+  const sku = sheetData_(ABA_PRECIFICACAO_SKU);
+  const iTipoProd = sku.headers.indexOf('tipoProduto'), iMat2 = sku.headers.indexOf('materialSecundario');
+  sku.rows.forEach((r, i) => {
+    const tp = String(r[iTipoProd] || '').trim().toLowerCase();
+    if (tp.indexOf('flare tule') < 0) return;
+    if (String(r[iMat2] || '').trim()) return;
+    shSku.getRange(i + 2, iMat2 + 1).setValue('Tule');
+    log.push('família da linha ' + (i + 2) + ': tecido secundário = Tule');
+  });
+
+  SpreadsheetApp.flush();
+  return log;
+}
+
+/** Wrapper pra rodar pelo menu do editor. */
+function _rodarMigrarTuleFlare() {
+  const log = migrarTuleFlare_();
+  Logger.log(log.length ? log.join('
+') : 'Nada a migrar — já estava tudo aplicado.');
+}
+
+/**
+ * Tecidos e aviamentos confirmados pela Karolyne em 20/08/2026.
+ * Idempotente: atualiza preço de quem já existe, insere quem falta, e nunca
+ * mexe em linha que não está nesta lista.
+ *
+ * A coluna `unidade` existia implícita e errada: cetim se compra por METRO,
+ * malha e moletom por QUILO, e os dois valores conviviam na mesma coluna
+ * `valor` — o cálculo lia os R$ 46,50 do quilo de malha como R$ 46,50 do
+ * metro. Quem lê deve usar `valorPorMetro` (ver getPrecificacaoMateriaisCatalogo_),
+ * que divide pelo rendimento sempre que a unidade não for metro.
+ *
+ * Aviamentos que vêm em rolo, peça ou cartela seguem a mesma regra: preço do
+ * pacote em `valor`, quanto ele rende em `rendimento`.
+ */
+function migrarMateriais2026_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(ABA_PRECIFICACAO_MATERIAIS);
+  ensureHeader_(sheet, ['fornecedor', 'material', 'largura', 'rendimento', 'valor', 'unidade', 'observacao']);
+  const { headers, rows } = sheetData_(ABA_PRECIFICACAO_MATERIAIS);
+  const idx = (n) => headers.indexOf(n);
+  const iNome = idx('material'), iRend = idx('rendimento'), iValor = idx('valor'),
+    iUnid = idx('unidade'), iObs = idx('observacao');
+
+  // material, rendimento, valor, unidade, observacao
+  const TECIDOS = [
+    ['Cetim Poliéster', '', 2.99, 'm', ''],
+    ['Cetim Elastano', '', 5.89, 'm', ''],
+    ['Crepe Amanda', '', 12.90, 'm', ''],
+    ['Prada', '', 14.90, 'm', ''],
+    ['Crepe Monalisa', '', 58.90, 'm', ''],
+    ['Microsoft', '', 17.50, 'm', ''],
+    ['Toque de Seda', '', 22.00, 'm', ''],
+    ['Viscolinho', '', 11.00, 'm', ''],
+    ['Atoalhado', '', 10.70, 'm', ''],
+    ['Tule', '', 22.90, 'm', ''],
+    ['Malha PV', 2.25, 46.50, 'kg', '1 kg rende 2,25 m -> R$ 20,67/m'],
+    ['Renda Chantily', 3, 114.00, 'peça', 'peça de 3 m por R$ 114,00 -> R$ 38,00/m'],
+    ['Vivo', 50, 19.90, 'rolo', 'rolo de 50 m por R$ 19,90 -> R$ 0,398/m'],
+    ['Elástico', 25, 10.40, 'rolo', 'rolo de 25 m por R$ 10,40 -> R$ 0,416/m'],
+    ['Botão', 50, 6.20, 'cartela', 'cartela de 50 un por R$ 6,20 -> R$ 0,124/un'],
+    ['Guipir', 21.5, 13.70, 'peça', 'peça de 21,5 m por R$ 13,70 -> R$ 0,637/m'],
+    ['Guipir larga', 21.5, 18.90, 'peça', 'peça de 21,5 m por R$ 18,90 -> R$ 0,879/m']
+  ];
+
+  const log = [];
+  const porNome = {};
+  rows.forEach((r, i) => { porNome[String(r[iNome] || '').trim().toLowerCase()] = i + 2; });
+
+  TECIDOS.forEach(t => {
+    const [nome, rend, valor, unid, obs] = t;
+    const linha = porNome[nome.toLowerCase()];
+    if (linha) {
+      const atual = num_(rows[linha - 2][iValor]);
+      if (atual !== valor) { sheet.getRange(linha, iValor + 1).setValue(valor); log.push(nome + ': ' + atual + ' -> ' + valor); }
+      sheet.getRange(linha, iRend + 1).setValue(rend);
+      sheet.getRange(linha, iUnid + 1).setValue(unid);
+      sheet.getRange(linha, iObs + 1).setValue(obs);
+    } else {
+      sheet.appendRow(['', nome, '', rend, valor, unid, obs]);
+      log.push(nome + ': cadastrado a ' + valor + '/' + unid);
+    }
+  });
+
+  // Moletons e piquet já estavam na aba com preço por quilo sem dizer isso.
+  ['piquet', 'moletom 3 cabos', 'moletom 2 cabos', 'moletom dry'].forEach(nome => {
+    const linha = porNome[nome];
+    if (!linha) return;
+    if (String(rows[linha - 2][iUnid] || '').trim()) return;
+    sheet.getRange(linha, iUnid + 1).setValue('kg');
+    log.push(nome + ': marcado como preço por quilo');
+  });
+
+  SpreadsheetApp.flush();
+  return log;
+}
+
+/** Wrapper pra rodar pelo menu do editor. */
+function _rodarMigrarMateriais2026() {
+  const log = migrarMateriais2026_();
+  Logger.log(log.length ? log.join('
+') : 'Nada a migrar — já estava tudo aplicado.');
+}
+
+/**
+ * Aviamentos que variam com o tamanho — vivo e elástico do pijama.
+ *
+ * Não cabiam no catálogo de rendimento, que só tem `metros` e `metros2`: o
+ * pijama usa três materiais (tecido + vivo + elástico) e cada um tem consumo
+ * próprio por tamanho. Aqui cada linha é um par tipo de produto + tamanho +
+ * aviamento, e a quantidade multiplica o `valorPorMetro` do material.
+ *
+ * Medidas passadas pela Karolyne em 20/08/2026. O elástico é o mesmo no
+ * verão e no inverno; o vivo muda bastante (o de inverno é menor porque a
+ * manga longa e a calça levam menos acabamento vivo que o short).
+ */
+function setupPrecificacaoAviamentosTamanho_(ss) {
+  const sheet = getOrCreateSheet_(ss, ABA_PRECIFICACAO_AVIAMENTOS_TAMANHO);
+  const jaTinhaDados = sheet.getLastRow() > 1;
+  ensureHeader_(sheet, ['tipoProduto', 'tamanho', 'aviamento', 'quantidade']);
+  if (jaTinhaDados) return;
+
+  const VERAO = 'Pijama Americano Manga Curta e Short';
+  const INVERNO = 'Pijama Americano Manga Longa e Calça';
+  // Manga Curta e Calça e Manga Longa e Shorts herdam as medidas do inverno
+  // (confirmado pela Karolyne em 20/08/2026) — o que manda no vivo é a calça
+  // e a manga longa, não o short.
+  const HERDAM_INVERNO = [
+    'Pijama Americano Manga Curta e Calça',
+    'Pijama Americano Manga Longa e Shorts'
+  ];
+
+  const MEDIDAS = {
+    verao: {
+      'Vivo': { P: 3.75, M: 4.10, G: 4.30, GG: 4.50, G1: 5.00 },
+      'Elástico': { P: 0.64, M: 0.66, G: 0.68, GG: 0.72, G1: 0.78 }
+    },
+    inverno: {
+      'Vivo': { P: 2.89, M: 3.02, G: 3.22, GG: 3.25, G1: 4.00 },
+      'Elástico': { P: 0.64, M: 0.66, G: 0.68, GG: 0.72, G1: 0.78 }
+    }
+  };
+
+  const linhas = [];
+  function espalhar_(tipoProduto, medidas) {
+    Object.keys(medidas).forEach(function (aviamento) {
+      const porTamanho = medidas[aviamento];
+      Object.keys(porTamanho).forEach(function (tamanho) {
+        linhas.push([tipoProduto, tamanho, aviamento, porTamanho[tamanho]]);
+      });
+    });
+  }
+  espalhar_(VERAO, MEDIDAS.verao);
+  espalhar_(INVERNO, MEDIDAS.inverno);
+  HERDAM_INVERNO.forEach(function (tipoProduto) { espalhar_(tipoProduto, MEDIDAS.inverno); });
+
+  sheet.getRange(2, 1, linhas.length, 4).setValues(linhas);
+  sheet.autoResizeColumns(1, 4);
 }
 
 function setupDespesasFixas_(ss) {

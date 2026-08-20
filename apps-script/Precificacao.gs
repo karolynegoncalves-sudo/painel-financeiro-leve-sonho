@@ -88,7 +88,8 @@ function getPrecificacaoConfig_() {
   const idx = (n) => headers.indexOf(n);
   const iCanal = idx('canal'), iImpostos = idx('impostosPct'), iComissao = idx('comissaoPct'),
     iExtra1Nome = idx('extra1Nome'), iExtra1Pct = idx('extra1Pct'), iExtra2Nome = idx('extra2Nome'),
-    iExtra2Pct = idx('extra2Pct'), iDespesasFixas = idx('despesasFixasPct'), iConfirmado = idx('confirmado');
+    iExtra2Pct = idx('extra2Pct'), iTaxaFixa = idx('taxaFixaReais'),
+    iDespesasFixas = idx('despesasFixasPct'), iConfirmado = idx('confirmado');
 
   let despesasFixasPctManual = 0;
   const canais = {};
@@ -99,6 +100,10 @@ function getPrecificacaoConfig_() {
       impostosPct: num_(r[iImpostos]), comissaoPct: num_(r[iComissao]),
       extra1Nome: r[iExtra1Nome] || '', extra1Pct: num_(r[iExtra1Pct]),
       extra2Nome: r[iExtra2Nome] || '', extra2Pct: num_(r[iExtra2Pct]),
+      // Cobrança fixa por item, em reais — a Shopee cobra R$ 4,00 por item
+      // vendido além do percentual. Não é custo de produto: só existe
+      // naquele canal, então mora aqui e não na ficha da peça.
+      taxaFixaReais: iTaxaFixa >= 0 ? num_(r[iTaxaFixa]) : 0,
       confirmado: r[iConfirmado] === true || String(r[iConfirmado]).toUpperCase() === 'TRUE'
     };
   });
@@ -193,15 +198,35 @@ function excluirDespesaFixa_(id, email) {
   }
 }
 
+/**
+ * Catálogo de tecidos e aviamentos. `valor` é o preço na unidade de COMPRA,
+ * que não é a mesma para todo mundo: cetim vem por metro, malha por quilo,
+ * vivo e elástico em rolo, botão em cartela. `unidade` diz qual é, e
+ * `rendimento` diz quanto aquela unidade rende — 2,25 m no quilo de malha,
+ * 50 m no rolo de vivo, 50 unidades na cartela de botão.
+ *
+ * Quem calcula custo deve usar SEMPRE `valorPorMetro`, nunca `valor`: ler o
+ * valor cru tratava os R$ 46,50 do quilo de malha como se fossem R$ 46,50 do
+ * metro, mais que dobrando o custo da peça.
+ */
 function getPrecificacaoMateriaisCatalogo_() {
   const { headers, rows } = sheetData_(ABA_PRECIFICACAO_MATERIAIS);
   const idx = (n) => headers.indexOf(n);
   const iFornecedor = idx('fornecedor'), iMaterial = idx('material'), iLargura = idx('largura'),
-    iRendimento = idx('rendimento'), iValor = idx('valor');
-  return rows.filter(r => r[iMaterial]).map(r => ({
-    fornecedor: r[iFornecedor] || '', material: r[iMaterial],
-    largura: num_(r[iLargura]), rendimento: num_(r[iRendimento]), valor: num_(r[iValor])
-  }));
+    iRendimento = idx('rendimento'), iValor = idx('valor'), iUnidade = idx('unidade');
+  return rows.filter(r => r[iMaterial]).map(r => {
+    const valor = num_(r[iValor]);
+    const rendimento = num_(r[iRendimento]);
+    const unidade = String((iUnidade >= 0 ? r[iUnidade] : '') || 'm').trim().toLowerCase();
+    // 'm' já é o preço por metro; qualquer outra unidade de compra (kg, rolo,
+    // peça, cartela) divide pelo que ela rende.
+    const porMetro = (unidade !== 'm' && rendimento > 0) ? valor / rendimento : valor;
+    return {
+      fornecedor: r[iFornecedor] || '', material: r[iMaterial],
+      largura: num_(r[iLargura]), rendimento: rendimento,
+      unidade: unidade, valor: valor, valorPorMetro: porMetro
+    };
+  });
 }
 
 function getPrecificacaoRendimentoCatalogo_() {
@@ -228,6 +253,22 @@ function getPrecificacaoMaoDeObraPecasCatalogo_() {
   const iFuncionario = idx('funcionario'), iTipoPeca = idx('tipoPeca'), iValor = idx('valor'), iUnidade = idx('unidade');
   return rows.filter(r => r[iFuncionario] && r[iTipoPeca]).map(r => ({
     funcionario: r[iFuncionario], tipoPeca: r[iTipoPeca], valor: num_(r[iValor]), unidade: r[iUnidade] || ''
+  }));
+}
+
+/**
+ * Aviamentos cujo consumo muda com o tamanho (vivo e elástico do pijama).
+ * A quantidade multiplica o `valorPorMetro` do material de mesmo nome no
+ * catálogo de tecidos.
+ */
+function getPrecificacaoAviamentosTamanhoCatalogo_() {
+  const { headers, rows } = sheetData_(ABA_PRECIFICACAO_AVIAMENTOS_TAMANHO);
+  const idx = (n) => headers.indexOf(n);
+  const iTipo = idx('tipoProduto'), iTamanho = idx('tamanho'),
+    iAviamento = idx('aviamento'), iQtd = idx('quantidade');
+  return rows.filter(r => r[iTipo] && r[iAviamento]).map(r => ({
+    tipoProduto: String(r[iTipo]).trim(), tamanho: String(r[iTamanho]).trim(),
+    aviamento: String(r[iAviamento]).trim(), quantidade: num_(r[iQtd])
   }));
 }
 
