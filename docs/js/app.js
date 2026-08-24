@@ -116,13 +116,45 @@ document.getElementById('btnSair').addEventListener('click', () => {
 
 /* ---------------- API ---------------- */
 
-async function apiFetch_(view, token) {
-  try {
-    const resp = await fetch(CFG.APPS_SCRIPT_URL + '?view=' + view + '&token=' + encodeURIComponent(token));
-    return await resp.json();
-  } catch (e) {
-    return { error: String(e) };
+/* O Apps Script devolve uma pagina HTML de erro quando passa do limite de
+   execucoes concorrentes - e nao um JSON com erro. Sem tratar, o
+   resp.json() estoura com "Unexpected token '<'" e a aba inteira morre por
+   causa de um soluco. Aqui a resposta e lida como texto primeiro: se nao
+   for JSON, tenta de novo com espera crescente. `_falhou` marca a
+   diferenca entre "nao consegui falar com a planilha" e "a planilha
+   respondeu e esta vazia", que sao problemas distintos. */
+async function apiFetch_(view, token, tentativas) {
+  const max = tentativas === undefined ? 3 : tentativas;
+  let ultimoErro = '';
+  for (let t = 1; t <= max; t++) {
+    try {
+      const resp = await fetch(CFG.APPS_SCRIPT_URL + '?view=' + view + '&token=' + encodeURIComponent(token));
+      const txt = await resp.text();
+      try {
+        return JSON.parse(txt);
+      } catch (e) {
+        ultimoErro = 'resposta nao e JSON (HTTP ' + resp.status + ')';
+      }
+    } catch (e) {
+      ultimoErro = String(e);
+    }
+    if (t < max) await new Promise(r => setTimeout(r, 700 * t));
   }
+  return { error: ultimoErro, _falhou: true, _view: view };
+}
+
+/* Carrega em lotes em vez de tudo de uma vez. A aba de precificacao pedia
+   12 rotas simultaneas, o que sozinho ja estourava o limite de execucoes
+   concorrentes do Apps Script. */
+async function carregarEmLotes_(views, token, porLote) {
+  const n = porLote || 4;
+  const out = [];
+  for (let i = 0; i < views.length; i += n) {
+    const lote = views.slice(i, i + n);
+    const r = await Promise.all(lote.map(v => apiFetch_(v, token)));
+    r.forEach(x => out.push(x));
+  }
+  return out;
 }
 
 /**
@@ -302,20 +334,27 @@ async function safeRenderTab(view) {
     if (view === 'precificacao') {
       if (precifProdutos === null || precifConfig === null) {
         el.innerHTML = '<div class="state-msg">Carregando...</div>';
-        const [dataProdutos, dataConfig, dataMateriais, dataRendimento, dataFuncionarios, dataMaoDeObraPecas, dataCorte, dataProducao, dataAviamentos, dataAcabamentos, dataModelos, dataFicha] = await Promise.all([
-          apiFetch_('precificacao', idToken),
-          apiFetch_('precificacaoConfig', idToken),
-          apiFetch_('precificacaoMateriais', idToken),
-          apiFetch_('precificacaoRendimento', idToken),
-          apiFetch_('precificacaoFuncionarios', idToken),
-          apiFetch_('precificacaoMaoDeObraPecas', idToken),
-          apiFetch_('precificacaoCorte', idToken),
-          apiFetch_('precificacaoProducao', idToken),
-          apiFetch_('precificacaoAviamentos', idToken),
-          apiFetch_('precificacaoAcabamentos', idToken),
-          apiFetch_('precificacaoModelos', idToken),
-          apiFetch_('precificacaoFicha', idToken)
-        ]);
+        const [dataProdutos, dataConfig, dataMateriais, dataRendimento, dataFuncionarios, dataMaoDeObraPecas, dataCorte, dataProducao, dataAviamentos, dataAcabamentos, dataModelos, dataFicha] = await carregarEmLotes_([
+          'precificacao', 'precificacaoConfig', 'precificacaoMateriais',
+          'precificacaoRendimento', 'precificacaoFuncionarios', 'precificacaoMaoDeObraPecas',
+          'precificacaoCorte', 'precificacaoProducao', 'precificacaoAviamentos',
+          'precificacaoAcabamentos', 'precificacaoModelos', 'precificacaoFicha'
+        ], idToken);
+
+        /* Falha de comunicacao nao pode virar "sua planilha esta vazia":
+           era isso que mandava rodar o setupWorkbook por causa de um
+           soluco de rede. Se nao deu pra falar com a planilha, nada e
+           guardado em cache - assim trocar de aba e voltar tenta de novo. */
+        const falhas = [dataProdutos, dataConfig, dataMateriais, dataRendimento, dataFuncionarios,
+          dataMaoDeObraPecas, dataCorte, dataProducao, dataAviamentos, dataAcabamentos,
+          dataModelos, dataFicha].filter(d => d && d._falhou);
+        if (falhas.length) {
+          el.innerHTML = '<div class="state-msg">Não consegui falar com a planilha agora ('
+            + falhas.map(f => escapeHtml_(f._view)).join(', ') + ').<br>'
+            + 'Isso costuma ser limite temporário do Google, não erro de configuração. '
+            + 'Espere um minuto e recarregue.</div>';
+          return;
+        }
         precifProdutos = (dataProdutos && dataProdutos.produtos) || [];
         precifConfig = (dataConfig && dataConfig.config) || { despesasFixasPctPadrao: 0, canais: {} };
         precifMateriais = (dataMateriais && dataMateriais.materiais) || [];
@@ -1381,6 +1420,8 @@ function renderPrecificacao(el) {
     .filter(n => ['Vivo', 'Elástico', 'Botão'].indexOf(n) < 0);
 
   if (!modelos.length || !canais.length) {
+    /* Aqui a planilha RESPONDEU e veio vazia de verdade - falha de
+       comunicacao ja foi barrada antes de chegar neste ponto. */
     el.innerHTML = '<div class="section-head"><h2 class="section-title">Ficha de Preço</h2></div>'
       + '<div class="state-msg">Faltam dados nas abas de precificação da planilha '
       + '(rendimento por tamanho e taxas por canal). Rode <code>setupWorkbook</code> no Apps Script.</div>';
