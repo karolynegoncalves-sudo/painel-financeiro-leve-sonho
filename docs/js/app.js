@@ -93,15 +93,15 @@ async function verificarESeguir_(token) {
     return;
   }
   FLUXO_ROWS = parseFluxoRows_(data);
-  // Vendas e opcional: se a aba ainda nao foi sincronizada, o painel
-  // continua funcionando so no regime de caixa.
+  /* Vendas NAO entra no login. Sao 8.824 pedidos e 7,6 segundos - o
+     login inteiro esperava por eles mesmo quando a pessoa ia direto pra
+     precificacao, que nem usa vendas. Quem precisa e a aba KPIs, e ela
+     carrega sozinha quando for aberta (ver garantirVendas_). */
   try {
-    const [dv, dd] = await Promise.all([apiFetch_('vendas', token), apiFetch_('despesasFixas', token)]);
-    VENDAS_ROWS = (dv && !dv.error) ? parseVendasRows_(dv) : [];
+    const dd = await apiFetch_('despesasFixas', token);
     // despesas fixas sobem no boot porque o ponto de equilibrio precisa delas
-    // ja na primeira tela, nao so quando abrir Configuracoes
     if (dd && !dd.error) precifDespesasFixas = dd.despesas || [];
-  } catch (e) { VENDAS_ROWS = []; }
+  } catch (e) { /* segue sem elas */ }
   document.getElementById('userEmail').textContent = data.email || '';
   document.getElementById('loginGate').style.display = 'none';
   document.getElementById('app').style.display = 'block';
@@ -328,6 +328,15 @@ function rerenderAbaAtiva_() {
   if (ativa) safeRenderTab(ativa.dataset.tab);
 }
 
+/* Carrega a aba Vendas na primeira vez que alguem abre KPIs. Sao 8.824
+   pedidos, entao segurar isso ate ser necessario tira 7,6s do login. */
+async function garantirVendas_(el) {
+  if (VENDAS_ROWS !== null) return;
+  if (el) el.innerHTML = '<div class="state-msg">Carregando vendas...</div>';
+  const dv = await apiFetch_('vendas', idToken);
+  VENDAS_ROWS = (dv && !dv.error) ? parseVendasRows_(dv) : [];
+}
+
 async function safeRenderTab(view) {
   const el = document.getElementById('tab-' + view);
   try {
@@ -393,9 +402,11 @@ async function safeRenderTab(view) {
     // KPIs e DRE sao regime de CAIXA: so entra o que foi efetivamente pago/recebido.
     // O Fluxo de Caixa mostra os dois, com a situacao visivel e filtravel.
     const rowsPagas = rowsFiltradas.filter(r => r.paga);
-    if (view === 'kpis') return renderKpis(el, rowsPagas);
+    if (view === 'kpis') { await garantirVendas_(el); return renderKpis(el, rowsPagas); }
     if (view === 'fluxoCaixa') return renderFluxoCaixa(el, rowsFiltradas);
-    if (view === 'dre') return renderDre(el, rowsPagas);
+    // a DRE em regime de competencia le VENDAS_ROWS; sem garantir aqui,
+    // ela cairia calada pro regime de caixa na primeira abertura
+    if (view === 'dre') { await garantirVendas_(el); return renderDre(el, rowsPagas); }
   } catch (e) {
     el.innerHTML = '<div class="state-msg">Erro ao desenhar esta aba (' + e.message + ').</div>';
   }
