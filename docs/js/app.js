@@ -55,11 +55,25 @@ const CANAL_LABELS = {
 
 /* ---------------- Auth ---------------- */
 
-function decodeJwtEmail(token) {
+function decodeJwt_(token) {
   try {
-    const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
-    return payload.email || '';
-  } catch (e) { return ''; }
+    return JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+  } catch (e) { return null; }
+}
+
+function decodeJwtEmail(token) {
+  const p = decodeJwt_(token);
+  return (p && p.email) || '';
+}
+
+/* O token do Google vale 1 hora. Passado esse tempo o servidor recusa, e
+   ate aqui o painel mostrava a MESMA tela de "acesso negado" que aparece
+   quando o e-mail nao tem permissao - dava a entender que a pessoa tinha
+   perdido o acesso, quando so precisava entrar de novo. */
+function tokenExpirado_(token) {
+  const p = decodeJwt_(token);
+  if (!p || !p.exp) return false;
+  return (p.exp * 1000) < Date.now();
 }
 
 function initGoogle() {
@@ -80,6 +94,20 @@ async function handleCredentialResponse(response) {
 }
 
 async function verificarESeguir_(token) {
+  if (tokenExpirado_(token)) {
+    sessionStorage.removeItem('id_token');
+    idToken = null;
+    document.getElementById('loginGate').style.display = 'block';
+    const g = document.getElementById('loginGate');
+    if (g && !document.getElementById('avisoExpirou')) {
+      const p = document.createElement('p');
+      p.id = 'avisoExpirou';
+      p.textContent = 'Sua sessão expirou. Entre de novo com o Google.';
+      g.insertBefore(p, g.firstChild);
+    }
+    return;
+  }
+
   const data = await apiFetch_('fluxoCaixa', token);
   if (data && data.error === 'not_authorized') {
     document.getElementById('deniedEmail').textContent = decodeJwtEmail(token);
