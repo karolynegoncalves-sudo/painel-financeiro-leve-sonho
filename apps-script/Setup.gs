@@ -1131,3 +1131,138 @@ function _rodarAtualizarTaxasCanais() {
   SpreadsheetApp.getActiveSpreadsheet().toast(
     n + ' canais atualizados com as taxas medidas', 'Precificação', 8);
 }
+
+
+/**
+ * MIGRACAO 24/08/2026 - as meias pecas, a pantufa e o moletom.
+ *
+ * Ate aqui esses seis modelos nao tinham tipo proprio: o front adivinhava
+ * pelo nome e Pantufa e Moletom viravam "Robe", enquanto camisa, calca e
+ * short pagavam corte e costura de pijama INTEIRO.
+ *
+ * Valores da Karolyne em 24/08/2026:
+ *   corte de qualquer peca R$ 1,00
+ *   camisa R$ 6,00 (leva os 5 botoes e o caseado)
+ *   calca e short R$ 4,00 (levam os elasticos)
+ *   pantufa R$ 23,00 | moletom R$ 20,00
+ *
+ * Camisa Verao e Inverno compartilham o tipo "Camisa Pijama": o que muda
+ * entre as duas e o consumo de tecido, que ja esta no rendimento, nao a
+ * mao de obra.
+ *
+ * Idempotente: so acrescenta o que falta, nunca reescreve linha existente.
+ * Rode por _rodarAplicarMeiasPecas.
+ */
+function aplicarMeiasPecas_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const log = [];
+
+  /* Acrescenta linhas cuja chave ainda nao existe. `chave` recebe a linha
+     e devolve o texto que identifica ela. */
+  function acrescentar(nomeAba, linhas, chave) {
+    const sh = ss.getSheetByName(nomeAba);
+    if (!sh) { log.push('FALTA a aba ' + nomeAba); return; }
+    const existentes = {};
+    const ultima = sh.getLastRow();
+    if (ultima > 1) {
+      sh.getRange(2, 1, ultima - 1, sh.getLastColumn()).getValues()
+        .forEach(function (l) { existentes[chave(l)] = true; });
+    }
+    const novas = linhas.filter(function (l) { return !existentes[chave(l)]; });
+    if (novas.length) sh.getRange(sh.getLastRow() + 1, 1, novas.length, novas[0].length).setValues(novas);
+    log.push(nomeAba + ': ' + novas.length + ' nova(s), ' + (linhas.length - novas.length) + ' ja existia(m)');
+  }
+
+  const TIPOS = ['Camisa Pijama', 'Calça Pijama', 'Short Pijama', 'Pantufa de Cetim', 'Moletom'];
+
+  // 1) corte - R$ 1,00 em qualquer peca
+  acrescentar(ABA_PRECIFICACAO_CORTE,
+    TIPOS.map(function (t) { return [t, 1.00]; }),
+    function (l) { return String(l[0]).trim(); });
+
+  // 2) producao: tecido padrao e costura, por grupo de canal.
+  //    Moletom fica SEM tecido padrao de proposito - existem cinco
+  //    moletons no catalogo, de tres fornecedores e precos diferentes, e
+  //    escolher um por voce seria chute. A ficha avisa e voce escolhe na
+  //    tela. Pantufa segue o padrao do robe (poliester no marketplace,
+  //    elastano no site) - se estiver errado, e so trocar na aba.
+  const CETIM_MKT = 'Cetim Poliéster', CETIM_SITE = 'Cetim Elastano';
+  const producao = [
+    ['Marketplace', 'Camisa Pijama', CETIM_SITE, 6.00, true],
+    ['Nuvemshop',   'Camisa Pijama', CETIM_SITE, 6.00, true],
+    ['Marketplace', 'Calça Pijama',  CETIM_SITE, 4.00, true],
+    ['Nuvemshop',   'Calça Pijama',  CETIM_SITE, 4.00, true],
+    ['Marketplace', 'Short Pijama',  CETIM_SITE, 4.00, true],
+    ['Nuvemshop',   'Short Pijama',  CETIM_SITE, 4.00, true],
+    ['Marketplace', 'Pantufa de Cetim', CETIM_MKT,  23.00, true],
+    ['Nuvemshop',   'Pantufa de Cetim', CETIM_SITE, 23.00, true],
+    ['Marketplace', 'Moletom', '', 20.00, true],
+    ['Nuvemshop',   'Moletom', '', 20.00, true]
+  ];
+  acrescentar(ABA_PRECIFICACAO_PRODUCAO, producao,
+    function (l) { return String(l[0]).trim() + '|' + String(l[1]).trim(); });
+
+  // 3) modelo -> tipo: tira os seis de "(confirmar)"
+  const DE_PARA = {
+    'Camisa Pijama Verão': 'Camisa Pijama',
+    'Camisa Pijama Inverno': 'Camisa Pijama',
+    'Calça Pijama': 'Calça Pijama',
+    'Short Pijama': 'Short Pijama',
+    'Pantufa de Cetim': 'Pantufa de Cetim',
+    'Moletom': 'Moletom'
+  };
+  const shModelos = ss.getSheetByName(ABA_PRECIFICACAO_MODELOS);
+  if (shModelos) {
+    const u = shModelos.getLastRow();
+    const vals = shModelos.getRange(2, 1, u - 1, 2).getValues();
+    let mudou = 0;
+    for (let i = 0; i < vals.length; i++) {
+      const modelo = String(vals[i][0]).trim();
+      const atual = String(vals[i][1]).trim();
+      if (!DE_PARA[modelo]) continue;
+      if (atual && atual !== '(confirmar)') continue; // respeita o que ela ja ajustou
+      vals[i][1] = DE_PARA[modelo];
+      mudou++;
+    }
+    if (mudou) shModelos.getRange(2, 1, vals.length, 2).setValues(vals);
+    log.push(ABA_PRECIFICACAO_MODELOS + ': ' + mudou + ' modelo(s) mapeado(s)');
+  }
+
+  // 4) ficha. Botao e caseado vao pra CAMISA, que e quem leva botao -
+  //    no tipo Pijama eles continuam, porque la a peca e o conjunto.
+  const BASE = function (t) {
+    return [
+      [t, 'Aviamento', 'Linha', 'fixo', '', 1, 0.03, true],
+      [t, 'Aviamento', 'Fio', 'fixo', '', 1, 0.07, true],
+      [t, 'Embalagem', 'Saquinho Crystal', 'fixo', '', 1, 0.07, true],
+      [t, 'Embalagem', 'Envelope Correio', 'fixo', '', 1, 0.56, true]
+    ];
+  };
+  let ficha = [];
+  TIPOS.forEach(function (t) { ficha = ficha.concat(BASE(t)); });
+  ficha.push(['Camisa Pijama', 'Aviamento', 'Botão', 'fixo', '', 5, 0.124, true]);
+  ficha.push(['Camisa Pijama', 'Mão de obra', 'Caseado', 'maodeobra', 'Caseado', 5, 0, true]);
+  acrescentar(ABA_PRECIFICACAO_FICHA, ficha,
+    function (l) { return String(l[0]).trim() + '|' + String(l[2]).trim(); });
+
+  // 5) elastico da calca e do short, por tamanho. Mesmas medidas que ja
+  //    valem no pijama inteiro (nao mudam entre verao e inverno).
+  //    O VIVO ficou de fora: voce falou so em elastico, e eu nao sei se
+  //    quem leva vivo e a camisa ou a calca. Me diga e eu acrescento.
+  const ELASTICO = { P: 0.64, M: 0.66, G: 0.68, GG: 0.72 };
+  const aviam = [];
+  ['Calça Pijama', 'Short Pijama'].forEach(function (m) {
+    Object.keys(ELASTICO).forEach(function (tam) {
+      aviam.push([m, tam, 'Elástico', ELASTICO[tam]]);
+    });
+  });
+  acrescentar(ABA_PRECIFICACAO_AVIAMENTOS_TAMANHO, aviam,
+    function (l) { return String(l[0]).trim() + '|' + String(l[1]).trim() + '|' + String(l[2]).trim(); });
+
+  Logger.log(log.join('\n'));
+  return log;
+}
+
+function _rodarAplicarMeiasPecas() {
+  aplicarMeiasPecas_();
+}

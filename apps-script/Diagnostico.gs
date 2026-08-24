@@ -237,3 +237,135 @@ function listarSemCategoriaPorFornecedor() {
   L.push('  TOTAL: R$ ' + soma.toFixed(2));
   Logger.log(L.join('\n'));
 }
+
+
+/**
+ * Confere a precificacao depois do setupWorkbook.
+ *
+ * Refaz aqui dentro a mesma resolucao de heranca que o painel faz no
+ * navegador, e imprime o resultado. Se os numeros baterem com o que o
+ * painel mostra, os dois lados estao falando a mesma lingua.
+ *
+ * Nao altera nada. Rode `conferirPrecificacao` e me mande o log.
+ */
+function conferirPrecificacao() {
+  const L = [];
+  const diz = function (t) { L.push(t); };
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  diz('===== abas novas =====');
+  [ABA_PRECIFICACAO_MODELOS, ABA_PRECIFICACAO_FICHA].forEach(function (nome) {
+    const sh = ss.getSheetByName(nome);
+    if (!sh) { diz('   FALTA  ' + nome + ' - o setupWorkbook nao criou'); return; }
+    diz('   OK     ' + nome + ': ' + Math.max(sh.getLastRow() - 1, 0) + ' linha(s), cabecalho ['
+        + sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].join(', ') + ']');
+  });
+
+  const modelos = getPrecificacaoModelosCatalogo_();
+  const ficha = getPrecificacaoFichaCatalogo_();
+  const mats = getPrecificacaoMateriaisCatalogo_();
+  const mdo = getPrecificacaoMaoDeObraPecasCatalogo_();
+  const corte = getPrecificacaoCorteCatalogo_();
+
+  const porNome = {};
+  mats.forEach(function (m) { porNome[m.material] = m; });
+
+  diz('');
+  diz('===== modelos sem tipo definido =====');
+  const semTipo = modelos.filter(function (m) { return !m.tipoPeca || m.tipoPeca === '(confirmar)'; });
+  diz('   ' + modelos.length + ' modelo(s) cadastrado(s), ' + semTipo.length + ' pendente(s)');
+  semTipo.forEach(function (m) { diz('     (confirmar)  ' + m.modelo); });
+
+  diz('');
+  diz('===== tipos usados sem corte, costura ou tecido padrao =====');
+  // Quem manda na costura e no tecido da ficha e a _Precificacao_Producao,
+  // nao a tabela por costureira - por isso a conferencia e aqui.
+  const producao = getPrecificacaoProducao_();
+  const tiposCorte = {};
+  corte.forEach(function (c) { tiposCorte[c.tipoPeca] = true; });
+  const prodPor = {};
+  producao.forEach(function (x) { prodPor[x.canalGrupo + '|' + x.tipoPeca] = x; });
+
+  let orfaos = 0;
+  const vistos = {};
+  modelos.forEach(function (m) {
+    const t = m.tipoPeca;
+    if (!t || t === '(confirmar)' || vistos[t]) return;
+    vistos[t] = true;
+    const falta = [];
+    if (!tiposCorte[t]) falta.push('corte');
+    ['Marketplace', 'Nuvemshop'].forEach(function (g) {
+      const p = prodPor[g + '|' + t];
+      if (!p) { falta.push('produção em ' + g); return; }
+      if (!p.costuraValor) falta.push('costura em ' + g);
+      if (!p.material) falta.push('tecido padrão em ' + g);
+    });
+    if (falta.length) { diz('     ' + t + ' -> falta ' + falta.join(', ')); orfaos++; }
+  });
+  if (!orfaos) diz('     nenhum - todo tipo em uso tem corte, costura e tecido padrao');
+
+  diz('');
+  diz('===== material com nome repetido no catalogo =====');
+  const conta = {};
+  mats.forEach(function (m) { conta[m.material] = (conta[m.material] || 0) + 1; });
+  let repetidos = 0;
+  Object.keys(conta).forEach(function (nome) {
+    if (conta[nome] < 2) return;
+    repetidos++;
+    const quais = mats.filter(function (m) { return m.material === nome; })
+      .map(function (m) { return (m.fornecedor || '(sem fornecedor)') + ' R$ ' + Number(m.valorPorMetro).toFixed(2) + '/m'; });
+    diz('     "' + nome + '": ' + quais.join('  |  '));
+  });
+  if (!repetidos) diz('     nenhum');
+
+  diz('');
+  diz('===== ficha resolvida por tipo =====');
+  function unitDe(l) {
+    if (l.fonte === 'material') {
+      const m = porNome[l.refNome];
+      return m ? { u: m.valorPorMetro, n: l.refNome } : { u: 0, n: 'FALTA material ' + l.refNome };
+    }
+    if (l.fonte === 'maodeobra') {
+      const c = mdo.filter(function (x) { return x.tipoPeca === l.refNome; });
+      if (!c.length) return { u: 0, n: 'FALTA mao de obra ' + l.refNome };
+      const menor = c.reduce(function (a, b) { return b.valor < a.valor ? b : a; });
+      return { u: menor.valor, n: menor.funcionario };
+    }
+    return { u: l.valorUnit, n: '' };
+  }
+
+  const tipos = {};
+  ficha.forEach(function (l) { tipos[l.aplicaA] = true; });
+  Object.keys(tipos).sort().forEach(function (alvo) {
+    const linhas = ficha.filter(function (l) { return l.aplicaA === alvo && l.quantidade > 0; });
+    if (!linhas.length) return;
+    let fab = 0, emb = 0;
+    diz('   ' + alvo + ':');
+    linhas.forEach(function (l) {
+      const u = unitDe(l);
+      const v = l.quantidade * u.u;
+      if (l.grupo === 'Embalagem') { emb += v; } else { fab += v; }
+      diz('     ' + (l.grupo + '            ').slice(0, 12) + ' ' + (l.item + '                    ').slice(0, 20)
+          + ' ' + l.quantidade + ' x ' + u.u.toFixed(3) + ' = ' + v.toFixed(2) + (u.n ? '   [' + u.n + ']' : ''));
+    });
+    diz('     -> fabricacao R$ ' + fab.toFixed(2) + '  +  embalagem R$ ' + emb.toFixed(2)
+        + '  =  R$ ' + (fab + emb).toFixed(2));
+  });
+
+  diz('');
+  diz('===== confere com o que era antes =====');
+  function totalDe(alvo) {
+    let t = 0;
+    ficha.filter(function (l) { return l.aplicaA === alvo && l.quantidade > 0; })
+      .forEach(function (l) { t += l.quantidade * unitDe(l).u; });
+    return t;
+  }
+  [['Robe', 0.73], ['Pijama', 3.85]].forEach(function (par) {
+    const t = totalDe(par[0]);
+    const bate = Math.abs(t - par[1]) < 0.005;
+    diz('   ' + par[0] + ': R$ ' + t.toFixed(2) + ' (antes R$ ' + par[1].toFixed(2) + ') '
+        + (bate ? 'BATE' : '<<< MUDOU, conferir'));
+  });
+
+  Logger.log(L.join('\n'));
+}

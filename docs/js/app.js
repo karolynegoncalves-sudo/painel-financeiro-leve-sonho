@@ -1090,10 +1090,36 @@ function rendimentoMapa_() {
   return mapa;
 }
 
+/* O catalogo tem material repetido de fornecedor diferente: "Moletom 3
+   cabos" e Copat R$ 49,90 E Metatex R$ 48,39; "Moletom 2 cabos" e Metatex
+   R$ 48,39 E All Free R$ 35,00. Indexar so pelo nome fazia o ultimo
+   sobrescrever o primeiro sem aviso - passou despercebido enquanto
+   moletom nao era precificado. Agora o mapa guarda as duas chaves, "nome"
+   e "Fornecedor · nome", e marca o nome cru como ambiguo pra ficha poder
+   avisar em vez de escolher por voce. */
 function materialPorNome_() {
   const m = {};
-  (precifMateriais || []).forEach(x => { m[x.material] = x; });
+  const vistos = {};
+  (precifMateriais || []).forEach(x => {
+    const qualificado = x.fornecedor ? (x.fornecedor + ' · ' + x.material) : x.material;
+    m[qualificado] = x;
+    if (vistos[x.material]) {
+      m[x.material] = Object.assign({}, m[x.material], { ambiguo: true });
+    } else {
+      m[x.material] = x;
+      vistos[x.material] = true;
+    }
+  });
   return m;
+}
+
+/* Nomes pro seletor de tecido: qualifica com o fornecedor so quando o
+   nome se repete, pra lista nao ficar poluida a toa. */
+function nomesDeMaterial_() {
+  const conta = {};
+  (precifMateriais || []).forEach(x => { conta[x.material] = (conta[x.material] || 0) + 1; });
+  return (precifMateriais || []).map(x =>
+    (conta[x.material] > 1 && x.fornecedor) ? (x.fornecedor + ' · ' + x.material) : x.material);
 }
 
 function canaisDaConfig_() {
@@ -1135,7 +1161,16 @@ function calcularFicha_(modelo, tamanho, tecido, escolhidos, canalObj) {
   const nomeTecido = tecido || (prod ? prod.material : '');
   const padraoDoCanal = !tecido;
   const mat = mats[nomeTecido];
-  if (nomeTecido && !mat) avisos.push('Tecido "' + nomeTecido + '" não está no catálogo de materiais.');
+  if (!nomeTecido) {
+    avisos.push('Não há tecido padrão cadastrado para ' + (tipoPeca || 'esta peça') + ' em '
+      + canalObj.grupo + '. Escolha o tecido no campo acima, ou defina o padrão na aba _Precificacao_Producao — '
+      + 'sem isso o tecido entra como R$ 0,00.');
+  } else if (!mat) {
+    avisos.push('Tecido "' + nomeTecido + '" não está no catálogo de materiais.');
+  } else if (mat.ambiguo) {
+    avisos.push('Existe mais de um "' + nomeTecido + '" no catálogo, de fornecedores diferentes. '
+      + 'Estou usando R$ ' + fmtNum_(mat.valorPorMetro) + '/m. Escolha pelo nome com fornecedor para não ficar no acaso.');
+  }
 
   const detAcab = [];
   let custoAcab = 0, metrosSubstituidos = 0;
@@ -1219,7 +1254,7 @@ function renderPrecificacao(el) {
   const rend = rendimentoMapa_();
   const modelos = Object.keys(rend).sort();
   const canais = canaisDaConfig_();
-  const mats = (precifMateriais || []).map(m => m.material)
+  const mats = nomesDeMaterial_()
     .filter(n => ['Vivo', 'Elástico', 'Botão'].indexOf(n) < 0);
 
   if (!modelos.length || !canais.length) {
