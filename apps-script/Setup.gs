@@ -1184,8 +1184,7 @@ function aplicarMeiasPecas_() {
   //    Moletom fica SEM tecido padrao de proposito - existem cinco
   //    moletons no catalogo, de tres fornecedores e precos diferentes, e
   //    escolher um por voce seria chute. A ficha avisa e voce escolhe na
-  //    tela. Pantufa segue o padrao do robe (poliester no marketplace,
-  //    elastano no site) - se estiver errado, e so trocar na aba.
+  //    tela.
   const CETIM_MKT = 'Cetim Poliéster', CETIM_SITE = 'Cetim Elastano';
   const producao = [
     ['Marketplace', 'Camisa Pijama', CETIM_SITE, 6.00, true],
@@ -1194,7 +1193,9 @@ function aplicarMeiasPecas_() {
     ['Nuvemshop',   'Calça Pijama',  CETIM_SITE, 4.00, true],
     ['Marketplace', 'Short Pijama',  CETIM_SITE, 4.00, true],
     ['Nuvemshop',   'Short Pijama',  CETIM_SITE, 4.00, true],
-    ['Marketplace', 'Pantufa de Cetim', CETIM_MKT,  23.00, true],
+    // Pantufa e sempre cetim com elastano, igual pijama - nunca poliester
+    // (Karolyne, 24/08/2026).
+    ['Marketplace', 'Pantufa de Cetim', CETIM_SITE, 23.00, true],
     ['Nuvemshop',   'Pantufa de Cetim', CETIM_SITE, 23.00, true],
     ['Marketplace', 'Moletom', '', 20.00, true],
     ['Nuvemshop',   'Moletom', '', 20.00, true]
@@ -1265,4 +1266,98 @@ function aplicarMeiasPecas_() {
 
 function _rodarAplicarMeiasPecas() {
   aplicarMeiasPecas_();
+}
+
+
+/**
+ * MIGRACAO 24/08/2026 (segunda parte) - o vivo das meias pecas e a
+ * pantufa.
+ *
+ * A Karolyne fechou as duas duvidas que eu tinha deixado em aberto:
+ *
+ *  - o vivo entra nas duas metades: 70% da medida do conjunto vai na
+ *    CAMISA e 30% na parte de baixo, seja short ou calca. Camisa Verao e
+ *    Short herdam do conjunto de verao (manga curta + short); Camisa
+ *    Inverno e Calca herdam do de inverno (manga longa + calca).
+ *
+ *  - a pantufa e SEMPRE cetim com elastano, igual pijama, nunca
+ *    poliester. A primeira migracao tinha posto poliester no marketplace
+ *    seguindo o padrao do robe - aqui corrige, inclusive se ja rodou.
+ *
+ * A medida do conjunto e LIDA da propria planilha, nao chumbada aqui: se
+ * voce reajustar o vivo do pijama, e so rodar de novo que as metades
+ * acompanham. Idempotente.
+ *
+ * Rode por _rodarAjustarVivoEPantufa.
+ */
+function ajustarVivoEPantufa_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const log = [];
+
+  // --- 1) pantufa: cetim elastano nos dois canais ---
+  const shProd = ss.getSheetByName(ABA_PRECIFICACAO_PRODUCAO);
+  if (shProd) {
+    const u = shProd.getLastRow();
+    const vals = shProd.getRange(2, 1, u - 1, shProd.getLastColumn()).getValues();
+    let mudou = 0;
+    for (let i = 0; i < vals.length; i++) {
+      if (String(vals[i][1]).trim() !== 'Pantufa de Cetim') continue;
+      if (String(vals[i][2]).trim() === 'Cetim Elastano') continue;
+      log.push('pantufa em ' + vals[i][0] + ': "' + vals[i][2] + '" -> "Cetim Elastano"');
+      vals[i][2] = 'Cetim Elastano';
+      mudou++;
+    }
+    if (mudou) shProd.getRange(2, 1, vals.length, vals[0].length).setValues(vals);
+    if (!mudou) log.push('pantufa: ja estava com Cetim Elastano nos dois canais');
+  }
+
+  // --- 2) vivo das metades, 70/30 sobre a medida do conjunto ---
+  const shAv = ss.getSheetByName(ABA_PRECIFICACAO_AVIAMENTOS_TAMANHO);
+  if (!shAv) { Logger.log(log.join('\n')); return log; }
+
+  const VERAO = 'Pijama Americano Manga Curta e Short';
+  const INVERNO = 'Pijama Americano Manga Longa e Calça';
+
+  const ultima = shAv.getLastRow();
+  const linhas = ultima > 1 ? shAv.getRange(2, 1, ultima - 1, 4).getValues() : [];
+  const conjunto = {}; // "modelo|tamanho" -> metros de vivo
+  const existentes = {};
+  linhas.forEach(function (l) {
+    const modelo = String(l[0]).trim(), tam = String(l[1]).trim(), av = String(l[2]).trim();
+    existentes[modelo + '|' + tam + '|' + av] = true;
+    if (av === 'Vivo') conjunto[modelo + '|' + tam] = Number(l[3]) || 0;
+  });
+
+  // 70% pra camisa, 30% pra parte de baixo
+  const REGRA = [
+    { destino: 'Camisa Pijama Verão', origem: VERAO, fator: 0.70 },
+    { destino: 'Camisa Pijama Inverno', origem: INVERNO, fator: 0.70 },
+    { destino: 'Short Pijama', origem: VERAO, fator: 0.30 },
+    { destino: 'Calça Pijama', origem: INVERNO, fator: 0.30 }
+  ];
+  const TAMANHOS = ['P', 'M', 'G', 'GG'];
+
+  const novas = [];
+  REGRA.forEach(function (r) {
+    TAMANHOS.forEach(function (tam) {
+      const base = conjunto[r.origem + '|' + tam];
+      if (!base) { log.push('sem vivo cadastrado em ' + r.origem + ' ' + tam + ' - pulei ' + r.destino); return; }
+      if (existentes[r.destino + '|' + tam + '|Vivo']) return;
+      const m = Math.round(base * r.fator * 1000) / 1000;
+      novas.push([r.destino, tam, 'Vivo', m]);
+    });
+  });
+
+  if (novas.length) {
+    shAv.getRange(shAv.getLastRow() + 1, 1, novas.length, 4).setValues(novas);
+    novas.forEach(function (n) { log.push('vivo  ' + n[0] + ' ' + n[1] + ': ' + n[3] + ' m'); });
+  }
+  log.push('vivo: ' + novas.length + ' linha(s) nova(s)');
+
+  Logger.log(log.join('\n'));
+  return log;
+}
+
+function _rodarAjustarVivoEPantufa() {
+  ajustarVivoEPantufa_();
 }
