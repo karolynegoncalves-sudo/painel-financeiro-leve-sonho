@@ -358,11 +358,16 @@ function setupPrecificacaoMateriais_(ss) {
     ['', 'Cetim Poliéster', '', '', 2.99],
     ['Tritan', 'Malha PV', 1.2, 2.3, 48.90],
     ['Tritan', 'Piquet', 1.2, 2, 59.90],
-    ['Copat', 'Moletom 3 cabos', 180, 150, 49.90],
-    ['Metatex', 'Moletom 3 cabos', 180, 140, 48.39],
-    ['Metatex', 'Moletom 2 cabos', 180, 170, 48.39],
-    ['Metatex', 'Moletom Dry', 185, 165, 44.42],
-    ['All Free', 'Moletom 2 cabos', 180, 200, 35.00]
+    // largura em METROS e rendimento em METROS POR QUILO. Estas cinco
+    // linhas estavam com 180/150 no lugar de 1,80/1,50 - a vírgula tinha
+    // se perdido, e como a conta divide o preço do quilo pelo rendimento,
+    // o moletom saía a R$ 0,33/m (Karolyne confirmou em 24/08/2026:
+    // 1 kg rende 1,5 m e vai 1 kg por blusa).
+    ['Copat', 'Moletom 3 cabos', 1.80, 1.50, 49.90],
+    ['Metatex', 'Moletom 3 cabos', 1.80, 1.40, 48.39],
+    ['Metatex', 'Moletom 2 cabos', 1.80, 1.70, 48.39],
+    ['Metatex', 'Moletom Dry', 1.85, 1.65, 44.42],
+    ['All Free', 'Moletom 2 cabos', 1.80, 2.00, 35.00]
   ];
   sheet.getRange(2, 1, linhas.length, linhas[0].length).setValues(linhas);
   sheet.autoResizeColumns(1, 5);
@@ -1360,4 +1365,78 @@ function ajustarVivoEPantufa_() {
 
 function _rodarAjustarVivoEPantufa() {
   ajustarVivoEPantufa_();
+}
+
+
+/**
+ * MIGRACAO 24/08/2026 - a virgula perdida no rendimento do moletom.
+ *
+ * O catalogo guarda largura em METROS e rendimento em METROS POR QUILO.
+ * As linhas de moletom estavam com 180 e 150 no lugar de 1,80 e 1,50.
+ * Como getPrecificacaoMateriaisCatalogo_ divide o preco do quilo pelo
+ * rendimento pra achar o preco por metro, o moletom aparecia a R$ 0,33/m
+ * - um decimo do cetim poliester.
+ *
+ * Que e a virgula, e nao gramatura, esta provado por dois lados:
+ *   - a Karolyne: 1 kg rende 1,5 m e vai 1 kg por blusa. 150/100 = 1,5.
+ *   - se 150 fosse gramatura, 1 kg a 1,80 m de largura daria 3,7 m, nao 1,5.
+ *   - lidos como m/kg, os cinco sao coerentes entre si: 2 cabos rende mais
+ *     metro por quilo que 3 cabos, que e o esperado por ser mais leve.
+ *
+ * So mexe em linha vendida por peso com rendimento absurdo pra m/kg
+ * (>= 20). Rodar duas vezes nao divide de novo. Qualquer outra linha
+ * suspeita e so RELATADA, nunca alterada.
+ *
+ * Rode por _rodarCorrigirRendimentoMoletom.
+ */
+function corrigirRendimentoMoletom_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sh = ss.getSheetByName(ABA_PRECIFICACAO_MATERIAIS);
+  const log = [];
+  if (!sh) { Logger.log('aba de materiais nao encontrada'); return; }
+
+  const cab = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
+  const iForn = cab.indexOf('fornecedor'), iMat = cab.indexOf('material'),
+        iLarg = cab.indexOf('largura'), iRend = cab.indexOf('rendimento'),
+        iValor = cab.indexOf('valor'), iUni = cab.indexOf('unidade');
+  if (iMat < 0 || iRend < 0) { Logger.log('cabecalho inesperado na aba de materiais'); return; }
+
+  const u = sh.getLastRow();
+  if (u < 2) { Logger.log('aba de materiais vazia'); return; }
+  const vals = sh.getRange(2, 1, u - 1, sh.getLastColumn()).getValues();
+
+  const LIMITE = 20; // m/kg de verdade fica entre 1 e 3
+  let mudou = 0;
+  for (let i = 0; i < vals.length; i++) {
+    const mat = String(vals[i][iMat] || '').trim();
+    if (!mat) continue;
+    const uni = String((iUni >= 0 ? vals[i][iUni] : '') || 'm').trim().toLowerCase();
+    const rend = Number(vals[i][iRend]) || 0;
+    if (uni === 'm' || rend < LIMITE) continue;
+
+    if (mat.toLowerCase().indexOf('moletom') < 0) {
+      log.push('SUSPEITA (nao mexi): ' + mat + ' rendimento ' + rend + ' ' + uni
+        + ' -> daria R$ ' + (Number(vals[i][iValor]) / rend).toFixed(2) + '/m');
+      continue;
+    }
+
+    const larg = iLarg >= 0 ? (Number(vals[i][iLarg]) || 0) : 0;
+    const antes = (Number(vals[i][iValor]) / rend);
+    vals[i][iRend] = rend / 100;
+    if (iLarg >= 0 && larg >= 10) vals[i][iLarg] = larg / 100;
+    const depois = (Number(vals[i][iValor]) / (rend / 100));
+    log.push((iForn >= 0 ? vals[i][iForn] + ' · ' : '') + mat
+      + ': rendimento ' + rend + ' -> ' + (rend / 100)
+      + '  |  R$ ' + antes.toFixed(2) + '/m -> R$ ' + depois.toFixed(2) + '/m');
+    mudou++;
+  }
+
+  if (mudou) sh.getRange(2, 1, vals.length, vals[0].length).setValues(vals);
+  log.push(mudou + ' linha(s) corrigida(s)');
+  Logger.log(log.join('\n'));
+  return log;
+}
+
+function _rodarCorrigirRendimentoMoletom() {
+  corrigirRendimentoMoletom_();
 }
