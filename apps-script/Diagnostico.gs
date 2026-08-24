@@ -369,3 +369,60 @@ function conferirPrecificacao() {
 
   Logger.log(L.join('\n'));
 }
+
+
+/**
+ * De onde saem os % de custo fixo da Ficha de Preco.
+ *
+ * getDespesasFixasPct_ divide o total do custo fixo pela media da Receita
+ * Bruta dos TRES ULTIMOS meses da aba DRE - e o mes corrente entra nessa
+ * conta. Se ele ainda esta pela metade, a media cai e o % sobe, fazendo
+ * cada peca parecer carregar mais custo fixo do que carrega.
+ *
+ * Aqui a gente ve os meses um a um em vez de supor. Nao altera nada.
+ */
+function conferirCustoFixo() {
+  const L = [];
+  const diz = function (t) { L.push(t); };
+
+  const { headers, rows: despesas } = sheetData_(ABA_DESPESAS_FIXAS);
+  const iValor = headers.indexOf('valorMensal');
+  const total = despesas.reduce(function (s, r) { return s + (Number(r[iValor]) || 0); }, 0);
+  diz('custo fixo cadastrado: R$ ' + total.toFixed(2) + ' em ' + despesas.length + ' item(ns)');
+
+  const { rows: dre } = sheetData_(ABA_DRE);
+  const porMes = {};
+  dre.forEach(function (r) {
+    if (r[1] !== 'Receita Bruta') return;
+    porMes[r[0]] = (porMes[r[0]] || 0) + (Number(r[2]) || 0);
+  });
+  const todos = Object.keys(porMes).sort();
+  const usados = todos.slice(-3);
+  const mesAtual = Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'yyyy-MM');
+
+  diz('');
+  diz('Receita Bruta por mes (os 8 ultimos; * = usado na media):');
+  todos.slice(-8).forEach(function (m) {
+    diz('   ' + (usados.indexOf(m) >= 0 ? '*' : ' ') + ' ' + m + '  R$ ' + porMes[m].toFixed(2)
+      + (m === mesAtual ? '   <<< MES CORRENTE, ainda incompleto' : ''));
+  });
+
+  const media = usados.reduce(function (s, m) { return s + porMes[m]; }, 0) / (usados.length || 1);
+  diz('');
+  diz('media dos 3 usados: R$ ' + media.toFixed(2));
+  diz('  -> custo fixo = ' + (media ? (total / media * 100).toFixed(2) : '0') + '%');
+
+  // a mesma conta ignorando o mes corrente
+  const fechados = todos.filter(function (m) { return m !== mesAtual; }).slice(-3);
+  if (fechados.length) {
+    const mediaF = fechados.reduce(function (s, m) { return s + porMes[m]; }, 0) / fechados.length;
+    diz('');
+    diz('so com meses FECHADOS (' + fechados.join(', ') + '):');
+    diz('   media R$ ' + mediaF.toFixed(2) + '  ->  custo fixo = '
+      + (mediaF ? (total / mediaF * 100).toFixed(2) : '0') + '%');
+    const dif = (mediaF ? total / mediaF : 0) - (media ? total / media : 0);
+    diz('   diferenca: ' + (dif * 100).toFixed(2) + ' ponto(s) percentual(is)');
+  }
+
+  Logger.log(L.join('\n'));
+}
