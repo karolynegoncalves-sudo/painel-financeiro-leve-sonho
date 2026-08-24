@@ -481,22 +481,74 @@ function pmr_(rows) {
  * de estoque. Por isso a tela chama de "antes do CMV", pra nao dar a
  * impressao de que essa e a margem final.
  */
+/* O nome do canal na aba Vendas (vem do Bling) nao e o mesmo da
+   _Precificacao_Config (vem do FPV). Sem esta ponte, a taxa medida de
+   cada canal nao encontra a receita dele. */
+const CANAL_PARA_CONFIG = {
+  'Shopee': ['Shopee'],
+  'Mercado Livre': ['MercadoLivre'],
+  'MercadoLivre': ['MercadoLivre'],
+  'Site (Nuvemshop)': ['NuvemShop_Cartao', 'NuvemShop_Pix'],
+  'Nuvemshop': ['NuvemShop_Cartao', 'NuvemShop_Pix'],
+  'TikTok Shop': ['TikTokShop'],
+  'SHEIN': ['SHEIN']
+};
+
+/**
+ * Margem de contribuicao por canal, com a taxa REAL de cada um.
+ *
+ * Antes isto pegava o total de taxas do financeiro e rateava proporcional
+ * a receita. Sendo proporcional, a razao taxa÷receita saia identica em
+ * todo canal - os 85,4% que apareciam em Shopee, Mercado Livre, site,
+ * TikTok e SHEIN na mesma coluna. A tabela dizia servir pra comparar
+ * canais e era exatamente o que ela nao conseguia fazer.
+ *
+ * Agora usa as taxas medidas da _Precificacao_Config: imposto, comissao,
+ * extras e a cobranca fixa por pedido (a Shopee cobra R$ 4,00 por item).
+ * Canal com mais de uma forma de pagamento, como o site, entra pela media
+ * das duas - o financeiro nao separa cartao de pix na venda.
+ *
+ * Continua sem descontar custo de produto: para isso existe o painel de
+ * ponto de equilibrio logo acima.
+ */
 function margemPorCanal_(rows) {
   const vendas = (VENDAS_ROWS || []).filter(v => v.date >= FILTER.start && v.date <= FILTER.end && v.contaReceita);
-  const receitaPorCanal = {};
-  vendas.forEach(v => { receitaPorCanal[v.canal] = (receitaPorCanal[v.canal] || 0) + v.total; });
+  const porCanal = {};
+  vendas.forEach(v => {
+    if (!porCanal[v.canal]) porCanal[v.canal] = { receita: 0, pedidos: 0 };
+    porCanal[v.canal].receita += v.total;
+    porCanal[v.canal].pedidos++;
+  });
 
-  const receitaTotal = Object.values(receitaPorCanal).reduce((a, b) => a + b, 0);
-  const taxasTotal = rows
-    .filter(r => r.tipo === 'saida' && String(r.grupoDRE).indexOf('Dedu') >= 0)
-    .reduce((s, r) => s + r.valor, 0);
+  const cfg = (precifConfig && precifConfig.canais) || {};
 
-  // sem taxa carimbada por canal no financeiro, rateia proporcional a receita
-  return Object.keys(receitaPorCanal).sort().map(canal => {
-    const receita = receitaPorCanal[canal];
-    const taxa = receitaTotal ? taxasTotal * (receita / receitaTotal) : 0;
+  return Object.keys(porCanal).sort().map(canal => {
+    const receita = porCanal[canal].receita;
+    const pedidos = porCanal[canal].pedidos;
+
+    const chaves = (CANAL_PARA_CONFIG[canal] || []).filter(k => cfg[k]);
+    let taxa = 0, pct = 0, fixaUnit = 0, medido = false;
+
+    if (chaves.length) {
+      chaves.forEach(k => {
+        const c = cfg[k];
+        pct += (Number(c.impostosPct) || 0) + (Number(c.comissaoPct) || 0)
+          + (Number(c.extra1Pct) || 0) + (Number(c.extra2Pct) || 0);
+        fixaUnit += Number(c.taxaFixaReais) || 0;
+      });
+      pct = pct / chaves.length;
+      fixaUnit = fixaUnit / chaves.length;
+      taxa = receita * pct + pedidos * fixaUnit;
+      medido = chaves.every(k => cfg[k].confirmado === true || String(cfg[k].confirmado).toUpperCase() === 'TRUE');
+    }
+
     const mc = receita - taxa;
-    return { canal, receita, taxa, mc, mcPct: receita ? mc / receita : 0 };
+    return {
+      canal, receita, pedidos, taxa, pct, fixaUnit, medido,
+      semTaxa: !chaves.length,
+      mc, mcPct: receita ? mc / receita : 0,
+      ticket: pedidos ? receita / pedidos : 0
+    };
   });
 }
 
@@ -713,7 +765,7 @@ function renderKpis(el, rows) {
 
     <div class="panel">
       <h3>Margem de contribuição por canal</h3>
-      <div class="sub">Receita pela data da venda, menos a taxa do canal. Duas ressalvas: a taxa é rateada proporcionalmente (o financeiro não carimba taxa por canal) e <b>ainda não desconta o custo do produto</b>. Serve pra comparar canais entre si, não como margem final.</div>
+      <div class="sub">Receita pela data da venda, menos a taxa real de cada canal — imposto, comissão, antecipação e a cobrança fixa por pedido. <b>Ainda não desconta o custo do produto</b>: para o número final, veja o ponto de equilíbrio acima. Canal marcado com <span class="pill md">estimado</span> tem taxa não medida ainda.</div>
       <div style="overflow-x:auto;"><table class="simple" id="tblCanais"></table></div>
     </div>
     <div class="panel">
@@ -726,11 +778,20 @@ function renderKpis(el, rows) {
 
   const tblC = document.getElementById('tblCanais');
   if (canais.length) {
-    let h = '<tr><th>Canal</th><th>Receita</th><th>Taxa do canal</th><th>Margem de contrib.</th><th>%</th></tr>';
+    let h = '<tr><th>Canal</th><th class="num">Pedidos</th><th class="num">Ticket</th>'
+      + '<th class="num">Receita</th><th class="num">Taxa do canal</th>'
+      + '<th class="num">Margem de contrib.</th><th class="num">%</th></tr>';
     canais.sort((a, b) => b.receita - a.receita).forEach(c => {
-      h += `<tr><td>${escapeHtml_(c.canal)}</td>`
+      const selo = c.semTaxa
+        ? ' <span class="pill md">sem taxa cadastrada</span>'
+        : (c.medido ? '' : ' <span class="pill md">estimado</span>');
+      const detTaxa = c.semTaxa ? '—'
+        : fmtPctSimples_(c.pct) + (c.fixaUnit ? ' + ' + fmtBRL(c.fixaUnit, 2) + '/pedido' : '');
+      h += `<tr><td>${escapeHtml_(c.canal)}${selo}</td>`
+        + `<td class="num">${c.pedidos}</td>`
+        + `<td class="num">${fmtBRL(c.ticket, 2)}</td>`
         + `<td class="num val-in">${fmtBRL(c.receita, 2)}</td>`
-        + `<td class="num val-out">−${fmtBRL(c.taxa, 2)}</td>`
+        + `<td class="num val-out">−${fmtBRL(c.taxa, 2)}<small>${detTaxa}</small></td>`
         + `<td class="num val-in">${fmtBRL(c.mc, 2)}</td>`
         + `<td class="num">${fmtPctSimples_(c.mcPct)}</td></tr>`;
     });
