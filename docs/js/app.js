@@ -500,17 +500,48 @@ function margemPorCanal_(rows) {
   });
 }
 
-/** 5) Ponto de equilibrio: quanto precisa faturar pra pagar o custo fixo. */
+/**
+ * 5) Ponto de equilibrio: quanto precisa faturar pra pagar o custo fixo.
+ *
+ * Dois consertos em 24/08/2026:
+ *
+ *  - a margem vinha do margemPorCanal_, que desconta so a taxa do canal e
+ *    NAO o custo do produto (a propria tabela avisa isso). Com CMV de
+ *    fora, a margem parecia bem maior e o ponto de equilibrio saia baixo
+ *    demais - justo o numero que serve pra decidir se o mes fecha.
+ *    Agora a margem sai da DRE: receita menos deducoes, CMV e despesas
+ *    comerciais, que sao os tres que andam junto com a venda.
+ *
+ *  - o custo fixo e MENSAL e era comparado com a receita do periodo
+ *    filtrado, fosse ele de uma semana ou de um trimestre. Agora e
+ *    proporcional aos dias selecionados.
+ */
 function pontoEquilibrio_(rows) {
   const fixasMes = (precifDespesasFixas || [])
     .filter(d => d.ativo !== false)
     .reduce((s, d) => s + (Number(d.valorMensal || d.valor || 0)), 0);
-  const canais = margemPorCanal_(rows);
-  const receita = canais.reduce((s, c) => s + c.receita, 0);
-  const mc = canais.reduce((s, c) => s + c.mc, 0);
+
+  const somaGrupo = (frag, tipo) => rows
+    .filter(r => r.tipo === tipo && String(r.grupoDRE).indexOf(frag) >= 0)
+    .reduce((s, r) => s + r.valor, 0);
+
+  const receita = somaGrupo('Receita Bruta', 'entrada');
+  const deducoes = somaGrupo('Dedu', 'saida');
+  const cmv = somaGrupo('CMV', 'saida');
+  const comerciais = somaGrupo('Despesas Comerciais', 'saida');
+  const mc = receita - deducoes - cmv - comerciais;
   const mcPct = receita ? mc / receita : 0;
-  const faturamentoNecessario = mcPct > 0 ? fixasMes / mcPct : 0;
-  return { fixasMes, receita, mcPct, faturamentoNecessario, cobertura: faturamentoNecessario ? receita / faturamentoNecessario : 0 };
+
+  const dias = Math.max(1, Math.round((FILTER.end - FILTER.start) / 86400000) + 1);
+  const meses = dias / 30.44;
+  const fixasPeriodo = fixasMes * meses;
+
+  const faturamentoNecessario = mcPct > 0 ? fixasPeriodo / mcPct : 0;
+  return {
+    fixasMes, fixasPeriodo, dias, meses, receita, deducoes, cmv, comerciais, mc, mcPct,
+    faturamentoNecessario,
+    cobertura: faturamentoNecessario ? receita / faturamentoNecessario : 0
+  };
 }
 
 /* ---------------- Hoje (o que olhar no dia) ---------------- */
@@ -661,8 +692,23 @@ function renderKpis(el, rows) {
         <div class="kpi-value">${eq.faturamentoNecessario ? fmtPctSimples_(eq.cobertura) : '—'}</div>
         <div class="kpi-foot">${eq.faturamentoNecessario
           ? (eq.cobertura >= 1 ? 'Custo fixo pago' : 'Faltam ' + fmtBRL(eq.faturamentoNecessario - eq.receita) + ' de faturamento')
-          : 'Cadastre as despesas fixas em Configurações'}</div>
+          : 'Cadastre o custo fixo na aba Custo Fixo'}</div>
       </div>
+    </div>
+
+    <div class="panel">
+      <h3>Ponto de equilíbrio</h3>
+      <div class="sub">Quanto precisa entrar pra pagar o custo fixo. A margem aqui já desconta o custo do produto, diferente da tabela por canal abaixo.</div>
+      <div style="overflow-x:auto;"><table class="simple">
+        <tr><td>Receita do período</td><td class="num val-in">${fmtBRL(eq.receita, 2)}</td></tr>
+        <tr><td>Deduções (impostos, taxas de canal)</td><td class="num val-out">−${fmtBRL(eq.deducoes, 2)}</td></tr>
+        <tr><td>CMV (tecido, aviamento, facção)</td><td class="num val-out">−${fmtBRL(eq.cmv, 2)}</td></tr>
+        <tr><td>Despesas comerciais (frete, marketing)</td><td class="num val-out">−${fmtBRL(eq.comerciais, 2)}</td></tr>
+        <tr><th>Margem de contribuição</th><th class="num val-in">${fmtBRL(eq.mc, 2)} · ${fmtPctSimples_(eq.mcPct)}</th></tr>
+        <tr><td>Custo fixo no período <small>${fmtBRL(eq.fixasMes, 2)}/mês × ${eq.dias} dia(s)</small></td><td class="num val-out">−${fmtBRL(eq.fixasPeriodo, 2)}</td></tr>
+        <tr><th>Resultado</th><th class="num ${eq.mc - eq.fixasPeriodo >= 0 ? 'val-in' : 'val-out'}">${fmtBRL(eq.mc - eq.fixasPeriodo, 2)}</th></tr>
+        <tr><th>Faturamento necessário</th><th class="num">${eq.faturamentoNecessario ? fmtBRL(eq.faturamentoNecessario, 2) : '—'}</th></tr>
+      </table></div>
     </div>
 
     <div class="panel">
