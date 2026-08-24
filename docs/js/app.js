@@ -1278,6 +1278,8 @@ function renderPrecificacao(el) {
   const mcPct = preco ? sobra / preco : 0;
   const p15 = pisoQueima_(r.custo, r.taxaPct, canalObj.fixa);
   const dfx = (precifConfig && precifConfig.despesasFixasPctPadrao) || 0;
+  const fixasRs = preco * dfx;
+  const lucro = sobra - fixasRs;
 
   const opt = (lista, sel) => lista.map((v, i) =>
     '<option value="' + i + '"' + (v === sel ? ' selected' : '') + '>' + escapeHtml_(v) + '</option>').join('');
@@ -1315,7 +1317,7 @@ function renderPrecificacao(el) {
           <span class="v">${preco ? fmtPctPlano_(mcPct) : '—'}</span>
           <span class="n">${preco ? 'R$ ' + fmtNum_(sobra) + ' por peça vendida a R$ ' + fmtNum_(preco) : 'Informe um preço de venda para ver.'}</span>
         </div>
-        <div class="fp-linhas">${linhasVenda_(r, preco, taxaRs, sobra, p15)}</div>
+        <div class="fp-linhas">${linhasVenda_(r, preco, taxaRs, sobra, p15, dfx, fixasRs, lucro)}</div>
         ${avisosFicha_(r, preco, p15)}
       </div>
     </div>
@@ -1441,20 +1443,41 @@ function linhasCusto_(r) {
   return L.join('');
 }
 
-function linhasVenda_(r, preco, taxaRs, sobra, p15) {
+/* Imposto, comissao e cada extra saem em linha propria. Antes vinham
+   somados num "Taxas do canal (28,62%)" com o detalhe em letra miuda, e a
+   pergunta "onde esta o imposto?" e a prova de que nao dava pra achar. */
+function linhasVenda_(r, preco, taxaRs, sobra, p15, dfx, fixasRs, lucro) {
   const V = [];
   const vi = (rot, sub, val, cls) =>
     V.push('<div class="fp-l ' + (cls || '') + '"><span class="rot">' + rot
       + (sub ? '<small>' + escapeHtml_(sub) + '</small>' : '')
       + '</span><span class="val">' + val + '</span></div>');
+
   vi('Preço de venda', '', 'R$ ' + fmtNum_(preco));
   vi('Custo até a porta', 'fabricação + embalagem', '− R$ ' + fmtNum_(r.custo));
-  const det = ['imposto ' + fmtPctPlano_(r.canal.imp), 'comissão ' + fmtPctPlano_(r.canal.com)]
-    .concat(r.canal.ex.map(e => e[0] + ' ' + fmtPctPlano_(e[1]))).join(' · ');
-  vi('Taxas do canal (' + fmtPctPlano_(r.taxaPct) + ')', det, '− R$ ' + fmtNum_(taxaRs));
-  if (r.canal.fixa) vi('Taxa fixa por venda', r.canal.canal + ' cobra R$ ' + fmtNum_(r.canal.fixa) + ' por venda', '− R$ ' + fmtNum_(r.canal.fixa));
-  vi('Sobra', '', 'R$ ' + fmtNum_(sobra), 'tot' + (sobra < 0 ? ' neg' : ''));
-  vi('Piso para 15% de margem', 'menor preço que ainda vale a queima', p15 ? 'R$ ' + fmtNum_(p15) : '—', 'destaque');
+
+  vi('Imposto (' + fmtPctPlano_(r.canal.imp) + ')', '', '− R$ ' + fmtNum_(preco * r.canal.imp), 'sub');
+  vi('Comissão (' + fmtPctPlano_(r.canal.com) + ')', escapeHtml_(r.canal.canal),
+    '− R$ ' + fmtNum_(preco * r.canal.com), 'sub');
+  r.canal.ex.forEach(e => vi(escapeHtml_(e[0]) + ' (' + fmtPctPlano_(e[1]) + ')', '',
+    '− R$ ' + fmtNum_(preco * e[1]), 'sub'));
+  if (r.canal.fixa) vi('Taxa fixa por venda', escapeHtml_(r.canal.canal) + ' cobra por item vendido',
+    '− R$ ' + fmtNum_(r.canal.fixa), 'sub');
+
+  vi('Margem de contribuição', 'antes das despesas fixas', 'R$ ' + fmtNum_(sobra),
+    'tot' + (sobra < 0 ? ' neg' : ''));
+
+  /* Rateio das despesas fixas: aluguel, salarios, energia. Vem da aba
+     _Despesas_Fixas dividida pela receita media dos ultimos meses da DRE,
+     entao acompanha o faturamento sozinho. Sem ele a ficha parava na
+     margem de contribuicao e nao dava pra saber se a peca da lucro. */
+  vi('Despesas fixas (' + fmtPctPlano_(dfx) + ')', 'rateio sobre o faturamento',
+    '− R$ ' + fmtNum_(fixasRs), 'sub');
+  vi('Lucro', preco ? fmtPctPlano_(lucro / preco) + ' do preço' : '',
+    'R$ ' + fmtNum_(lucro), 'tot destaque' + (lucro < 0 ? ' neg' : ''));
+
+  vi('Piso para 15% de margem', 'só para queima — ignora as despesas fixas de propósito',
+    p15 ? 'R$ ' + fmtNum_(p15) : '—');
   return V.join('');
 }
 
