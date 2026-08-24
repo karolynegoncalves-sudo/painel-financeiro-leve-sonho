@@ -377,10 +377,10 @@ async function safeRenderTab(view) {
         let d = await apiFetch_('precificacaoTudo', idToken);
         if (!d || d.error) {
           const partes = await Promise.all([
-            'precificacao', 'precificacaoConfig', 'precificacaoMateriais',
-            'precificacaoRendimento', 'precificacaoFuncionarios', 'precificacaoMaoDeObraPecas',
-            'precificacaoCorte', 'precificacaoProducao', 'precificacaoAviamentos',
-            'precificacaoAcabamentos', 'precificacaoModelos', 'precificacaoFicha'
+            'precificacaoConfig', 'precificacaoMateriais', 'precificacaoRendimento',
+            'precificacaoMaoDeObraPecas', 'precificacaoCorte', 'precificacaoProducao',
+            'precificacaoAviamentos', 'precificacaoAcabamentos', 'precificacaoModelos',
+            'precificacaoFicha'
           ].map(v => apiFetch_(v, idToken)));
           if (partes.some(x => x && x._falhou)) {
             el.innerHTML = '<div class="state-msg">Não consegui falar com a planilha agora. '
@@ -389,19 +389,22 @@ async function safeRenderTab(view) {
             return;
           }
           d = {
-            produtos: partes[0].produtos, config: partes[1].config, materiais: partes[2].materiais,
-            rendimento: partes[3].rendimento, funcionarios: partes[4].funcionarios,
-            maoDeObraPecas: partes[5].maoDeObraPecas, corte: partes[6].corte,
-            producao: partes[7].producao, aviamentos: partes[8].aviamentos,
-            acabamentos: partes[9].acabamentos, modelos: partes[10].modelos, ficha: partes[11].ficha
+            config: partes[0].config, materiais: partes[1].materiais,
+            rendimento: partes[2].rendimento, maoDeObraPecas: partes[3].maoDeObraPecas,
+            corte: partes[4].corte, producao: partes[5].producao,
+            aviamentos: partes[6].aviamentos, acabamentos: partes[7].acabamentos,
+            modelos: partes[8].modelos, ficha: partes[9].ficha
           };
         }
 
-        precifProdutos = d.produtos || [];
+        /* produtos e funcionarios alimentavam o editor antigo, que saiu do
+           ar quando a Ficha entrou. Ficam como lista vazia so pra guarda
+           de carregamento continuar funcionando. */
+        precifProdutos = [];
+        precifFuncionarios = [];
         precifConfig = d.config || { despesasFixasPctPadrao: 0, canais: {} };
         precifMateriais = d.materiais || [];
         precifRendimento = d.rendimento || [];
-        precifFuncionarios = d.funcionarios || [];
         precifMaoDeObraPecas = d.maoDeObraPecas || [];
         precifCorte = d.corte || [];
         precifProducao = d.producao || [];

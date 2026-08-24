@@ -51,6 +51,7 @@ function syncBling() {
     const remapeadas = reaplicarMapaDre_(sheet, mapaCategoria);
 
     recalcularDre_();
+    try { limparCachePrecificacao_(); } catch (e) { /* funcao pode nao existir ainda */ }
     logSync_('syncBling', 'ok',
       novos + ' nova(s), ' + atualizadas + ' atualizada(s), ' + remapeadas + ' remapeada(s)'
       + (categoriasNovas ? ', ' + categoriasNovas + ' categoria(s) nova(s)' : '')

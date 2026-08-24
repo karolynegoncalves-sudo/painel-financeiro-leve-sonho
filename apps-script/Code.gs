@@ -39,21 +39,7 @@ function doGet(e) {
     // rotas ao mesmo tempo e estourava o limite de execucoes
     // concorrentes do Apps Script, que responde com pagina HTML de
     // erro - era o que derrubava a aba e a fazia demorar pra abrir.
-    case 'precificacaoTudo': return jsonResponse_({
-      email: email,
-      produtos: getPrecificacaoCatalogo_(),
-      config: getPrecificacaoConfig_(),
-      materiais: getPrecificacaoMateriaisCatalogo_(),
-      rendimento: getPrecificacaoRendimentoCatalogo_(),
-      funcionarios: getPrecificacaoFuncionariosCatalogo_(),
-      maoDeObraPecas: getPrecificacaoMaoDeObraPecasCatalogo_(),
-      corte: getPrecificacaoCorteCatalogo_(),
-      producao: getPrecificacaoProducao_(),
-      aviamentos: getPrecificacaoAviamentosTamanhoCatalogo_(),
-      acabamentos: getPrecificacaoAcabamentosCatalogo_(),
-      modelos: getPrecificacaoModelosCatalogo_(),
-      ficha: getPrecificacaoFichaCatalogo_()
-    });
+    case 'precificacaoTudo': return jsonResponse_(precificacaoTudo_(email));
     case 'precificacaoSkuRegras': return jsonResponse_({ email: email, regras: getPrecificacaoSkuRegras_() });
     case 'despesasFixas': return jsonResponse_({ email: email, despesas: getDespesasFixasList_() });
     case 'kpis': return jsonResponse_({ email: email, kpis: getKpis_() });
@@ -325,4 +311,66 @@ function corrigirDreMapa_() {
 
   const naoAchadas = Object.keys(CORRECOES).filter(function (id) { return !vistos[id]; });
   return { corrigidas: corrigidas, jaCertas: jaCertas, naoAchadas: naoAchadas.join(', ') || '(nenhuma)' };
+}
+
+
+/**
+ * Tudo que a Ficha de Preço precisa, numa resposta só.
+ *
+ * Duas economias, medidas com o testarRotas:
+ *
+ *  - NÃO devolve mais o catálogo de produtos (1.369 ms, a leitura mais
+ *    cara) nem a lista de funcionários. Os dois alimentavam o editor
+ *    antigo de precificação, que saiu do ar quando a Ficha entrou — o
+ *    elemento que eles preenchiam nem existe mais no HTML.
+ *
+ *  - o resultado fica 5 minutos em cache. Cada aba lida custa uma ida e
+ *    volta à planilha, independente do tamanho; são dez abas, e nenhuma
+ *    delas muda de um minuto pro outro. Cinco minutos é curto o bastante
+ *    pra uma edição sua aparecer logo, e o syncBling limpa o cache assim
+ *    que roda. Pra ver na hora, rode _rodarLimparCachePrecificacao.
+ */
+const CACHE_PRECIF_ = 'precif_tudo_v1';
+
+function precificacaoTudo_(email) {
+  const cache = CacheService.getScriptCache();
+  const guardado = cache.get(CACHE_PRECIF_);
+  if (guardado) {
+    try {
+      const d = JSON.parse(guardado);
+      d.email = email;
+      return d;
+    } catch (e) { /* cache corrompido: refaz abaixo */ }
+  }
+
+  const d = {
+    config: getPrecificacaoConfig_(),
+    materiais: getPrecificacaoMateriaisCatalogo_(),
+    rendimento: getPrecificacaoRendimentoCatalogo_(),
+    maoDeObraPecas: getPrecificacaoMaoDeObraPecasCatalogo_(),
+    corte: getPrecificacaoCorteCatalogo_(),
+    producao: getPrecificacaoProducao_(),
+    aviamentos: getPrecificacaoAviamentosTamanhoCatalogo_(),
+    acabamentos: getPrecificacaoAcabamentosCatalogo_(),
+    modelos: getPrecificacaoModelosCatalogo_(),
+    ficha: getPrecificacaoFichaCatalogo_()
+  };
+
+  // O cache tem teto de 100 KB por chave; se estourar, segue sem cache.
+  try {
+    const txt = JSON.stringify(d);
+    if (txt.length < 95000) cache.put(CACHE_PRECIF_, txt, 300);
+  } catch (e) { /* sem cache, so mais lento */ }
+
+  d.email = email;
+  return d;
+}
+
+function limparCachePrecificacao_() {
+  CacheService.getScriptCache().remove(CACHE_PRECIF_);
+}
+
+function _rodarLimparCachePrecificacao() {
+  limparCachePrecificacao_();
+  Logger.log('Cache da precificação limpo. A próxima abertura lê a planilha de novo.');
 }
