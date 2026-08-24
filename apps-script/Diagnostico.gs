@@ -392,37 +392,38 @@ function conferirCustoFixo() {
 
   const { rows: dre } = sheetData_(ABA_DRE);
   const porMes = {};
+  let vieramComoData = 0;
   dre.forEach(function (r) {
     if (r[1] !== 'Receita Bruta') return;
-    porMes[r[0]] = (porMes[r[0]] || 0) + (Number(r[2]) || 0);
+    if (r[0] instanceof Date) vieramComoData++;
+    const m = mesTexto_(r[0]);
+    if (!m) return;
+    porMes[m] = (porMes[m] || 0) + (Number(r[2]) || 0);
   });
-  const todos = Object.keys(porMes).sort();
-  const usados = todos.slice(-3);
   const mesAtual = Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'yyyy-MM');
+  const todos = Object.keys(porMes).sort();
+  const fechados = todos.filter(function (m) { return m < mesAtual; });
+  const usados = fechados.slice(-3);
 
   diz('');
-  diz('Receita Bruta por mes (os 8 ultimos; * = usado na media):');
-  todos.slice(-8).forEach(function (m) {
-    diz('   ' + (usados.indexOf(m) >= 0 ? '*' : ' ') + ' ' + m + '  R$ ' + porMes[m].toFixed(2)
-      + (m === mesAtual ? '   <<< MES CORRENTE, ainda incompleto' : ''));
+  diz('coluna mes ainda vem como Date em ' + vieramComoData + ' linha(s)'
+      + (vieramComoData ? ' - roda o syncBling que ele regrava como texto' : ' - ja e texto'));
+
+  diz('');
+  diz('Receita Bruta por mes (* = usado na media):');
+  todos.forEach(function (m) {
+    let marca = '  ';
+    if (usados.indexOf(m) >= 0) marca = '* ';
+    let obs = '';
+    if (m === mesAtual) obs = '   <<< mes corrente, incompleto - fora da media';
+    else if (m > mesAtual) obs = '   <<< FUTURO (conta a receber a vencer) - fora da media';
+    diz('   ' + marca + m + '  R$ ' + porMes[m].toFixed(2) + obs);
   });
 
   const media = usados.reduce(function (s, m) { return s + porMes[m]; }, 0) / (usados.length || 1);
   diz('');
-  diz('media dos 3 usados: R$ ' + media.toFixed(2));
-  diz('  -> custo fixo = ' + (media ? (total / media * 100).toFixed(2) : '0') + '%');
-
-  // a mesma conta ignorando o mes corrente
-  const fechados = todos.filter(function (m) { return m !== mesAtual; }).slice(-3);
-  if (fechados.length) {
-    const mediaF = fechados.reduce(function (s, m) { return s + porMes[m]; }, 0) / fechados.length;
-    diz('');
-    diz('so com meses FECHADOS (' + fechados.join(', ') + '):');
-    diz('   media R$ ' + mediaF.toFixed(2) + '  ->  custo fixo = '
-      + (mediaF ? (total / mediaF * 100).toFixed(2) : '0') + '%');
-    const dif = (mediaF ? total / mediaF : 0) - (media ? total / media : 0);
-    diz('   diferenca: ' + (dif * 100).toFixed(2) + ' ponto(s) percentual(is)');
-  }
+  diz('media dos 3 meses fechados (' + usados.join(', ') + '): R$ ' + media.toFixed(2));
+  diz('  -> custo fixo por peca = ' + (media ? (total / media * 100).toFixed(2) : '0') + '%');
 
   Logger.log(L.join('\n'));
 }

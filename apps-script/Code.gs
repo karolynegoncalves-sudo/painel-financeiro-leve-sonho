@@ -214,7 +214,10 @@ function getPrecificacaoResumo_() {
 function getKpis_() {
   const { rows } = sheetData_(ABA_DRE);
   const porMes = {};
-  rows.forEach(([mes, grupo, valor]) => {
+  rows.forEach(([mesBruto, grupo, valor]) => {
+    // mesmo cuidado do getDespesasFixasPct_: a coluna pode voltar como Date
+    const mes = mesTexto_(mesBruto);
+    if (!mes) return;
     porMes[mes] = porMes[mes] || {};
     porMes[mes][grupo] = (porMes[mes][grupo] || 0) + Number(valor || 0);
   });

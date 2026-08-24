@@ -117,6 +117,16 @@ function getPrecificacaoConfig_() {
  * suficientes na DRE ainda, cai no valor manual da aba
  * _Precificacao_Config (linha _GLOBAL) como reserva.
  */
+/**
+ * A coluna `mes` da DRE pode voltar como Date (o Sheets converte "2026-08"
+ * sozinho) ou como texto. Normaliza pra "AAAA-MM" nos dois casos, senao
+ * a ordenacao vira ordem alfabetica de "Wed Aug 01 2026...".
+ */
+function mesTexto_(v) {
+  if (v instanceof Date) return Utilities.formatDate(v, 'America/Sao_Paulo', 'yyyy-MM');
+  return String(v || '').trim().slice(0, 7);
+}
+
 function getDespesasFixasPct_(fallbackManual) {
   const { headers, rows: despesas } = sheetData_(ABA_DESPESAS_FIXAS);
   const iValor = headers.indexOf('valorMensal');
@@ -126,11 +136,18 @@ function getDespesasFixasPct_(fallbackManual) {
   const { rows: dreRows } = sheetData_(ABA_DRE);
   const receitaPorMes = {};
   dreRows.forEach(r => {
-    const mes = r[0], grupo = r[1], valor = r[2];
-    if (grupo !== 'Receita Bruta') return;
+    const mes = mesTexto_(r[0]), grupo = r[1], valor = r[2];
+    if (grupo !== 'Receita Bruta' || !mes) return;
     receitaPorMes[mes] = (receitaPorMes[mes] || 0) + num_(valor);
   });
-  const meses = Object.keys(receitaPorMes).sort().slice(-3);
+
+  /* So meses FECHADOS. O mes corrente entra pela metade e derruba a media;
+     e a DRE ainda tem meses FUTUROS, das contas a receber com vencimento
+     la na frente (out/2026 com R$ 401,75, dez/2026 com R$ 90,79 em
+     24/08/2026). Sem esse corte, "os 3 ultimos" seriam justamente esses
+     trocados e o custo fixo por peca dispararia. */
+  const mesAtual = Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'yyyy-MM');
+  const meses = Object.keys(receitaPorMes).filter(m => m < mesAtual).sort().slice(-3);
   if (!meses.length) return fallbackManual;
   const mediaReceita = meses.reduce((soma, m) => soma + receitaPorMes[m], 0) / meses.length;
   if (!mediaReceita) return fallbackManual;

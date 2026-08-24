@@ -398,6 +398,13 @@ function recalcularDre_() {
     return [mes, grupoDRE, totais[chave]];
   });
   if (linhas.length) {
+    /* O mes vai como "2026-08", que o Sheets converte em DATA sozinho se
+       a coluna for automatica. Na volta vinha "Wed Aug 01 2026..." e quem
+       ordenava por texto acabava ordenando pelo dia da semana - foi assim
+       que a media dos "3 ultimos meses" pegou abril/2026, julho/2026 e
+       outubro/2025, tudo que comecava com "Wed". Forcar texto na coluna
+       resolve na origem. */
+    dre.getRange(2, 1, linhas.length, 1).setNumberFormat('@');
     dre.getRange(2, 1, linhas.length, 3).setValues(linhas);
   }
 }
