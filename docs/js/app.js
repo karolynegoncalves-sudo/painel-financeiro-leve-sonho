@@ -1954,16 +1954,16 @@ function renderConfiguracoes(el) {
 
   el.innerHTML = `
     <div class="section-head">
-      <h2 class="section-title">Configurações</h2>
-      <div class="section-desc">Despesas fixas mensais (aluguel, salários, energia, softwares...). A % de despesas fixas usada na calculadora de Precificação é calculada sozinha a partir daqui ÷ a receita média dos últimos meses.</div>
+      <h2 class="section-title">Custo Fixo</h2>
+      <div class="section-desc">O que sai todo mês independente de vender: aluguel, salários fixos, pró-labore, energia, softwares. A % aplicada em cada peça na Ficha de Preço sai daqui ÷ a receita média dos últimos meses — ela se ajusta sozinha conforme o faturamento.</div>
     </div>
     <div class="precif-summary">
-      <div class="tile"><div class="l">Total despesas fixas/mês</div><div class="v">${fmtBRL(total, 2)}</div></div>
-      <div class="tile"><div class="l">% usada na calculadora</div><div class="v">${fmtPctSimples_(pctAtual)}</div></div>
+      <div class="tile"><div class="l">Custo fixo por mês</div><div class="v">${fmtBRL(total, 2)}</div></div>
+      <div class="tile"><div class="l">% aplicada em cada peça</div><div class="v">${fmtPctSimples_(pctAtual)}</div></div>
       <div class="tile"><div class="l">Itens cadastrados</div><div class="v">${despesas.length}</div></div>
     </div>
     <div class="panel">
-      <h3>Despesas fixas (inclua salários/pró-labore aqui também, uma linha por pessoa)</h3>
+      <h3>Custo fixo mensal <small class="sub">Uma linha por item. Salário e pró-labore entram aqui — mas só de quem você paga todo mês. Quem é pago por peça (costureira, caseado) já está na ficha da peça; repetir aqui conta duas vezes.</small></h3>
       <div style="overflow-x:auto;"><table class="simple" id="despesasTabela"></table></div>
     </div>
   `;
