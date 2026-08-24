@@ -124,12 +124,12 @@ async function verificarESeguir_(token) {
   /* Vendas NAO entra no login. Sao 8.824 pedidos e 7,6 segundos - o
      login inteiro esperava por eles mesmo quando a pessoa ia direto pra
      precificacao, que nem usa vendas. Quem precisa e a aba KPIs, e ela
-     carrega sozinha quando for aberta (ver garantirVendas_). */
-  try {
-    const dd = await apiFetch_('despesasFixas', token);
-    // despesas fixas sobem no boot porque o ponto de equilibrio precisa delas
-    if (dd && !dd.error) precifDespesasFixas = dd.despesas || [];
-  } catch (e) { /* segue sem elas */ }
+     carrega sozinha quando for aberta (ver garantirVendas_).
+
+     As despesas fixas vem DENTRO desta mesma resposta. Medido em
+     24/08/2026: buscar as 24 linhas delas numa chamada separada custava
+     2,26s - quase tudo pedagio do Web App, nao leitura. */
+  precifDespesasFixas = data.despesas || [];
   document.getElementById('userEmail').textContent = data.email || '';
   document.getElementById('loginGate').style.display = 'none';
   document.getElementById('app').style.display = 'block';

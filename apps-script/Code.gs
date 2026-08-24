@@ -18,7 +18,14 @@ function doGet(e) {
   if (!email) return jsonResponse_({ error: 'not_authorized' });
 
   switch (view) {
-    case 'fluxoCaixa': return jsonResponse_({ email: email, rows: getFluxoCaixaRows_() });
+    // O login precisa das duas coisas, e cada chamada ao Web App custa ~2s
+    // de pedagio fixo (o 302 do Apps Script mais o tempo de acordar).
+    // Medido em 24/08/2026: despesasFixas le 24 linhas e leva 2,26s. Vem
+    // junto, entao, e o login passa a fazer uma chamada em vez de duas.
+    case 'fluxoCaixa': {
+      const r = getFluxoCaixaRows_();
+      return jsonResponse_({ email: email, rows: r, despesas: getDespesasFixasList_() });
+    }
     case 'dre': return jsonResponse_({ email: email, rows: getDreRows_() });
     case 'precificacao': return jsonResponse_({ email: email, produtos: getPrecificacaoCatalogo_() });
     case 'precificacaoConfig': return jsonResponse_({ email: email, config: getPrecificacaoConfig_() });
