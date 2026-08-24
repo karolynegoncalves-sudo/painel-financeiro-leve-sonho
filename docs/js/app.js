@@ -584,7 +584,11 @@ function pontoEquilibrio_(rows) {
   const mc = receita - deducoes - cmv - comerciais;
   const mcPct = receita ? mc / receita : 0;
 
-  const dias = Math.max(1, Math.round((FILTER.end - FILTER.start) / 86400000) + 1);
+  /* Sem zerar a hora, 01/07 00:00 ate 31/07 23:59 da 30,99 dias, que
+     arredonda pra 31, e o +1 leva a 32 - julho ganhava um dia de custo
+     fixo que nao existe. */
+  const dias = Math.max(1, Math.round(
+    (startOfDay_(FILTER.end) - startOfDay_(FILTER.start)) / 86400000) + 1);
   const meses = dias / 30.44;
   const fixasPeriodo = fixasMes * meses;
 
@@ -741,9 +745,16 @@ function renderKpis(el, rows) {
       </div>
       <div class="kpi ${eq.cobertura >= 1 ? 'ok' : (eq.cobertura >= 0.7 ? 'warn' : 'bad')}">
         <div class="kpi-label">Ponto de equilíbrio</div>
-        <div class="kpi-value">${eq.faturamentoNecessario ? fmtPctSimples_(eq.cobertura) : '—'}</div>
+        <div class="kpi-value">${eq.faturamentoNecessario ? fmtBRL(eq.faturamentoNecessario) : '—'}</div>
+        ${eq.faturamentoNecessario ? `
+        <div style="margin:.45rem 0 .3rem;height:6px;border-radius:3px;background:rgba(0,0,0,.08);overflow:hidden;">
+          <div style="height:100%;width:${Math.min(100, eq.cobertura * 100).toFixed(1)}%;border-radius:3px;background:currentColor;opacity:.55;"></div>
+        </div>` : ''}
         <div class="kpi-foot">${eq.faturamentoNecessario
-          ? (eq.cobertura >= 1 ? 'Custo fixo pago' : 'Faltam ' + fmtBRL(eq.faturamentoNecessario - eq.receita) + ' de faturamento')
+          ? 'Você fez ' + fmtBRL(eq.receita) + ' — ' + fmtPctSimples_(eq.cobertura)
+            + (eq.cobertura >= 1
+              ? '. Passou em ' + fmtBRL(eq.receita - eq.faturamentoNecessario) + '.'
+              : '. Faltaram ' + fmtBRL(eq.faturamentoNecessario - eq.receita) + '.')
           : 'Cadastre o custo fixo na aba Custo Fixo'}</div>
       </div>
     </div>
@@ -759,8 +770,13 @@ function renderKpis(el, rows) {
         <tr><th>Margem de contribuição</th><th class="num val-in">${fmtBRL(eq.mc, 2)} · ${fmtPctSimples_(eq.mcPct)}</th></tr>
         <tr><td>Custo fixo no período <small>${fmtBRL(eq.fixasMes, 2)}/mês × ${eq.dias} dia(s)</small></td><td class="num val-out">−${fmtBRL(eq.fixasPeriodo, 2)}</td></tr>
         <tr><th>Resultado</th><th class="num ${eq.mc - eq.fixasPeriodo >= 0 ? 'val-in' : 'val-out'}">${fmtBRL(eq.mc - eq.fixasPeriodo, 2)}</th></tr>
-        <tr><th>Faturamento necessário</th><th class="num">${eq.faturamentoNecessario ? fmtBRL(eq.faturamentoNecessario, 2) : '—'}</th></tr>
+        <tr><th>Faturamento necessário <small>o ponto de equilíbrio</small></th><th class="num">${eq.faturamentoNecessario ? fmtBRL(eq.faturamentoNecessario, 2) : '—'}</th></tr>
       </table></div>
+      <div class="sub" style="margin-top:.6rem;">${eq.faturamentoNecessario
+        ? (eq.cobertura >= 1
+          ? `Com ${fmtPctSimples_(eq.mcPct)} de margem, cada R$ 100 vendidos deixam ${fmtBRL(eq.mcPct * 100, 2)} para pagar o custo fixo. Eram necessários <b>${fmtBRL(eq.faturamentoNecessario, 2)}</b> e entraram ${fmtBRL(eq.receita, 2)} — <b>${fmtPctSimples_(eq.cobertura)}</b> do necessário, com ${fmtBRL(eq.receita - eq.faturamentoNecessario, 2)} acima da conta.`
+          : `Com ${fmtPctSimples_(eq.mcPct)} de margem, cada R$ 100 vendidos deixam ${fmtBRL(eq.mcPct * 100, 2)} para pagar o custo fixo. Eram necessários <b>${fmtBRL(eq.faturamentoNecessario, 2)}</b> e entraram ${fmtBRL(eq.receita, 2)} — faltaram <b>${fmtBRL(eq.faturamentoNecessario - eq.receita, 2)}</b>.`)
+        : ''}</div>
     </div>
 
     <div class="panel">
