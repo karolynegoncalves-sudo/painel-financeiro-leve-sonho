@@ -334,39 +334,44 @@ async function safeRenderTab(view) {
     if (view === 'precificacao') {
       if (precifProdutos === null || precifConfig === null) {
         el.innerHTML = '<div class="state-msg">Carregando...</div>';
-        const [dataProdutos, dataConfig, dataMateriais, dataRendimento, dataFuncionarios, dataMaoDeObraPecas, dataCorte, dataProducao, dataAviamentos, dataAcabamentos, dataModelos, dataFicha] = await carregarEmLotes_([
-          'precificacao', 'precificacaoConfig', 'precificacaoMateriais',
-          'precificacaoRendimento', 'precificacaoFuncionarios', 'precificacaoMaoDeObraPecas',
-          'precificacaoCorte', 'precificacaoProducao', 'precificacaoAviamentos',
-          'precificacaoAcabamentos', 'precificacaoModelos', 'precificacaoFicha'
-        ], idToken);
-
-        /* Falha de comunicacao nao pode virar "sua planilha esta vazia":
-           era isso que mandava rodar o setupWorkbook por causa de um
-           soluco de rede. Se nao deu pra falar com a planilha, nada e
-           guardado em cache - assim trocar de aba e voltar tenta de novo. */
-        const falhas = [dataProdutos, dataConfig, dataMateriais, dataRendimento, dataFuncionarios,
-          dataMaoDeObraPecas, dataCorte, dataProducao, dataAviamentos, dataAcabamentos,
-          dataModelos, dataFicha].filter(d => d && d._falhou);
-        if (falhas.length) {
-          el.innerHTML = '<div class="state-msg">Não consegui falar com a planilha agora ('
-            + falhas.map(f => escapeHtml_(f._view)).join(', ') + ').<br>'
-            + 'Isso costuma ser limite temporário do Google, não erro de configuração. '
-            + 'Espere um minuto e recarregue.</div>';
-          return;
+        /* Uma chamada em vez de doze. Enquanto a versao implantada do
+           Apps Script nao tiver a rota nova, cai no jeito antigo - assim
+           o painel funciona antes e depois de republicar. */
+        let d = await apiFetch_('precificacaoTudo', idToken);
+        if (!d || d.error) {
+          const partes = await Promise.all([
+            'precificacao', 'precificacaoConfig', 'precificacaoMateriais',
+            'precificacaoRendimento', 'precificacaoFuncionarios', 'precificacaoMaoDeObraPecas',
+            'precificacaoCorte', 'precificacaoProducao', 'precificacaoAviamentos',
+            'precificacaoAcabamentos', 'precificacaoModelos', 'precificacaoFicha'
+          ].map(v => apiFetch_(v, idToken)));
+          if (partes.some(x => x && x._falhou)) {
+            el.innerHTML = '<div class="state-msg">Não consegui falar com a planilha agora. '
+              + 'Costuma ser limite temporário do Google, não erro de configuração. '
+              + 'Espere um minuto e recarregue.</div>';
+            return;
+          }
+          d = {
+            produtos: partes[0].produtos, config: partes[1].config, materiais: partes[2].materiais,
+            rendimento: partes[3].rendimento, funcionarios: partes[4].funcionarios,
+            maoDeObraPecas: partes[5].maoDeObraPecas, corte: partes[6].corte,
+            producao: partes[7].producao, aviamentos: partes[8].aviamentos,
+            acabamentos: partes[9].acabamentos, modelos: partes[10].modelos, ficha: partes[11].ficha
+          };
         }
-        precifProdutos = (dataProdutos && dataProdutos.produtos) || [];
-        precifConfig = (dataConfig && dataConfig.config) || { despesasFixasPctPadrao: 0, canais: {} };
-        precifMateriais = (dataMateriais && dataMateriais.materiais) || [];
-        precifRendimento = (dataRendimento && dataRendimento.rendimento) || [];
-        precifFuncionarios = (dataFuncionarios && dataFuncionarios.funcionarios) || [];
-        precifMaoDeObraPecas = (dataMaoDeObraPecas && dataMaoDeObraPecas.maoDeObraPecas) || [];
-        precifCorte = (dataCorte && dataCorte.corte) || [];
-        precifProducao = (dataProducao && dataProducao.producao) || [];
-        precifAviamentos = (dataAviamentos && dataAviamentos.aviamentos) || [];
-        precifAcabamentos = (dataAcabamentos && dataAcabamentos.acabamentos) || [];
-        precifModelos = (dataModelos && dataModelos.modelos) || [];
-        precifFicha = (dataFicha && dataFicha.ficha) || [];
+
+        precifProdutos = d.produtos || [];
+        precifConfig = d.config || { despesasFixasPctPadrao: 0, canais: {} };
+        precifMateriais = d.materiais || [];
+        precifRendimento = d.rendimento || [];
+        precifFuncionarios = d.funcionarios || [];
+        precifMaoDeObraPecas = d.maoDeObraPecas || [];
+        precifCorte = d.corte || [];
+        precifProducao = d.producao || [];
+        precifAviamentos = d.aviamentos || [];
+        precifAcabamentos = d.acabamentos || [];
+        precifModelos = d.modelos || [];
+        precifFicha = d.ficha || [];
       }
       return renderPrecificacao(el);
     }
@@ -1412,15 +1417,43 @@ function fmtPctPlano_(v, dec) {
     { minimumFractionDigits: d, maximumFractionDigits: d }) + '%';
 }
 
-function renderPrecificacao(el) {
-  /* Cada tecla no preço dispara este render, que reescreve o innerHTML
-     inteiro - o campo em que a pessoa esta digitando e destruido e o foco
-     vai junto, obrigando a clicar de novo a cada digito. Guardo quem
-     estava em foco e onde o cursor estava, e devolvo no fim. */
-  const focoId = document.activeElement ? document.activeElement.id : '';
-  let caret = null;
-  try { caret = document.activeElement.selectionStart; } catch (e) { caret = null; }
+/**
+ * Refaz SO os blocos que dependem do preço e dos acabamentos, sem tocar no
+ * formulário. É o que permite digitar um preço inteiro sem o campo ser
+ * destruído e recriado a cada tecla.
+ */
+function atualizarSaida_(el) {
+  const canais = canaisDaConfig_();
+  const canalObj = canais.find(c => c.canal === FICHA.canal) || canais[0];
+  if (!canalObj) return;
+  const r = calcularFicha_(FICHA.modelo, FICHA.tamanho, FICHA.tecido, FICHA.acabamentos, canalObj);
+  const preco = Number(FICHA.preco) || 0;
+  const taxaRs = preco * r.taxaPct;
+  const sobra = preco - taxaRs - canalObj.fixa - r.custo;
+  const mcPct = preco ? sobra / preco : 0;
+  const p15 = pisoQueima_(r.custo, r.taxaPct, canalObj.fixa);
+  const dfx = (precifConfig && precifConfig.despesasFixasPctPadrao) || 0;
+  const fixasRs = preco * dfx;
+  const lucro = sobra - fixasRs;
 
+  const põe = (id, html) => { const e = document.getElementById(id); if (e) e.innerHTML = html; };
+  põe('fpCusto', linhasCusto_(r));
+  põe('fpVenda', linhasVenda_(r, preco, taxaRs, sobra, p15, dfx, fixasRs, lucro));
+  põe('fpAvisos', avisosFicha_(r, preco, p15));
+  põe('fpCanais', linhasCanais_(canais, preco));
+
+  const hero = document.getElementById('fpHero');
+  if (hero) {
+    hero.className = 'fp-hero ' + (!preco ? '' : mcPct >= 0.30 ? 'ok' : mcPct >= MARGEM_QUEIMA ? 'warn' : 'crit');
+    hero.innerHTML = '<span class="k">Margem de contribuição</span>'
+      + '<span class="v">' + (preco ? fmtPctPlano_(mcPct) : '—') + '</span>'
+      + '<span class="n">' + (preco
+        ? 'R$ ' + fmtNum_(sobra) + ' por peça vendida a R$ ' + fmtNum_(preco)
+        : 'Informe um preço de venda para ver.') + '</span>';
+  }
+}
+
+function renderPrecificacao(el) {
   const rend = rendimentoMapa_();
   const modelos = Object.keys(rend).sort();
   const canais = canaisDaConfig_();
@@ -1480,17 +1513,17 @@ function renderPrecificacao(el) {
     <div class="fp-painel">
       <div class="fp-card">
         <h3>Custo da peça</h3>
-        <div class="fp-linhas">${linhasCusto_(r)}</div>
+        <div class="fp-linhas" id="fpCusto">${linhasCusto_(r)}</div>
       </div>
       <div class="fp-card">
         <h3>O que sobra nesse canal</h3>
-        <div class="fp-hero ${heroCls}">
+        <div class="fp-hero ${heroCls}" id="fpHero">
           <span class="k">Margem de contribuição</span>
           <span class="v">${preco ? fmtPctPlano_(mcPct) : '—'}</span>
           <span class="n">${preco ? 'R$ ' + fmtNum_(sobra) + ' por peça vendida a R$ ' + fmtNum_(preco) : 'Informe um preço de venda para ver.'}</span>
         </div>
-        <div class="fp-linhas">${linhasVenda_(r, preco, taxaRs, sobra, p15, dfx, fixasRs, lucro)}</div>
-        ${avisosFicha_(r, preco, p15)}
+        <div class="fp-linhas" id="fpVenda">${linhasVenda_(r, preco, taxaRs, sobra, p15, dfx, fixasRs, lucro)}</div>
+        <div id="fpAvisos">${avisosFicha_(r, preco, p15)}</div>
       </div>
     </div>
 
@@ -1502,7 +1535,7 @@ function renderPrecificacao(el) {
           <th>Canal</th><th class="num">Custo</th><th class="num">Taxa %</th><th class="num">Taxa R$</th>
           <th class="num">Fixa</th><th class="num">Sobra</th><th class="num">MC</th><th class="num">Piso 15%</th><th>Situação</th>
         </tr></thead>
-        <tbody>${linhasCanais_(canais, preco)}</tbody>
+        <tbody id="fpCanais">${linhasCanais_(canais, preco)}</tbody>
       </table></div>
     </div>
 
@@ -1530,6 +1563,12 @@ function renderPrecificacao(el) {
         if (id === 'fpModelo') FICHA.tamanho = '';
       } else {
         FICHA[campo] = evt.target.value;
+        /* Redesenhar tudo a cada tecla destruia o proprio campo em que a
+           pessoa digita: o cursor voltava pro inicio e "129" virava "921".
+           Numero so mexe na saida, entao atualiza so ela e o input fica
+           intacto - nem foco nem cursor se perdem. */
+        atualizarSaida_(el);
+        return;
       }
       renderPrecificacao(el);
     });
@@ -1549,20 +1588,10 @@ function renderPrecificacao(el) {
     qt.addEventListener('input', () => {
       if (!cb.checked) return;
       FICHA.acabamentos[a.acabamento] = Number(qt.value) || 0;
-      renderPrecificacao(el);
+      atualizarSaida_(el);   // mesmo motivo do preço: nao recriar o campo
     });
   });
 
-  // devolve o foco e o cursor pro campo que a pessoa estava usando
-  if (focoId) {
-    const alvo = document.getElementById(focoId);
-    if (alvo) {
-      alvo.focus();
-      // input[type=number] recusa setSelectionRange no Chrome; sem cursor
-      // o foco sozinho ja resolve, porque ele cai no fim do texto
-      if (caret !== null) { try { alvo.setSelectionRange(caret, caret); } catch (e) {} }
-    }
-  }
 }
 
 /* Lista de acabamentos com checkbox e quantidade editável. A quantidade

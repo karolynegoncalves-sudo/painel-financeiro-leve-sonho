@@ -35,6 +35,25 @@ function doGet(e) {
     case 'precificacaoAcabamentos': return jsonResponse_({ email: email, acabamentos: getPrecificacaoAcabamentosCatalogo_() });
     case 'precificacaoModelos': return jsonResponse_({ email: email, modelos: getPrecificacaoModelosCatalogo_() });
     case 'precificacaoFicha': return jsonResponse_({ email: email, ficha: getPrecificacaoFichaCatalogo_() });
+    // Uma chamada so, no lugar de 12. A aba de precificacao pedia doze
+    // rotas ao mesmo tempo e estourava o limite de execucoes
+    // concorrentes do Apps Script, que responde com pagina HTML de
+    // erro - era o que derrubava a aba e a fazia demorar pra abrir.
+    case 'precificacaoTudo': return jsonResponse_({
+      email: email,
+      produtos: getPrecificacaoCatalogo_(),
+      config: getPrecificacaoConfig_(),
+      materiais: getPrecificacaoMateriaisCatalogo_(),
+      rendimento: getPrecificacaoRendimentoCatalogo_(),
+      funcionarios: getPrecificacaoFuncionariosCatalogo_(),
+      maoDeObraPecas: getPrecificacaoMaoDeObraPecasCatalogo_(),
+      corte: getPrecificacaoCorteCatalogo_(),
+      producao: getPrecificacaoProducao_(),
+      aviamentos: getPrecificacaoAviamentosTamanhoCatalogo_(),
+      acabamentos: getPrecificacaoAcabamentosCatalogo_(),
+      modelos: getPrecificacaoModelosCatalogo_(),
+      ficha: getPrecificacaoFichaCatalogo_()
+    });
     case 'precificacaoSkuRegras': return jsonResponse_({ email: email, regras: getPrecificacaoSkuRegras_() });
     case 'despesasFixas': return jsonResponse_({ email: email, despesas: getDespesasFixasList_() });
     case 'kpis': return jsonResponse_({ email: email, kpis: getKpis_() });
