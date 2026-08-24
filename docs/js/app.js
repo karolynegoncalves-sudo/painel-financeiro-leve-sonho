@@ -729,7 +729,7 @@ function renderKpis(el, rows) {
     ${renderFiltroBar_()}
     <div class="kpi-grid">
       <div class="kpi ${receitaBruta >= 0 ? 'ok' : 'bad'}">
-        <div class="kpi-label">Receita recebida</div>
+        <div class="kpi-label">Receita bruta recebida</div>
         <div class="kpi-value">${fmtBRL(receitaBruta)}</div>
         <div class="kpi-foot">${variacaoReceita === null ? 'Sem período anterior comparável' : fmtPct(variacaoReceita) + ' vs. período anterior'}</div>
       </div>
@@ -761,13 +761,13 @@ function renderKpis(el, rows) {
 
     <div class="panel">
       <h3>Ponto de equilíbrio</h3>
-      <div class="sub">Quanto precisa entrar pra pagar o custo fixo. A margem aqui já desconta o custo do produto, diferente da tabela por canal abaixo.</div>
+      <div class="sub">Quanto precisa entrar pra pagar o custo fixo. A margem aqui já desconta o custo do produto, diferente da tabela por canal abaixo. <b>Só entra conta já baixada</b>, agrupada pelo mês do vencimento — conta em aberto fica de fora, e por isso o total daqui é menor que o das vendas na tabela abaixo, que conta tudo pela data da venda.</div>
       <div style="overflow-x:auto;"><table class="simple">
-        <tr><td>Receita do período</td><td class="num val-in">${fmtBRL(eq.receita, 2)}</td></tr>
+        <tr><td>Receita bruta recebida <small>contas baixadas, pelo mês do vencimento</small></td><td class="num val-in">${fmtBRL(eq.receita, 2)}</td></tr>
         <tr><td>Deduções (impostos, taxas de canal)</td><td class="num val-out">−${fmtBRL(eq.deducoes, 2)}</td></tr>
         <tr><td>CMV (tecido, aviamento, facção)</td><td class="num val-out">−${fmtBRL(eq.cmv, 2)}</td></tr>
         <tr><td>Despesas comerciais (frete, marketing)</td><td class="num val-out">−${fmtBRL(eq.comerciais, 2)}</td></tr>
-        <tr><th>Margem de contribuição</th><th class="num val-in">${fmtBRL(eq.mc, 2)} · ${fmtPctSimples_(eq.mcPct)}</th></tr>
+        <tr><th>Margem de contribuição <small>é isto que sobra pra pagar o custo fixo</small></th><th class="num val-in">${fmtBRL(eq.mc, 2)} · ${fmtPctSimples_(eq.mcPct)}</th></tr>
         <tr><td>Custo fixo no período <small>${fmtBRL(eq.fixasMes, 2)}/mês × ${eq.dias} dia(s)</small></td><td class="num val-out">−${fmtBRL(eq.fixasPeriodo, 2)}</td></tr>
         <tr><th>Resultado</th><th class="num ${eq.mc - eq.fixasPeriodo >= 0 ? 'val-in' : 'val-out'}">${fmtBRL(eq.mc - eq.fixasPeriodo, 2)}</th></tr>
         <tr><th>Faturamento necessário <small>o ponto de equilíbrio</small></th><th class="num">${eq.faturamentoNecessario ? fmtBRL(eq.faturamentoNecessario, 2) : '—'}</th></tr>
