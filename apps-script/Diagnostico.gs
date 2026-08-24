@@ -427,3 +427,70 @@ function conferirCustoFixo() {
 
   Logger.log(L.join('\n'));
 }
+
+
+/**
+ * Testa TODAS as rotas do doGet, uma a uma, medindo o tempo.
+ *
+ * Quando uma rota estoura, o Apps Script devolve uma pagina HTML de erro
+ * em vez de JSON, e o painel morre com "SyntaxError: Unexpected token
+ * '<'" - que nao diz nada sobre qual rota falhou. Aqui cada uma e chamada
+ * isolada, com o erro capturado e o tempo medido, entao da pra ver tanto
+ * quem quebra quanto quem esta perto do limite de tempo.
+ *
+ * Nao altera nada.
+ */
+function testarRotas() {
+  const rotas = [
+    ['fluxoCaixa', function () { return getFluxoCaixaRows_(); }],
+    ['dre', function () { return getDreRows_(); }],
+    ['vendas', function () { return getVendasRows_(); }],
+    ['kpis', function () { return getKpis_(); }],
+    ['despesasFixas', function () { return getDespesasFixasList_(); }],
+    ['precificacao', function () { return getPrecificacaoCatalogo_(); }],
+    ['precificacaoConfig', function () { return getPrecificacaoConfig_(); }],
+    ['precificacaoMateriais', function () { return getPrecificacaoMateriaisCatalogo_(); }],
+    ['precificacaoRendimento', function () { return getPrecificacaoRendimentoCatalogo_(); }],
+    ['precificacaoFuncionarios', function () { return getPrecificacaoFuncionariosCatalogo_(); }],
+    ['precificacaoMaoDeObraPecas', function () { return getPrecificacaoMaoDeObraPecasCatalogo_(); }],
+    ['precificacaoCorte', function () { return getPrecificacaoCorteCatalogo_(); }],
+    ['precificacaoProducao', function () { return getPrecificacaoProducao_(); }],
+    ['precificacaoAviamentos', function () { return getPrecificacaoAviamentosTamanhoCatalogo_(); }],
+    ['precificacaoAcabamentos', function () { return getPrecificacaoAcabamentosCatalogo_(); }],
+    ['precificacaoModelos', function () { return getPrecificacaoModelosCatalogo_(); }],
+    ['precificacaoFicha', function () { return getPrecificacaoFichaCatalogo_(); }],
+    ['precificacaoSkuRegras', function () { return getPrecificacaoSkuRegras_(); }]
+  ];
+
+  const L = ['ROTA                          TEMPO   RESULTADO', ''];
+  let quebradas = 0;
+  rotas.forEach(function (r) {
+    const t0 = Date.now();
+    let res;
+    try {
+      const v = r[1]();
+      let tam = '';
+      if (v && v.rows) tam = v.rows.length + ' linha(s)';
+      else if (v && v.length !== undefined) tam = v.length + ' item(ns)';
+      else if (v) tam = 'ok';
+      res = 'OK   ' + tam;
+    } catch (e) {
+      res = '>>> ERRO: ' + e;
+      quebradas++;
+    }
+    const ms = Date.now() - t0;
+    L.push((r[0] + '                              ').slice(0, 30)
+      + (ms + 'ms       ').slice(0, 9) + res);
+  });
+
+  L.push('');
+  L.push(quebradas ? (quebradas + ' rota(s) quebrada(s) - e a(s) de cima com ERRO')
+    : 'nenhuma rota quebrou aqui. Se o painel continua com erro, o problema '
+      + 'esta na VERSAO IMPLANTADA, nao na salva: publique uma nova versao.');
+
+  // a versao implantada e a mesma que esta salva?
+  L.push('');
+  L.push('URL do Web App: ' + ScriptApp.getService().getUrl());
+
+  Logger.log(L.join('\n'));
+}

@@ -1440,3 +1440,109 @@ function corrigirRendimentoMoletom_() {
 function _rodarCorrigirRendimentoMoletom() {
   corrigirRendimentoMoletom_();
 }
+
+
+/**
+ * MIGRACAO 24/08/2026 - as taxas MEDIDAS de cada canal.
+ *
+ * Ate aqui a _Precificacao_Config vinha das fichas FPV, que sao a tabela
+ * publicada de cada marketplace. Medindo pedido a pedido em julho/2026, os
+ * quatro marketplaces estavam errados - e todos na mesma direcao, fazendo
+ * o painel achar que sobrava mais do que sobra:
+ *
+ *   Shopee          28,62% + R$ 4  ->  50,78%   (API da Shopee, 481 pedidos)
+ *   Mercado Livre   30,70%         ->  36,93%   (campo taxas do Bling, 232 pedidos)
+ *   TikTok Shop     24,80%         ->  32,73%   (relatorio oficial, 24 liquidacoes)
+ *   SHEIN           24,80%         ->  23,00%   (campo taxas do Bling, 10 pedidos)
+ *
+ * De onde vem cada numero:
+ *
+ *  - SHOPEE: escrow da propria Shopee. O cliente pagou R$ 34.728,87 e
+ *    caiu na carteira R$ 19.671,82 - ela ficou com 43,36%. Comissao
+ *    14,29%, taxa de servico 9,98%, frete nao coberto pelo comprador
+ *    11,94% e 7,15% que a API nao detalha. A taxa fixa de R$ 4,00 vai a
+ *    ZERO aqui de proposito: ela ja esta dentro do percentual medido, e
+ *    manter as duas contaria duas vezes.
+ *
+ *  - MERCADO LIVRE: campo `taxas` do pedido no Bling. Comissao 13,08%
+ *    (menor que os 18,1% da tabela) mas frete 16,84% (a tabela dizia
+ *    5,6%). O frete e o problema, nao a comissao.
+ *
+ *  - TIKTOK: relatorio de demonstrativos exportado do Seller Center.
+ *    Comissao 6%, servico SFP 6%, comissao de afiliado 10% e taxa por
+ *    item de R$ 4 a R$ 6. Junho deu 23,87% e julho 27,55%; a diferenca e
+ *    o quanto veio de afiliado. Uso a media dos dois meses.
+ *
+ *  - SHEIN: campo `taxas` do Bling, 16% de comissao e nada de
+ *    antecipacao. Amostra de 10 pedidos - reconferir daqui a uns meses.
+ *
+ * O imposto de cada canal nao foi medido: continua o que ja estava.
+ *
+ * Rode por _rodarAplicarTaxasMedidas.
+ */
+function aplicarTaxasMedidas_() {
+  const MEDIDO = {
+    'Shopee':        { com: 0.1429, e1n: 'Taxa de serviço',        e1: 0.0998,
+                       e2n: 'Frete e não detalhado (medido)',      e2: 0.1909, fixa: 0 },
+    'MercadoLivre':  { com: 0.1308, e1n: 'Frete (medido)',         e1: 0.1684,
+                       e2n: '',                                    e2: 0,      fixa: 0 },
+    'TikTokShop':    { com: 0.0600, e1n: 'Serviço SFP',            e1: 0.0600,
+                       e2n: 'Afiliado e taxa por item (medido)',   e2: 0.1373, fixa: 0 },
+    'SHEIN':         { com: 0.1600, e1n: '',                       e1: 0,
+                       e2n: '',                                    e2: 0,      fixa: 0 }
+  };
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sh = ss.getSheetByName(ABA_PRECIFICACAO_CONFIG);
+  if (!sh) throw new Error('aba ' + ABA_PRECIFICACAO_CONFIG + ' nao encontrada');
+
+  const cab = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
+  const col = function (nome) {
+    const i = cab.indexOf(nome);
+    if (i < 0) throw new Error('coluna "' + nome + '" nao existe em ' + ABA_PRECIFICACAO_CONFIG);
+    return i;
+  };
+  const iCanal = col('canal'), iCom = col('comissaoPct'),
+        iE1n = col('extra1Nome'), iE1 = col('extra1Pct'),
+        iE2n = col('extra2Nome'), iE2 = col('extra2Pct'),
+        iFixa = col('taxaFixaReais'), iConf = col('confirmado'), iImp = col('impostosPct');
+
+  const u = sh.getLastRow();
+  const vals = sh.getRange(2, 1, u - 1, sh.getLastColumn()).getValues();
+  const log = [];
+  let mexeu = 0;
+
+  for (let i = 0; i < vals.length; i++) {
+    const canal = String(vals[i][iCanal]).trim();
+    const m = MEDIDO[canal];
+    if (!m) continue;
+
+    const antes = Number(vals[i][iImp]) + Number(vals[i][iCom])
+      + Number(vals[i][iE1] || 0) + Number(vals[i][iE2] || 0);
+    const antesFixa = Number(vals[i][iFixa] || 0);
+
+    vals[i][iCom] = m.com;
+    vals[i][iE1n] = m.e1n; vals[i][iE1] = m.e1;
+    vals[i][iE2n] = m.e2n; vals[i][iE2] = m.e2;
+    vals[i][iFixa] = m.fixa;
+    vals[i][iConf] = true;
+
+    const depois = Number(vals[i][iImp]) + m.com + m.e1 + m.e2;
+    log.push(canal + ': ' + (antes * 100).toFixed(2) + '%'
+      + (antesFixa ? ' + R$ ' + antesFixa.toFixed(2) : '')
+      + '  ->  ' + (depois * 100).toFixed(2) + '%');
+    mexeu++;
+  }
+
+  if (mexeu) sh.getRange(2, 1, vals.length, vals[0].length).setValues(vals);
+  log.push('');
+  log.push(mexeu + ' canal(is) atualizado(s) com taxa medida');
+  log.push('O site (NuvemShop) nao foi tocado: as taxas dele vieram do extrato');
+  log.push('da Pagar.me em 20/08 e ja eram medicao.');
+  Logger.log(log.join('\n'));
+  return log;
+}
+
+function _rodarAplicarTaxasMedidas() {
+  aplicarTaxasMedidas_();
+}
