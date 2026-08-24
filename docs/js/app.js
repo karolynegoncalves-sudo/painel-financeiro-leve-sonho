@@ -35,6 +35,8 @@ let precifCorte = null;          // corte por peça (_Precificacao_Corte)
 let precifProducao = null;       // tecido e costura por grupo de canal (_Precificacao_Producao)
 let precifAviamentos = null;     // vivo/elástico por tamanho (_Precificacao_Aviamentos_Tamanho)
 let precifAcabamentos = null;    // renda, guipir e vivo opcionais (_Precificacao_Acabamentos)
+let precifModelos = null;        // modelo -> tipo de peca (_Precificacao_Modelos)
+let precifFicha = null;          // aviamento/embalagem/mao de obra por peca (_Precificacao_Ficha)
 /* Estado da Ficha de Preço. Fica fora da função pra sobreviver ao
    redesenho a cada tecla. */
 /* `acabamentos` é um mapa nome -> metros dos que estão marcados. Ausente
@@ -300,7 +302,7 @@ async function safeRenderTab(view) {
     if (view === 'precificacao') {
       if (precifProdutos === null || precifConfig === null) {
         el.innerHTML = '<div class="state-msg">Carregando...</div>';
-        const [dataProdutos, dataConfig, dataMateriais, dataRendimento, dataFuncionarios, dataMaoDeObraPecas, dataCorte, dataProducao, dataAviamentos, dataAcabamentos] = await Promise.all([
+        const [dataProdutos, dataConfig, dataMateriais, dataRendimento, dataFuncionarios, dataMaoDeObraPecas, dataCorte, dataProducao, dataAviamentos, dataAcabamentos, dataModelos, dataFicha] = await Promise.all([
           apiFetch_('precificacao', idToken),
           apiFetch_('precificacaoConfig', idToken),
           apiFetch_('precificacaoMateriais', idToken),
@@ -310,7 +312,9 @@ async function safeRenderTab(view) {
           apiFetch_('precificacaoCorte', idToken),
           apiFetch_('precificacaoProducao', idToken),
           apiFetch_('precificacaoAviamentos', idToken),
-          apiFetch_('precificacaoAcabamentos', idToken)
+          apiFetch_('precificacaoAcabamentos', idToken),
+          apiFetch_('precificacaoModelos', idToken),
+          apiFetch_('precificacaoFicha', idToken)
         ]);
         precifProdutos = (dataProdutos && dataProdutos.produtos) || [];
         precifConfig = (dataConfig && dataConfig.config) || { despesasFixasPctPadrao: 0, canais: {} };
@@ -322,6 +326,8 @@ async function safeRenderTab(view) {
         precifProducao = (dataProducao && dataProducao.producao) || [];
         precifAviamentos = (dataAviamentos && dataAviamentos.aviamentos) || [];
         precifAcabamentos = (dataAcabamentos && dataAcabamentos.acabamentos) || [];
+        precifModelos = (dataModelos && dataModelos.modelos) || [];
+        precifFicha = (dataFicha && dataFicha.ficha) || [];
       }
       return renderPrecificacao(el);
     }
@@ -1009,19 +1015,66 @@ const MARGEM_QUEIMA = 0.15;
    Só o tule: a manga é de tule e não se corta manga de cetim. */
 
 /* Aviamentos que toda peça leva, independente de tamanho. */
-const AVIAMENTOS_FIXOS = {
-  Robe: [{ d: 'Linha', v: 0.03 }, { d: 'Fio', v: 0.07 }, { d: 'Saquinho Crystal', v: 0.07 }, { d: 'Envelope Correio', v: 0.56 }],
-  Pijama: [{ d: 'Linha', v: 0.03 }, { d: 'Fio', v: 0.07 }, { d: 'Saquinho Crystal', v: 0.07 }, { d: 'Envelope Correio', v: 0.56 }, { d: 'Botão (5un)', v: 0.62 }, { d: 'Caseado (5 casas)', v: 2.50 }],
-  Saquinho: [],
-  Scrunchie: []
-};
+/* Antes daqui saia uma constante AVIAMENTOS_FIXOS e um tipoPecaDe_ que
+   adivinhava o tipo pelo NOME do modelo, com "Robe" de padrao. Pantufa de
+   Cetim e Moletom caiam em robe calados, e a lista de aviamentos vivia no
+   codigo, fora do alcance da planilha. Agora as duas coisas vem de
+   _Precificacao_Modelos e _Precificacao_Ficha. */
 
 function tipoPecaDe_(modelo) {
-  const m = String(modelo || '').toLowerCase();
-  if (m.indexOf('pijama') > -1) return 'Pijama';
-  if (m.indexOf('saquinho') > -1) return 'Saquinho';
-  if (m.indexOf('scrunchie') > -1) return 'Scrunchie';
-  return 'Robe';
+  const reg = (precifModelos || []).find(m => m.modelo === modelo);
+  if (!reg) return '';
+  const t = String(reg.tipoPeca || '').trim();
+  return (!t || t === '(confirmar)') ? '' : t;
+}
+
+/* Preco unitario de uma linha da ficha. `material` puxa do catalogo de
+   tecidos e `maodeobra` da tabela das costureiras, entao renegociar preco
+   com fornecedor ou costureira reflete em toda peca que usa aquele item,
+   sem reeditar ficha nenhuma. */
+function unitDaFicha_(linha, mats, avisos) {
+  if (linha.fonte === 'material') {
+    const m = mats[linha.refNome];
+    if (!m) {
+      avisos.push('"' + linha.item + '" usa o material "' + linha.refNome + '", que não está no catálogo.');
+      return { unit: 0, nota: linha.refNome };
+    }
+    return { unit: m.valorPorMetro, nota: linha.refNome };
+  }
+  if (linha.fonte === 'maodeobra') {
+    const cands = (precifMaoDeObraPecas || []).filter(x => x.tipoPeca === linha.refNome);
+    if (!cands.length) {
+      avisos.push('"' + linha.item + '" busca "' + linha.refNome + '" na tabela de mão de obra, que não tem essa linha.');
+      return { unit: 0, nota: linha.refNome };
+    }
+    const menor = cands.reduce((a, b) => (b.valor < a.valor ? b : a));
+    return { unit: menor.valor, nota: menor.funcionario };
+  }
+  return { unit: linha.valorUnit, nota: '' };
+}
+
+/* Resolve a heranca: o modelo comeca com a ficha do TIPO dele e as linhas
+   com o nome do modelo substituem as de mesmo `item`. Quantidade 0 tira o
+   item — e como voce diz "este modelo nao leva isso". */
+function fichaDoModelo_(modelo, tipoPeca, mats, avisos) {
+  const porItem = {};
+  (precifFicha || []).forEach(l => { if (l.aplicaA === tipoPeca) porItem[l.item] = l; });
+  (precifFicha || []).forEach(l => { if (l.aplicaA === modelo) porItem[l.item] = l; });
+
+  return Object.keys(porItem).map(k => porItem[k])
+    .filter(l => l.quantidade > 0)
+    .map(l => {
+      const u = unitDaFicha_(l, mats, avisos);
+      return {
+        grupo: l.grupo || 'Aviamento',
+        item: l.item,
+        qtd: l.quantidade,
+        unit: u.unit,
+        nota: u.nota,
+        valor: l.quantidade * u.unit,
+        doModelo: l.aplicaA === modelo
+      };
+    });
 }
 
 function grupoDoCanal_(canal) {
@@ -1067,6 +1120,10 @@ function calcularFicha_(modelo, tamanho, tecido, escolhidos, canalObj) {
   const mats = materialPorNome_();
   const avisos = [];
   const tipoPeca = tipoPecaDe_(modelo);
+  if (!tipoPeca) {
+    avisos.push('O modelo "' + modelo + '" ainda não tem tipo de peça definido na aba _Precificacao_Modelos. '
+      + 'Sem isso não dá pra saber o corte, a costura nem os aviamentos dele.');
+  }
   const prod = (precifProducao || []).find(x => x.canalGrupo === canalObj.grupo && x.tipoPeca === tipoPeca);
 
   const totalMetros = (rend[modelo] || {})[tamanho] || 0;
@@ -1109,8 +1166,11 @@ function calcularFicha_(modelo, tamanho, tecido, escolhidos, canalObj) {
   const custoCostura = prod ? prod.costuraValor : 0;
   if (!prod) avisos.push('Não há produção cadastrada para ' + tipoPeca + ' em ' + canalObj.grupo + '.');
 
-  const fixos = AVIAMENTOS_FIXOS[tipoPeca] || [];
-  const custoFixos = fixos.reduce((s, a) => s + a.v, 0);
+  const itensFicha = tipoPeca ? fichaDoModelo_(modelo, tipoPeca, mats, avisos) : [];
+  const somaGrupo = (g) => itensFicha.filter(x => x.grupo === g).reduce((s, x) => s + x.valor, 0);
+  const custoAviamento = somaGrupo('Aviamento');
+  const custoMaoObraExtra = somaGrupo('Mão de obra');
+  const custoEmbalagem = somaGrupo('Embalagem');
 
   const porTam = (precifAviamentos || []).filter(a => a.tipoProduto === modelo && a.tamanho === tamanho);
   const detTam = porTam.map(a => {
@@ -1120,13 +1180,20 @@ function calcularFicha_(modelo, tamanho, tecido, escolhidos, canalObj) {
   });
   const custoTam = detTam.reduce((s, a) => s + a.valor, 0);
 
-  const custo = custoTecido + custoAcab + custoCorte + custoCostura + custoFixos + custoTam;
+  /* Fabricacao e o que sai da sua costura: tecido, aviamento, corte,
+     costura. Embalagem entra depois - nao e custo de fabricar, mas tem
+     que estar no preco. Separar os dois deixa ver o custo real da peca
+     sem o frete de correio embutido. */
+  const custoFabricacao = custoTecido + custoAcab + custoCorte + custoCostura
+    + custoAviamento + custoMaoObraExtra + custoTam;
+  const custo = custoFabricacao + custoEmbalagem;
   const taxaPct = canalObj.imp + canalObj.com + canalObj.ex.reduce((s, e) => s + e[1], 0);
 
   return {
     canal: canalObj, tipoPeca, totalMetros, metrosPrinc, metrosSubstituidos, detAcab, custoAcab,
     mat, nomeTecido, padraoDoCanal, custoTecido, custoCorte, custoCostura,
-    fixos, custoFixos, detTam, custoTam, custo, taxaPct, avisos
+    itensFicha, custoAviamento, custoMaoObraExtra, custoEmbalagem,
+    detTam, custoTam, custoFabricacao, custo, taxaPct, avisos
   };
 }
 
@@ -1203,7 +1270,7 @@ function renderPrecificacao(el) {
 
     <div class="fp-painel">
       <div class="fp-card">
-        <h3>Custo de produzir</h3>
+        <h3>Custo da peça</h3>
         <div class="fp-linhas">${linhasCusto_(r)}</div>
       </div>
       <div class="fp-card">
@@ -1313,10 +1380,29 @@ function linhasCusto_(r) {
       fmtNum_(a.metros) + ' m × R$ ' + fmtNum_(a.unit) + '/m', a.valor);
   });
   r.detTam.forEach(a => li(escapeHtml_(a.nome), fmtNum_(a.qtd) + ' m × R$ ' + fmtNum_(a.unit) + '/m', a.valor, 'sub'));
-  if (r.fixos.length) li('Aviamentos fixos', r.fixos.map(a => a.d).join(' · '), r.custoFixos, 'sub');
-  li('Corte', escapeHtml_(r.tipoPeca) + ' · por peça', r.custoCorte);
-  li('Costura', escapeHtml_(r.tipoPeca) + ' em ' + escapeHtml_(r.canal.grupo), r.custoCostura);
-  li('Custo de produzir', '', r.custo, 'tot destaque');
+
+  /* Cada item da ficha aparece com a conta na frente. Item que veio de
+     excecao do modelo ganha selo, pra voce enxergar de relance o que
+     aquele modelo tem de diferente do tipo dele. */
+  const doGrupo = (g) => r.itensFicha.filter(x => x.grupo === g);
+  const linhaItem = (a) => li(
+    escapeHtml_(a.item) + (a.doModelo ? ' <span class="pill md">só neste modelo</span>' : ''),
+    fmtNum_(a.qtd) + ' × R$ ' + fmtNum_(a.unit) + (a.nota ? ' · ' + escapeHtml_(a.nota) : ''),
+    a.valor, 'sub');
+
+  doGrupo('Aviamento').forEach(linhaItem);
+  li('Corte', escapeHtml_(r.tipoPeca || '—') + ' · por peça', r.custoCorte);
+  li('Costura', escapeHtml_(r.tipoPeca || '—') + ' em ' + escapeHtml_(r.canal.grupo), r.custoCostura);
+  doGrupo('Mão de obra').forEach(linhaItem);
+  li('Custo de fabricação', 'tecido, aviamento, corte e costura', r.custoFabricacao, 'tot');
+
+  const emb = doGrupo('Embalagem');
+  if (emb.length) {
+    emb.forEach(linhaItem);
+    li('Custo até a porta', 'com embalagem e envio', r.custo, 'tot destaque');
+  } else {
+    li('Custo até a porta', '', r.custo, 'tot destaque');
+  }
   return L.join('');
 }
 
@@ -1327,7 +1413,7 @@ function linhasVenda_(r, preco, taxaRs, sobra, p15) {
       + (sub ? '<small>' + escapeHtml_(sub) + '</small>' : '')
       + '</span><span class="val">' + val + '</span></div>');
   vi('Preço de venda', '', 'R$ ' + fmtNum_(preco));
-  vi('Custo de produzir', '', '− R$ ' + fmtNum_(r.custo));
+  vi('Custo até a porta', 'fabricação + embalagem', '− R$ ' + fmtNum_(r.custo));
   const det = ['imposto ' + fmtPctPlano_(r.canal.imp), 'comissão ' + fmtPctPlano_(r.canal.com)]
     .concat(r.canal.ex.map(e => e[0] + ' ' + fmtPctPlano_(e[1]))).join(' · ');
   vi('Taxas do canal (' + fmtPctPlano_(r.taxaPct) + ')', det, '− R$ ' + fmtNum_(taxaRs));

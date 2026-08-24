@@ -25,6 +25,8 @@ const ABA_PRECIFICACAO_SKU = '_Precificacao_SKU';
 const ABA_PRECIFICACAO_PRODUCAO = '_Precificacao_Producao';
 const ABA_PRECIFICACAO_AVIAMENTOS_TAMANHO = '_Precificacao_Aviamentos_Tamanho';
 const ABA_PRECIFICACAO_ACABAMENTOS = '_Precificacao_Acabamentos';
+const ABA_PRECIFICACAO_MODELOS = '_Precificacao_Modelos';
+const ABA_PRECIFICACAO_FICHA = '_Precificacao_Ficha';
 const ABA_DESPESAS_FIXAS = '_Despesas_Fixas';
 const ABA_VENDAS = 'Vendas';
 
@@ -58,6 +60,8 @@ function setupWorkbook() {
   setupPrecificacaoProducao_(ss);
   setupPrecificacaoAviamentosTamanho_(ss);
   setupPrecificacaoAcabamentos_(ss);
+  setupPrecificacaoModelos_(ss);
+  setupPrecificacaoFicha_(ss);
   setupDespesasFixas_(ss);
 
   SpreadsheetApp.flush();
@@ -219,7 +223,12 @@ function setupDreMapa_(ss) {
     ['14674413185', 'Capital de Giro', '1', '14639321693', 'Resultado Financeiro'],
     ['14674413186', 'Empréstimos', '1', '14639321693', 'Resultado Financeiro'],
     ['14711275622', 'Empréstimos', '2', '0', 'Não Operacional (ignorar na DRE)'],
-    ['14711277262', 'Investimentos', '1', '0', 'Não Operacional (ignorar na DRE)']
+    ['14711277262', 'Investimentos', '1', '0', 'Não Operacional (ignorar na DRE)'],
+    ['14739930076', 'Embalagem e Insumos de Produção', '1', '14639321655', 'CMV'],
+    ['14739930279', 'Manutenção de Máquinas e Equipamentos', '1', '14639321670', 'Despesas Administrativas'],
+    ['14739931044', 'Facção / Mão de obra terceirizada', '1', '14639321661', 'CMV'],
+    ['14739989237', 'A Classificar (revisar)', '1', '0', '(sem mapear)'],
+    ['14741903825', 'Retirada de socio', '1', '0', 'Não Operacional (ignorar na DRE)']
   ];
   sheet.getRange(2, 1, categorias.length, categorias[0].length).setValues(categorias);
   sheet.autoResizeColumns(1, 5);
@@ -889,6 +898,113 @@ function setupPrecificacaoAcabamentos_(ss) {
   ];
   sheet.getRange(2, 1, linhas.length, linhas[0].length).setValues(linhas);
   sheet.autoResizeColumns(1, 5);
+}
+
+/**
+ * modelo -> tipo de peca. Antes isso era adivinhado pelo NOME do modelo
+ * no front (tipoPecaDe_ em app.js), e o padrao era "Robe": qualquer coisa
+ * sem "pijama"/"saquinho"/"scrunchie" no nome virava robe. Na pratica,
+ * Pantufa de Cetim e Moletom estavam sendo precificados com corte e
+ * costura de robe, calados.
+ *
+ * O tipo manda no corte, na costura e na ficha de aviamentos. Onde eu nao
+ * tinha como saber, deixei "(confirmar)" - a ficha avisa na tela em vez
+ * de mostrar numero errado. Preencha com um tipo que exista nas abas
+ * _Precificacao_Corte e _Precificacao_MaoDeObra_Pecas.
+ */
+function setupPrecificacaoModelos_(ss) {
+  const sheet = getOrCreateSheet_(ss, ABA_PRECIFICACAO_MODELOS);
+  const jaTinhaDados = sheet.getLastRow() > 1;
+  ensureHeader_(sheet, ['modelo', 'tipoPeca', 'ativo']);
+  if (jaTinhaDados) return;
+
+  const C = '(confirmar)';
+  const linhas = [
+    ['Robe manga curta', 'Robe', true],
+    ['Robe manga 3/4', 'Robe', true],
+    ['Robe manga longa', 'Robe', true],
+    ['Robe infantil', 'Robe', true],
+    ['Robe manga flare tule', 'Robe', true],
+    ['Robe manga 3/4 longo', 'Robe', true],
+    ['Robe manga longa longo', 'Robe', true],
+    ['Roupão Manga 3/4', 'Robe', true],
+    ['Roupão Manga Longa', 'Robe', true],
+    ['Saquinhos de Cetim', 'Saquinho', true],
+    ['Pijama Americano Manga Curta e Short', 'Pijama', true],
+    ['Pijama Americano Manga Curta e Calça', 'Pijama', true],
+    ['Pijama Americano Manga Longa e Calça', 'Pijama', true],
+    ['Pijama Americano Manga Longa e Shorts', 'Pijama', true],
+    ['Pijama Americano Infantil', 'Pijama', true],
+    ['Pijama Americano Infantil Manga Curta e Calça', 'Pijama', true],
+    ['Pijama Americano Infantil Manga Longa e Calça', 'Pijama', true],
+    ['Pijama Americano Infantil Manga Longa e Shorts', 'Pijama', true],
+    // Meias pecas: hoje pagam corte e costura de pijama INTEIRO. Diga qual
+    // e o tipo certo (ou crie um novo em _Precificacao_Corte).
+    ['Camisa Pijama Verão', C, true],
+    ['Camisa Pijama Inverno', C, true],
+    ['Calça Pijama', C, true],
+    ['Short Pijama', C, true],
+    // Estas duas viravam "Robe" pelo chute do nome.
+    ['Pantufa de Cetim', C, true],
+    ['Moletom', C, true]
+  ];
+  sheet.getRange(2, 1, linhas.length, 3).setValues(linhas);
+  sheet.autoResizeColumns(1, 3);
+}
+
+/**
+ * FICHA TECNICA: aviamento, embalagem e mao de obra extra de cada peca.
+ *
+ * Antes isso era uma constante no JavaScript (AVIAMENTOS_FIXOS em
+ * app.js), fora do seu alcance, e existia so pra 4 tipos de peca. Agora
+ * mora aqui e voce edita.
+ *
+ * Como funciona a herança:
+ *   - `aplicaA` pode ser um TIPO DE PECA (Robe, Pijama...) ou o nome de um
+ *     MODELO especifico (Robe infantil).
+ *   - o modelo herda tudo do tipo dele; linha com o nome do modelo
+ *     SUBSTITUI a do tipo que tiver o mesmo `item`.
+ *   - pra tirar um item num modelo, cadastre com quantidade 0.
+ *   Ex.: robe infantil que usa envelope menor -> uma linha
+ *        ['Robe infantil', 'Embalagem', 'Envelope Correio', 'fixo', '', 1, 0.38, true]
+ *
+ * `fonte` diz de onde vem o preco unitario:
+ *   fixo       - usa a coluna valorUnit
+ *   material   - puxa o valor por metro de refNome em _Precificacao_Materiais
+ *                (assim, mudou o preco do tecido, a ficha inteira acompanha)
+ *   maodeobra  - puxa o valor de refNome em _Precificacao_MaoDeObra_Pecas
+ *
+ * O caseado esta como mao de obra por botao, e nao como material de
+ * R$ 2,50 fixo: sao 5 casas x R$ 0,50 da Vista C. Se voce renegociar com
+ * ela, a ficha se atualiza sozinha.
+ */
+function setupPrecificacaoFicha_(ss) {
+  const sheet = getOrCreateSheet_(ss, ABA_PRECIFICACAO_FICHA);
+  const jaTinhaDados = sheet.getLastRow() > 1;
+  ensureHeader_(sheet, ['aplicaA', 'grupo', 'item', 'fonte', 'refNome', 'quantidade', 'valorUnit', 'ativo']);
+  if (jaTinhaDados) return;
+
+  const linhas = [
+    // --- Robe: os mesmos valores que estavam no codigo ---
+    ['Robe', 'Aviamento', 'Linha', 'fixo', '', 1, 0.03, true],
+    ['Robe', 'Aviamento', 'Fio', 'fixo', '', 1, 0.07, true],
+    ['Robe', 'Embalagem', 'Saquinho Crystal', 'fixo', '', 1, 0.07, true],
+    ['Robe', 'Embalagem', 'Envelope Correio', 'fixo', '', 1, 0.56, true],
+
+    // --- Pijama ---
+    ['Pijama', 'Aviamento', 'Linha', 'fixo', '', 1, 0.03, true],
+    ['Pijama', 'Aviamento', 'Fio', 'fixo', '', 1, 0.07, true],
+    ['Pijama', 'Aviamento', 'Botão', 'fixo', '', 5, 0.124, true],
+    ['Pijama', 'Embalagem', 'Saquinho Crystal', 'fixo', '', 1, 0.07, true],
+    ['Pijama', 'Embalagem', 'Envelope Correio', 'fixo', '', 1, 0.56, true],
+    ['Pijama', 'Mão de obra', 'Caseado', 'maodeobra', 'Caseado', 5, 0, true],
+
+    // --- Saquinho e Scrunchie nao tinham aviamento nenhum no codigo ---
+    ['Saquinho', 'Aviamento', 'Linha', 'fixo', '', 1, 0.03, false],
+    ['Scrunchie', 'Aviamento', 'Linha', 'fixo', '', 1, 0.03, false]
+  ];
+  sheet.getRange(2, 1, linhas.length, 8).setValues(linhas);
+  sheet.autoResizeColumns(1, 8);
 }
 
 /**

@@ -299,6 +299,45 @@ function getPrecificacaoCorteCatalogo_() {
   return rows.filter(r => r[iTipoPeca]).map(r => ({ tipoPeca: r[iTipoPeca], valor: num_(r[iValor]) }));
 }
 
+/**
+ * modelo -> tipoPeca. Substitui o chute por nome que existia no front.
+ * Modelo sem linha aqui, ou com tipo "(confirmar)", nao e precificado:
+ * a ficha mostra o aviso em vez de um numero errado.
+ */
+function getPrecificacaoModelosCatalogo_() {
+  const { headers, rows } = sheetData_(ABA_PRECIFICACAO_MODELOS);
+  const idx = (n) => headers.indexOf(n);
+  const iModelo = idx('modelo'), iTipo = idx('tipoPeca'), iAtivo = idx('ativo');
+  return rows
+    .filter(r => r[iModelo] && String(r[iAtivo]).toLowerCase() !== 'false')
+    .map(r => ({ modelo: String(r[iModelo]).trim(), tipoPeca: String(r[iTipo] || '').trim() }));
+}
+
+/**
+ * Ficha tecnica (aviamento, embalagem, mao de obra extra) por tipo de
+ * peca, com excecao por modelo. Devolve cru; quem resolve a heranca e
+ * calcula o valor unitario e o front, que ja tem os catalogos de
+ * materiais e de mao de obra carregados.
+ */
+function getPrecificacaoFichaCatalogo_() {
+  const { headers, rows } = sheetData_(ABA_PRECIFICACAO_FICHA);
+  const idx = (n) => headers.indexOf(n);
+  const iAplica = idx('aplicaA'), iGrupo = idx('grupo'), iItem = idx('item'),
+        iFonte = idx('fonte'), iRef = idx('refNome'), iQtd = idx('quantidade'),
+        iVal = idx('valorUnit'), iAtivo = idx('ativo');
+  return rows
+    .filter(r => r[iAplica] && r[iItem] && String(r[iAtivo]).toLowerCase() !== 'false')
+    .map(r => ({
+      aplicaA: String(r[iAplica]).trim(),
+      grupo: String(r[iGrupo] || 'Aviamento').trim(),
+      item: String(r[iItem]).trim(),
+      fonte: String(r[iFonte] || 'fixo').trim().toLowerCase(),
+      refNome: String(r[iRef] || '').trim(),
+      quantidade: num_(r[iQtd]),
+      valorUnit: num_(r[iVal])
+    }));
+}
+
 /** Grava (cria ou atualiza) um produto. Retorna o produto salvo, já com id/snapshots/timestamps. */
 function salvarPrecificacaoProduto_(produto, email) {
   if (!produto || !produto.nome || !produto.canal || !(Number(produto.precoVenda) > 0)) {

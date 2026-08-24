@@ -33,6 +33,8 @@ function doGet(e) {
     case 'precificacaoProducao': return jsonResponse_({ email: email, producao: getPrecificacaoProducao_() });
     case 'precificacaoAviamentos': return jsonResponse_({ email: email, aviamentos: getPrecificacaoAviamentosTamanhoCatalogo_() });
     case 'precificacaoAcabamentos': return jsonResponse_({ email: email, acabamentos: getPrecificacaoAcabamentosCatalogo_() });
+    case 'precificacaoModelos': return jsonResponse_({ email: email, modelos: getPrecificacaoModelosCatalogo_() });
+    case 'precificacaoFicha': return jsonResponse_({ email: email, ficha: getPrecificacaoFichaCatalogo_() });
     case 'precificacaoSkuRegras': return jsonResponse_({ email: email, regras: getPrecificacaoSkuRegras_() });
     case 'despesasFixas': return jsonResponse_({ email: email, despesas: getDespesasFixasList_() });
     case 'kpis': return jsonResponse_({ email: email, kpis: getKpis_() });
@@ -145,13 +147,25 @@ function seedDespesasFixasReais_() {
 }
 
 function onOpen() {
-  SpreadsheetApp.getUi()
-    .createMenu('Painel Financeiro')
+  const ui = SpreadsheetApp.getUi();
+  ui.createMenu('Painel Financeiro')
     .addItem('Sincronizar Bling agora', 'syncBling')
     .addItem('Instalar sincronização automática (2h)', 'criarGatilhoSync')
     .addSeparator()
     .addItem('1) Configurar setup da planilha', 'setupWorkbook')
     .addItem('2) Importar produtos do NuvemShop (uma vez)', 'importarProdutosNuvemShop_')
+    .addToUi();
+
+  /* As manutenções de precificação ficam em menu próprio porque são de rodar
+     uma vez e conferir o resultado, não rotina. Estão aqui em vez de só no
+     seletor de funções do editor: pelo menu dá pra disparar direto da
+     planilha, com o resultado já na frente. */
+  ui.createMenu('Precificação (manutenção)')
+    .addItem('Conserta a aba de taxas por canal', '_rodarConsertarConfigTaxas')
+    .addItem('Atualiza tecidos e unidades de compra', '_rodarMigrarMateriais2026')
+    .addItem('Separa o tule do tecido principal', '_rodarMigrarTuleFlare')
+    .addSeparator()
+    .addItem('Arquiva precificações sem SKU', '_rodarArquivarPrecificacoesSemSku')
     .addToUi();
 }
 
@@ -249,12 +263,20 @@ function _rodarCorrigirDreMapa() {
  *    Shopee — cada venda unitária entra bruta em "Vendas de produtos" e a
  *    taxa sai nessa categoria. É dedução da receita, não despesa
  *    financeira. Fica junto de "Taxas do marketplace" pra ficar coerente.
+ *
+ *  - "Retirada de socio" entrou sozinha no mapa em 23/08/2026, quando o
+ *    sync passou a buscar as categorias novas do Bling. Não tem pai, então
+ *    caiu como "(sem mapear)". Distribuição de lucro não é despesa da
+ *    empresa: sai do resultado já apurado. Vai pra não operacional.
+ *    (Pró-labore é outra coisa — esse é remuneração e continua em
+ *    Despesas com Pessoal.)
  */
 function corrigirDreMapa_() {
   const CORRECOES = {
     '14639321646': 'Não Operacional (ignorar na DRE)', // Rendimento de aplicação financeira
     '14639321695': 'Deduções da Receita',              // Descontos concedidos
-    '14639321698': 'Deduções da Receita'               // Taxas do marketplace
+    '14639321698': 'Deduções da Receita',              // Taxas do marketplace
+    '14741903825': 'Não Operacional (ignorar na DRE)'  // Retirada de socio
   };
 
   const ss = SpreadsheetApp.getActiveSpreadsheet();
