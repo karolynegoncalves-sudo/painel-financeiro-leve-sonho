@@ -1413,6 +1413,14 @@ function fmtPctPlano_(v, dec) {
 }
 
 function renderPrecificacao(el) {
+  /* Cada tecla no preço dispara este render, que reescreve o innerHTML
+     inteiro - o campo em que a pessoa esta digitando e destruido e o foco
+     vai junto, obrigando a clicar de novo a cada digito. Guardo quem
+     estava em foco e onde o cursor estava, e devolvo no fim. */
+  const focoId = document.activeElement ? document.activeElement.id : '';
+  let caret = null;
+  try { caret = document.activeElement.selectionStart; } catch (e) { caret = null; }
+
   const rend = rendimentoMapa_();
   const modelos = Object.keys(rend).sort();
   const canais = canaisDaConfig_();
@@ -1544,6 +1552,17 @@ function renderPrecificacao(el) {
       renderPrecificacao(el);
     });
   });
+
+  // devolve o foco e o cursor pro campo que a pessoa estava usando
+  if (focoId) {
+    const alvo = document.getElementById(focoId);
+    if (alvo) {
+      alvo.focus();
+      // input[type=number] recusa setSelectionRange no Chrome; sem cursor
+      // o foco sozinho ja resolve, porque ele cai no fim do texto
+      if (caret !== null) { try { alvo.setSelectionRange(caret, caret); } catch (e) {} }
+    }
+  }
 }
 
 /* Lista de acabamentos com checkbox e quantidade editável. A quantidade
