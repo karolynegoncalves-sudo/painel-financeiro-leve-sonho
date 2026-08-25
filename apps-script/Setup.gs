@@ -1587,24 +1587,31 @@ function aplicarFaixasShopee_() {
   const log = [];
   let cab = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
 
-  // 1) colunas novas, se ainda nao existirem
-  ['precoMin', 'precoMax'].forEach(function (nome) {
+  /* 1) garante as colunas. Inclui as antigas de proposito: a aba ficou
+     desalinhada em 20/08 (o seed gravou 10 valores num cabecalho de 9) e
+     nem toda instalacao tem 'confirmado'. Criar o que falta e mais util
+     que abortar - o unico obrigatorio de verdade e 'canal'. */
+  const PRECISA = ['canal', 'impostosPct', 'comissaoPct', 'extra1Nome', 'extra1Pct',
+                   'extra2Nome', 'extra2Pct', 'taxaFixaReais', 'despesasFixasPct',
+                   'confirmado', 'precoMin', 'precoMax'];
+  if (cab.indexOf('canal') < 0) {
+    throw new Error('a aba ' + ABA_PRECIFICACAO_CONFIG + ' nao tem a coluna "canal" - '
+      + 'rode o setupWorkbook antes.');
+  }
+  PRECISA.forEach(function (nome) {
     if (cab.indexOf(nome) >= 0) return;
     sh.insertColumnAfter(sh.getLastColumn());
     sh.getRange(1, sh.getLastColumn()).setValue(nome);
-    log.push('coluna ' + nome + ' criada');
+    log.push('coluna "' + nome + '" faltava e foi criada');
   });
   cab = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
 
-  const col = function (n) {
-    const i = cab.indexOf(n);
-    if (i < 0) throw new Error('coluna "' + n + '" nao existe');
-    return i;
-  };
+  const col = function (n) { return cab.indexOf(n); };
   const iCanal = col('canal'), iImp = col('impostosPct'), iCom = col('comissaoPct'),
         iE1n = col('extra1Nome'), iE1 = col('extra1Pct'), iE2n = col('extra2Nome'),
         iE2 = col('extra2Pct'), iFixa = col('taxaFixaReais'), iConf = col('confirmado'),
         iMin = col('precoMin'), iMax = col('precoMax');
+  log.push('cabecalho: ' + cab.filter(String).join(', '));
 
   const u = sh.getLastRow();
   const vals = sh.getRange(2, 1, u - 1, sh.getLastColumn()).getValues();
