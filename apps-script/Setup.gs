@@ -1546,3 +1546,117 @@ function aplicarTaxasMedidas_() {
 function _rodarAplicarTaxasMedidas() {
   aplicarTaxasMedidas_();
 }
+
+
+/**
+ * MIGRACAO 25/08/2026 - a Shopee cobra POR FAIXA DE PRECO DO ITEM.
+ *
+ * Ate aqui a _Precificacao_Config tinha uma linha por canal, com um
+ * percentual e um valor fixo. Isso nao representa a Shopee: a tabela
+ * oficial dela (painel do vendedor, confirmada contra 481 pedidos do
+ * escrow em 25/08/2026, erro de 0,0% na faixa de maior volume) e:
+ *
+ *     ate R$ 79,99      20% + R$ 4
+ *     R$ 80 a 99,99     14% + R$ 16
+ *     R$ 100 a 199,99   14% + R$ 20
+ *     R$ 200 a 499,99   14% + R$ 26
+ *     acima de R$ 500   14% + R$ 26
+ *
+ * O valor e por ITEM, nao por pedido - kit de duas pecas paga duas vezes.
+ *
+ * Consequencia que a tabela esconde: o degrau cria ZONA MORTA. A R$ 79,99
+ * ela fica com R$ 59,99; a R$ 80,00 fica com R$ 52,80. Subir um centavo
+ * custa R$ 7,19, e so volta ao mesmo liquido em R$ 88,36. O mesmo em
+ * R$ 100 (ate 104,64) e em R$ 200 (ate 206,97).
+ *
+ * O "Subsidio Pix" da tabela (5% e 8%) NAO entra aqui: medido nos 409
+ * pedidos liquidados, quem banca e a Shopee. Pix retem 33,05% contra
+ * 34,70% do cartao - se saisse dela, seria o contrario.
+ *
+ * Formato: duas colunas novas, precoMin e precoMax. Canal com uma linha
+ * so e faixa em branco continua funcionando como antes - Nuvemshop,
+ * Mercado Livre, SHEIN e TikTok nao mudam nada.
+ *
+ * Rode por _rodarAplicarFaixasShopee.
+ */
+function aplicarFaixasShopee_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sh = ss.getSheetByName(ABA_PRECIFICACAO_CONFIG);
+  if (!sh) throw new Error('aba ' + ABA_PRECIFICACAO_CONFIG + ' nao encontrada');
+
+  const log = [];
+  let cab = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
+
+  // 1) colunas novas, se ainda nao existirem
+  ['precoMin', 'precoMax'].forEach(function (nome) {
+    if (cab.indexOf(nome) >= 0) return;
+    sh.insertColumnAfter(sh.getLastColumn());
+    sh.getRange(1, sh.getLastColumn()).setValue(nome);
+    log.push('coluna ' + nome + ' criada');
+  });
+  cab = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
+
+  const col = function (n) {
+    const i = cab.indexOf(n);
+    if (i < 0) throw new Error('coluna "' + n + '" nao existe');
+    return i;
+  };
+  const iCanal = col('canal'), iImp = col('impostosPct'), iCom = col('comissaoPct'),
+        iE1n = col('extra1Nome'), iE1 = col('extra1Pct'), iE2n = col('extra2Nome'),
+        iE2 = col('extra2Pct'), iFixa = col('taxaFixaReais'), iConf = col('confirmado'),
+        iMin = col('precoMin'), iMax = col('precoMax');
+
+  const u = sh.getLastRow();
+  const vals = sh.getRange(2, 1, u - 1, sh.getLastColumn()).getValues();
+
+  // 2) tira a linha unica da Shopee; as faixas entram no lugar
+  const imposto = (function () {
+    for (let i = 0; i < vals.length; i++) {
+      if (String(vals[i][iCanal]).trim() === 'Shopee') return Number(vals[i][iImp]) || 0.0742;
+    }
+    return 0.0742;
+  })();
+
+  const semShopee = vals.filter(function (r) { return String(r[iCanal]).trim() !== 'Shopee'; });
+  log.push((vals.length - semShopee.length) + ' linha(s) antiga(s) da Shopee removida(s)');
+
+  const FAIXAS = [
+    [0,      79.99, 0.20,  4],
+    [80,     99.99, 0.14, 16],
+    [100,   199.99, 0.14, 20],
+    [200,   499.99, 0.14, 26],
+    [500,        0, 0.14, 26]   // precoMax 0 = sem teto
+  ];
+  const novas = FAIXAS.map(function (f) {
+    const linha = new Array(cab.length).fill('');
+    linha[iCanal] = 'Shopee';
+    linha[iImp] = imposto;
+    linha[iCom] = f[2];
+    linha[iE1n] = ''; linha[iE1] = 0;
+    linha[iE2n] = ''; linha[iE2] = 0;
+    linha[iFixa] = f[3];
+    linha[iConf] = true;
+    linha[iMin] = f[0];
+    linha[iMax] = f[1];
+    return linha;
+  });
+
+  const todas = semShopee.concat(novas);
+  sh.getRange(2, 1, vals.length, cab.length).clearContent();
+  sh.getRange(2, 1, todas.length, cab.length).setValues(todas);
+
+  log.push(novas.length + ' faixa(s) da Shopee gravada(s)');
+  FAIXAS.forEach(function (f) {
+    log.push('   ' + (f[1] ? 'R$ ' + f[0] + ' a ' + f[1] : 'acima de R$ ' + f[0])
+      + '  ->  ' + (f[2] * 100).toFixed(0) + '% + R$ ' + f[3].toFixed(2));
+  });
+  log.push('');
+  log.push('Imposto de ' + (imposto * 100).toFixed(2) + '% mantido em todas.');
+  log.push('Subsidio Pix NAO entra: medido, quem banca e a Shopee.');
+  Logger.log(log.join('\n'));
+  return log;
+}
+
+function _rodarAplicarFaixasShopee() {
+  aplicarFaixasShopee_();
+}

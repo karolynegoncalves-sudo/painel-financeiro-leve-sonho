@@ -1331,6 +1331,41 @@ function nomesDeMaterial_() {
     (conta[x.material] > 1 && x.fornecedor) ? (x.fornecedor + ' · ' + x.material) : x.material);
 }
 
+/**
+ * Taxa do canal PARA UM PREÇO. A Shopee cobra por faixa do preço do item
+ * (20%+R$4 até R$ 79,99; 14%+R$16/20/26 acima), então a taxa só existe
+ * depois que o preço é conhecido. Canal sem faixas devolve o de sempre.
+ */
+function taxaNoPreco_(canalObj, preco) {
+  const f = canalObj.faixas;
+  if (!f || f.length <= 1) {
+    return {
+      imp: canalObj.imp, com: canalObj.com, ex: canalObj.ex,
+      fixa: canalObj.fixa, faixa: null
+    };
+  }
+  const p = Number(preco) || 0;
+  let alvo = f[0];
+  for (let i = 0; i < f.length; i++) {
+    const min = Number(f[i].precoMin) || 0;
+    const max = Number(f[i].precoMax) || 0;   // 0 = sem teto
+    if (p >= min && (max === 0 || p <= max)) { alvo = f[i]; break; }
+    if (p >= min) alvo = f[i];
+  }
+  const ex = [];
+  if (alvo.extra1Nome && alvo.extra1Pct) ex.push([alvo.extra1Nome, Number(alvo.extra1Pct) || 0]);
+  if (alvo.extra2Nome && alvo.extra2Pct) ex.push([alvo.extra2Nome, Number(alvo.extra2Pct) || 0]);
+  const max = Number(alvo.precoMax) || 0;
+  return {
+    imp: Number(alvo.impostosPct) || 0,
+    com: Number(alvo.comissaoPct) || 0,
+    ex: ex,
+    fixa: Number(alvo.taxaFixaReais) || 0,
+    faixa: (max ? 'R$ ' + fmtNum_(alvo.precoMin) + ' a ' + fmtNum_(max)
+                : 'acima de R$ ' + fmtNum_(alvo.precoMin))
+  };
+}
+
 function canaisDaConfig_() {
   const cfg = (precifConfig && precifConfig.canais) || {};
   return Object.keys(cfg).filter(k => k !== '_GLOBAL').map(k => {
@@ -1345,12 +1380,13 @@ function canaisDaConfig_() {
       com: Number(c.comissaoPct) || 0,
       ex: extras,
       fixa: Number(c.taxaFixaReais) || 0,
+      faixas: c.faixas || null,
       ok: c.confirmado === true || String(c.confirmado).toUpperCase() === 'TRUE'
     };
   });
 }
 
-function calcularFicha_(modelo, tamanho, tecido, escolhidos, canalObj) {
+function calcularFicha_(modelo, tamanho, tecido, escolhidos, canalObj, preco) {
   const rend = rendimentoMapa_();
   const mats = materialPorNome_();
   const avisos = [];
@@ -1431,19 +1467,52 @@ function calcularFicha_(modelo, tamanho, tecido, escolhidos, canalObj) {
   const custoFabricacao = custoTecido + custoAcab + custoCorte + custoCostura
     + custoAviamento + custoMaoObraExtra + custoTam;
   const custo = custoFabricacao + custoEmbalagem;
-  const taxaPct = canalObj.imp + canalObj.com + canalObj.ex.reduce((s, e) => s + e[1], 0);
+  /* A taxa depende do preço quando o canal cobra por faixa (Shopee).
+     Sem preço informado, cai na primeira faixa — que é o que a pessoa vê
+     antes de digitar qualquer coisa. */
+  const t = taxaNoPreco_(canalObj, preco);
+  const taxaPct = t.imp + t.com + t.ex.reduce((s, e) => s + e[1], 0);
 
   return {
     canal: canalObj, tipoPeca, totalMetros, metrosPrinc, metrosSubstituidos, detAcab, custoAcab,
     mat, nomeTecido, padraoDoCanal, custoTecido, custoCorte, custoCostura,
     itensFicha, custoAviamento, custoMaoObraExtra, custoEmbalagem,
-    detTam, custoTam, custoFabricacao, custo, taxaPct, avisos
+    detTam, custoTam, custoFabricacao, custo, taxaPct, avisos,
+    taxa: t, faixa: t.faixa, fixa: t.fixa
   };
 }
 
-function pisoQueima_(custo, taxaPct, taxaFixa) {
-  const den = 1 - taxaPct - MARGEM_QUEIMA;
-  return den > 0 ? (custo + taxaFixa) / den : null;
+/**
+ * Piso de queima. Com taxa por faixa o problema é circular: a taxa
+ * depende do preço e o preço é justamente o que se procura. Resolve
+ * testando cada faixa e ficando com a que fecha dentro de si mesma —
+ * se a conta da faixa "até R$ 79,99" der R$ 92, essa faixa não vale e
+ * a resposta está na de cima.
+ */
+function pisoQueima_(custo, taxaPct, taxaFixa, canalObj) {
+  const resolve = (pct, fixa) => {
+    const den = 1 - pct - MARGEM_QUEIMA;
+    return den > 0 ? (custo + fixa) / den : null;
+  };
+
+  const f = canalObj && canalObj.faixas;
+  if (!f || f.length <= 1) return resolve(taxaPct, taxaFixa);
+
+  let ultimo = null;
+  for (let i = 0; i < f.length; i++) {
+    const t = taxaNoPreco_(canalObj, (Number(f[i].precoMin) || 0) + 0.01);
+    const pct = t.imp + t.com + t.ex.reduce((s, e) => s + e[1], 0);
+    const p = resolve(pct, t.fixa);
+    if (p === null) continue;
+    ultimo = p;
+    const min = Number(f[i].precoMin) || 0;
+    const max = Number(f[i].precoMax) || 0;
+    if (p >= min && (max === 0 || p <= max)) return p;   // fecha dentro da faixa
+  }
+  /* Nenhuma faixa fechou em si mesma: o piso caiu numa zona morta, onde
+     o degrau da taxa engole o aumento de preço. A resposta correta é o
+     primeiro preço da faixa seguinte que dê margem. */
+  return ultimo;
 }
 
 function fmtNum_(v) {
@@ -1468,12 +1537,12 @@ function atualizarSaida_(el) {
   const canais = canaisDaConfig_();
   const canalObj = canais.find(c => c.canal === FICHA.canal) || canais[0];
   if (!canalObj) return;
-  const r = calcularFicha_(FICHA.modelo, FICHA.tamanho, FICHA.tecido, FICHA.acabamentos, canalObj);
+  const r = calcularFicha_(FICHA.modelo, FICHA.tamanho, FICHA.tecido, FICHA.acabamentos, canalObj, Number(FICHA.preco) || 0);
   const preco = Number(FICHA.preco) || 0;
   const taxaRs = preco * r.taxaPct;
-  const sobra = preco - taxaRs - canalObj.fixa - r.custo;
+  const sobra = preco - taxaRs - r.fixa - r.custo;
   const mcPct = preco ? sobra / preco : 0;
-  const p15 = pisoQueima_(r.custo, r.taxaPct, canalObj.fixa);
+  const p15 = pisoQueima_(r.custo, r.taxaPct, r.fixa, canalObj);
   const dfx = (precifConfig && precifConfig.despesasFixasPctPadrao) || 0;
   const fixasRs = preco * dfx;
   const lucro = sobra - fixasRs;
@@ -1517,13 +1586,13 @@ function renderPrecificacao(el) {
   if (!FICHA.canal || !canais.find(c => c.canal === FICHA.canal)) FICHA.canal = canais[0].canal;
 
   const canalObj = canais.find(c => c.canal === FICHA.canal);
-  const r = calcularFicha_(FICHA.modelo, FICHA.tamanho, FICHA.tecido, FICHA.acabamentos, canalObj);
+  const r = calcularFicha_(FICHA.modelo, FICHA.tamanho, FICHA.tecido, FICHA.acabamentos, canalObj, Number(FICHA.preco) || 0);
   const preco = Number(FICHA.preco) || 0;
 
   const taxaRs = preco * r.taxaPct;
-  const sobra = preco - taxaRs - canalObj.fixa - r.custo;
+  const sobra = preco - taxaRs - r.fixa - r.custo;
   const mcPct = preco ? sobra / preco : 0;
-  const p15 = pisoQueima_(r.custo, r.taxaPct, canalObj.fixa);
+  const p15 = pisoQueima_(r.custo, r.taxaPct, r.fixa, canalObj);
   const dfx = (precifConfig && precifConfig.despesasFixasPctPadrao) || 0;
   const fixasRs = preco * dfx;
   const lucro = sobra - fixasRs;
@@ -1710,13 +1779,15 @@ function linhasVenda_(r, preco, taxaRs, sobra, p15, dfx, fixasRs, lucro) {
   vi('Preço de venda', '', 'R$ ' + fmtNum_(preco));
   vi('Custo até a porta', 'fabricação + embalagem', '− R$ ' + fmtNum_(r.custo));
 
-  vi('Imposto (' + fmtPctPlano_(r.canal.imp) + ')', '', '− R$ ' + fmtNum_(preco * r.canal.imp), 'sub');
-  vi('Comissão (' + fmtPctPlano_(r.canal.com) + ')', escapeHtml_(r.canal.canal),
-    '− R$ ' + fmtNum_(preco * r.canal.com), 'sub');
-  r.canal.ex.forEach(e => vi(escapeHtml_(e[0]) + ' (' + fmtPctPlano_(e[1]) + ')', '',
+  vi('Imposto (' + fmtPctPlano_(r.taxa.imp) + ')', '', '− R$ ' + fmtNum_(preco * r.taxa.imp), 'sub');
+  vi('Comissão (' + fmtPctPlano_(r.taxa.com) + ')',
+    escapeHtml_(r.canal.canal) + (r.faixa ? ' · faixa ' + escapeHtml_(r.faixa) : ''),
+    '− R$ ' + fmtNum_(preco * r.taxa.com), 'sub');
+  r.taxa.ex.forEach(e => vi(escapeHtml_(e[0]) + ' (' + fmtPctPlano_(e[1]) + ')', '',
     '− R$ ' + fmtNum_(preco * e[1]), 'sub'));
-  if (r.canal.fixa) vi('Taxa fixa por venda', escapeHtml_(r.canal.canal) + ' cobra por item vendido',
-    '− R$ ' + fmtNum_(r.canal.fixa), 'sub');
+  if (r.fixa) vi('Taxa fixa por item', escapeHtml_(r.canal.canal)
+    + (r.faixa ? ' cobra nesta faixa' : ' cobra por item vendido'),
+    '− R$ ' + fmtNum_(r.fixa), 'sub');
 
   vi('Margem de contribuição', 'antes das despesas fixas', 'R$ ' + fmtNum_(sobra),
     'tot' + (sobra < 0 ? ' neg' : ''));
@@ -1743,11 +1814,11 @@ function avisosFicha_(r, preco, p15) {
 
 function linhasCanais_(canais, preco) {
   return canais.map(c => {
-    const rc = calcularFicha_(FICHA.modelo, FICHA.tamanho, FICHA.tecido, FICHA.acabamentos, c);
+    const rc = calcularFicha_(FICHA.modelo, FICHA.tamanho, FICHA.tecido, FICHA.acabamentos, c, preco);
     const t = preco * rc.taxaPct;
-    const s = preco - t - c.fixa - rc.custo;
+    const s = preco - t - rc.fixa - rc.custo;
     const mp = preco ? s / preco : 0;
-    const pc = pisoQueima_(rc.custo, rc.taxaPct, c.fixa);
+    const pc = pisoQueima_(rc.custo, rc.taxaPct, rc.fixa, c);
     /* Quatro faixas, não três: margem positiva mas abaixo do piso não é
        prejuízo — é venda que não paga a parte dela do custo fixo. */
     const sit = !preco ? '<span class="pill md">sem preço</span>'
@@ -1760,7 +1831,7 @@ function linhasCanais_(canais, preco) {
       + '<td class="num">R$ ' + fmtNum_(rc.custo) + '</td>'
       + '<td class="num">' + fmtPctPlano_(rc.taxaPct) + '</td>'
       + '<td class="num">R$ ' + fmtNum_(t) + '</td>'
-      + '<td class="num">' + (c.fixa ? 'R$ ' + fmtNum_(c.fixa) : '—') + '</td>'
+      + '<td class="num">' + (rc.fixa ? 'R$ ' + fmtNum_(rc.fixa) : '—') + '</td>'
       + '<td class="num">R$ ' + fmtNum_(s) + '</td>'
       + '<td class="num">' + (preco ? fmtPctPlano_(mp) : '—') + '</td>'
       + '<td class="num fp-piso">' + (pc ? 'R$ ' + fmtNum_(pc) : '—') + '</td>'

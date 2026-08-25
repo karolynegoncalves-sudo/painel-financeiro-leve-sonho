@@ -89,23 +89,32 @@ function getPrecificacaoConfig_() {
   const iCanal = idx('canal'), iImpostos = idx('impostosPct'), iComissao = idx('comissaoPct'),
     iExtra1Nome = idx('extra1Nome'), iExtra1Pct = idx('extra1Pct'), iExtra2Nome = idx('extra2Nome'),
     iExtra2Pct = idx('extra2Pct'), iTaxaFixa = idx('taxaFixaReais'),
-    iDespesasFixas = idx('despesasFixasPct'), iConfirmado = idx('confirmado');
+    iDespesasFixas = idx('despesasFixasPct'), iConfirmado = idx('confirmado'),
+    iMin = idx('precoMin'), iMax = idx('precoMax');
 
   let despesasFixasPctManual = 0;
   const canais = {};
   rows.forEach(r => {
     const canal = r[iCanal];
     if (canal === '_GLOBAL') { despesasFixasPctManual = num_(r[iDespesasFixas]); return; }
-    canais[canal] = {
+    /* Um canal pode ter VÁRIAS linhas, uma por faixa de preço — a Shopee
+       cobra 20%+R$4 até R$ 79,99 e 14%+R$16/20/26 acima, por item. Canal
+       de faixa única vem com precoMin/precoMax em branco e se comporta
+       como antes. A faixa certa é escolhida na hora do cálculo, quando o
+       preço é conhecido. */
+    const faixa = {
       impostosPct: num_(r[iImpostos]), comissaoPct: num_(r[iComissao]),
       extra1Nome: r[iExtra1Nome] || '', extra1Pct: num_(r[iExtra1Pct]),
       extra2Nome: r[iExtra2Nome] || '', extra2Pct: num_(r[iExtra2Pct]),
-      // Cobrança fixa por item, em reais — a Shopee cobra R$ 4,00 por item
-      // vendido além do percentual. Não é custo de produto: só existe
-      // naquele canal, então mora aqui e não na ficha da peça.
       taxaFixaReais: iTaxaFixa >= 0 ? num_(r[iTaxaFixa]) : 0,
+      precoMin: iMin >= 0 ? num_(r[iMin]) : 0,
+      precoMax: iMax >= 0 ? num_(r[iMax]) : 0,
       confirmado: r[iConfirmado] === true || String(r[iConfirmado]).toUpperCase() === 'TRUE'
     };
+    if (!canais[canal]) canais[canal] = Object.assign({}, faixa, { faixas: [] });
+    canais[canal].faixas.push(faixa);
+    // a faixa de menor preço fica no topo, que é o padrão de quem lê
+    canais[canal].faixas.sort(function (a, b) { return a.precoMin - b.precoMin; });
   });
   return { despesasFixasPctPadrao: getDespesasFixasPct_(despesasFixasPctManual), canais };
 }
