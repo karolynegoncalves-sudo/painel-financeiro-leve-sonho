@@ -26,7 +26,7 @@ function doGet(e) {
       const r = getFluxoCaixaRows_();
       return jsonResponse_({ email: email, rows: r, despesas: getDespesasFixasList_() });
     }
-    case 'dre': return jsonResponse_({ email: email, rows: getDreRows_() });
+    case 'dre': return jsonResponse_({ email: email, rows: getDreRows_(e && e.parameter && e.parameter.regime) });
     case 'precificacao': return jsonResponse_({ email: email, produtos: getPrecificacaoCatalogo_() });
     case 'precificacaoConfig': return jsonResponse_({ email: email, config: getPrecificacaoConfig_() });
     case 'precificacaoMateriais': return jsonResponse_({ email: email, materiais: getPrecificacaoMateriaisCatalogo_() });
@@ -200,8 +200,18 @@ function getFluxoCaixaRows_() {
   return sheetData_(ABA_FLUXO_CAIXA);
 }
 
-function getDreRows_() {
-  return sheetData_(ABA_DRE);
+/**
+ * A aba DRE passou a guardar os DOIS regimes (coluna 'regime': realizado
+ * e competencia) desde 27/08/2026. Quem le sem filtrar soma os dois e
+ * DOBRA tudo. Por isso o filtro mora aqui, e o padrao e 'realizado',
+ * que e o comportamento que existia antes.
+ */
+function getDreRows_(regime) {
+  const alvo = regime || 'realizado';
+  const { headers, rows } = sheetData_(ABA_DRE);
+  const iReg = headers.indexOf('regime');
+  if (iReg < 0) return { headers: headers, rows: rows };   // planilha antiga
+  return { headers: headers, rows: rows.filter(r => String(r[iReg] || 'realizado') === alvo) };
 }
 
 /** Lê o resumo de cada aba Precificação_<Canal> (espelhada via IMPORTRANGE). */
@@ -224,7 +234,7 @@ function getPrecificacaoResumo_() {
 
 /** KPIs simples calculados em cima da DRE já agregada por mês. */
 function getKpis_() {
-  const { rows } = sheetData_(ABA_DRE);
+  const { rows } = getDreRows_('realizado');   // KPI e de caixa
   const porMes = {};
   rows.forEach(([mesBruto, grupo, valor]) => {
     // mesmo cuidado do getDespesasFixasPct_: a coluna pode voltar como Date

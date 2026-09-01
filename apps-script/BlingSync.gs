@@ -84,7 +84,7 @@ function sincronizarCategorias_(token) {
   const doBling = [];
   let pagina = 1;
   while (pagina <= 20) {
-    const resp = fetchBling_('https://www.bling.com.br/Api/v3/categorias/receitas-despesas?pagina='
+    const resp = fetchBling_('https://api.bling.com.br/Api/v3/categorias/receitas-despesas?pagina='
       + pagina + '&limite=100', token);
     const lista = (resp && resp.data) || [];
     lista.forEach(function (c) { doBling.push(c); });
@@ -152,7 +152,7 @@ function nomeDoContato_(contato, token) {
   const id = contato.id;
   if (!id) return '';
   if (Object.prototype.hasOwnProperty.call(CACHE_CONTATOS_, id)) return CACHE_CONTATOS_[id];
-  const resp = fetchBling_('https://www.bling.com.br/Api/v3/contatos/' + id, token);
+  const resp = fetchBling_('https://api.bling.com.br/Api/v3/contatos/' + id, token);
   const nome = (resp && resp.data && resp.data.nome) || '';
   CACHE_CONTATOS_[id] = nome;
   Utilities.sleep(200);
@@ -213,7 +213,7 @@ function getContasBancarias_(token) {
   const mapa = {};
   let pagina = 1;
   while (true) {
-    const resp = fetchBling_('https://www.bling.com.br/Api/v3/depositos?pagina=' + pagina + '&limite=100', token);
+    const resp = fetchBling_('https://api.bling.com.br/Api/v3/depositos?pagina=' + pagina + '&limite=100', token);
     const lista = (resp && resp.data) || [];
     lista.forEach(c => { mapa[c.id] = c.descricao; });
     if (lista.length < 100) break;
@@ -280,7 +280,7 @@ function sincronizarTipo_(tipo, token, sheet, existentes, contasBancarias, mapaC
    const DE = janelas[j][0], ATE = janelas[j][1];
    let pagina = 1;
    while (true) {
-    const url = 'https://www.bling.com.br/Api/v3/contas/' + tipo
+    const url = 'https://api.bling.com.br/Api/v3/contas/' + tipo
       + '?pagina=' + pagina + '&limite=100'
       + '&dataEmissaoInicial=' + DE + '&dataEmissaoFinal=' + ATE;
     const resp = fetchBling_(url, token);
@@ -291,7 +291,7 @@ function sincronizarTipo_(tipo, token, sheet, existentes, contasBancarias, mapaC
       const chave = tipo + ':' + item.id;
       if (existentes.has(chave)) return;
 
-      const detalheResp = fetchBling_('https://www.bling.com.br/Api/v3/contas/' + tipo + '/' + item.id, token);
+      const detalheResp = fetchBling_('https://api.bling.com.br/Api/v3/contas/' + tipo + '/' + item.id, token);
       const d = (detalheResp && detalheResp.data) || item;
 
       extrairRateioCategorias_(d).forEach(rateio => {
@@ -311,7 +311,13 @@ function sincronizarTipo_(tipo, token, sheet, existentes, contasBancarias, mapaC
           d.numeroDocumento || '',
           rateio.valor,
           d.id,
-          tipo
+          tipo,
+          // COMPETENCIA: quando o fato aconteceu, que nem sempre e
+          // quando o dinheiro entrou. Na Shopee a venda e liberada
+          // dias depois, entao a mesma linha alimenta as duas visoes
+          // da DRE. Cai por ultimo pra nao mexer nos indices fixos
+          // usados em atualizarContasEmAberto_.
+          d.competencia || d.vencimento || d.dataEmissao || ''
         ]);
       });
 
@@ -364,39 +370,67 @@ function extrairPortador_(d, contasBancarias) {
   return { id: '', nome: '' };
 }
 
-/** Recalcula a aba DRE inteira a partir da Fluxo de Caixa + _DRE_Mapa. */
+/**
+ * Recalcula a aba DRE inteira a partir da Fluxo de Caixa + _DRE_Mapa,
+ * nos DOIS regimes que a Karolyne pediu em 27/08/2026:
+ *
+ *   realizado   - pela data em que o dinheiro entrou ou saiu, e SO o que
+ *                 foi efetivamente baixado. E o caixa.
+ *   competencia - pela data do fato gerador (coluna 'competencia', que o
+ *                 sync grava do campo homonimo do Bling), incluindo o que
+ *                 ainda esta em aberto. E o resultado do mes.
+ *
+ * A diferenca nao e cosmetica: na Shopee a venda so e liberada dias
+ * depois, entao em 27/08 agosto aparecia com R$ 11.270 a menos de
+ * faturamento simplesmente porque o dinheiro ainda nao tinha chegado.
+ * Pelo regime de competencia a venda conta no mes em que foi feita.
+ *
+ * Quando a competencia nao esta preenchida (lancamento antigo), ela cai
+ * de volta para a data - ou seja, o pior caso e as duas visoes ficarem
+ * iguais, nunca um valor inventado.
+ */
 function recalcularDre_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const fluxo = ss.getSheetByName(ABA_FLUXO_CAIXA);
   const dre = ss.getSheetByName(ABA_DRE);
 
   const ultimaLinha = fluxo.getLastRow();
-  const totais = {}; // "AAAA-MM|grupoDRE" -> valor
+  const totais = {}; // "regime|AAAA-MM|grupoDRE" -> valor
 
   if (ultimaLinha >= 2) {
-    const dados = fluxo.getRange(2, 1, ultimaLinha - 1, 12).getValues(); // até a coluna "valor"
+    const nCols = Math.max(fluxo.getLastColumn(), 15);
+    const dados = fluxo.getRange(2, 1, ultimaLinha - 1, nCols).getValues();
     dados.forEach(linha => {
       const data = linha[0];
       const tipo = linha[1];
       const situacao = String(linha[2] || '').trim();
       const grupoDRE = linha[5];
       const valor = Number(linha[11]) || 0;
+      const competencia = linha[14] || data;   // coluna 15, com fallback
       // 5 = cancelada (ou conta apagada no Bling, que marcamos assim). O
       // painel ja ignorava na tela, mas a aba DRE somava - em 23/08/2026
       // eram 266 linhas contando como receita/despesa que nao existem.
       if (situacao === '5') return;
-      if (!data || !grupoDRE || grupoDRE.indexOf('ignorar') >= 0) return;
-      const mes = Utilities.formatDate(new Date(data), 'America/Sao_Paulo', 'yyyy-MM');
-      const chave = mes + '|' + grupoDRE;
+      if (!grupoDRE || grupoDRE.indexOf('ignorar') >= 0) return;
       const sinal = tipo === 'entrada' ? 1 : -1;
-      totais[chave] = (totais[chave] || 0) + sinal * Math.abs(valor);
+      const soma = (regime, quando) => {
+        if (!quando) return;
+        const mes = Utilities.formatDate(new Date(quando), 'America/Sao_Paulo', 'yyyy-MM');
+        const chave = regime + '|' + mes + '|' + grupoDRE;
+        totais[chave] = (totais[chave] || 0) + sinal * Math.abs(valor);
+      };
+      // competencia conta mesmo o que ainda nao foi pago: o fato ja
+      // aconteceu. Realizado so conta o que saiu/entrou de fato (2 =
+      // baixada, 3 = parcial).
+      soma('competencia', competencia);
+      if (situacao === '2' || situacao === '3') soma('realizado', data);
     });
   }
 
-  dre.getRange(2, 1, Math.max(dre.getLastRow() - 1, 0), 3).clearContent();
+  dre.getRange(2, 1, Math.max(dre.getLastRow() - 1, 0), 4).clearContent();
   const linhas = Object.keys(totais).sort().map(chave => {
-    const [mes, grupoDRE] = chave.split('|');
-    return [mes, grupoDRE, totais[chave]];
+    const [regime, mes, grupoDRE] = chave.split('|');
+    return [mes, grupoDRE, totais[chave], regime];
   });
   if (linhas.length) {
     /* O mes vai como "2026-08", que o Sheets converte em DATA sozinho se
@@ -406,7 +440,7 @@ function recalcularDre_() {
        outubro/2025, tudo que comecava com "Wed". Forcar texto na coluna
        resolve na origem. */
     dre.getRange(2, 1, linhas.length, 1).setNumberFormat('@');
-    dre.getRange(2, 1, linhas.length, 3).setValues(linhas);
+    dre.getRange(2, 1, linhas.length, 4).setValues(linhas);
   }
 }
 
@@ -467,7 +501,7 @@ function atualizarContasEmAberto_(token, sheet) {
     const tipo = partes[0], id = partes[1];
     if (!tipo || !id) continue;
 
-    const r = fetchBlingStatus_('https://www.bling.com.br/Api/v3/contas/' + tipo + '/' + id, token);
+    const r = fetchBlingStatus_('https://api.bling.com.br/Api/v3/contas/' + tipo + '/' + id, token);
     Utilities.sleep(300); // o Bling corta em ~3 req/s
 
     // 404 = a conta foi APAGADA no Bling. Marca como cancelada (5),
@@ -638,7 +672,7 @@ function preencherContatosFaltantes_() {
 
     if (Date.now() - inicio > LIMITE_MS) { parouEm = i + 2; break; }
 
-    const resp = fetchBling_('https://www.bling.com.br/Api/v3/contas/' + tipo + '/' + idConta, token);
+    const resp = fetchBling_('https://api.bling.com.br/Api/v3/contas/' + tipo + '/' + idConta, token);
     const d = (resp && resp.data) || null;
     const nome = d ? nomeDoContato_(d.contato, token) : '';
     if (nome) {
@@ -708,7 +742,7 @@ function reprocessarLinhasSemCategoria_() {
     const tipo = String(dados[i][COL_ORIGEM_TIPO - 1] || '').trim();
     if (!id || (tipo !== 'pagar' && tipo !== 'receber')) continue;
 
-    const r0 = fetchBlingStatus_('https://www.bling.com.br/Api/v3/contas/' + tipo + '/' + id, token);
+    const r0 = fetchBlingStatus_('https://api.bling.com.br/Api/v3/contas/' + tipo + '/' + id, token);
     porStatus[r0.status] = (porStatus[r0.status] || 0) + 1;
 
     // 404 = conta apagada no Bling. Nao da pra recuperar categoria de

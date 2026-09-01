@@ -142,7 +142,9 @@ function getDespesasFixasPct_(fallbackManual) {
   const totalDespesas = despesas.reduce((soma, r) => soma + num_(r[iValor]), 0);
   if (totalDespesas <= 0) return fallbackManual;
 
-  const { rows: dreRows } = sheetData_(ABA_DRE);
+  // so o regime realizado: somar os dois dobraria o faturamento e a
+  // despesa fixa sairia pela metade
+  const { rows: dreRows } = getDreRows_('realizado');
   const receitaPorMes = {};
   dreRows.forEach(r => {
     const mes = mesTexto_(r[0]), grupo = r[1], valor = r[2];

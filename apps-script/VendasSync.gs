@@ -54,7 +54,7 @@ function syncVendas() {
     let pagina = 1;
 
     while (true) {
-      const url = 'https://www.bling.com.br/Api/v3/pedidos/vendas'
+      const url = 'https://api.bling.com.br/Api/v3/pedidos/vendas'
         + '?pagina=' + pagina + '&limite=100'
         + '&dataInicial=' + JANELA_VENDAS_DESDE + '&dataFinal=' + hoje;
       const resp = fetchBling_(url, token);

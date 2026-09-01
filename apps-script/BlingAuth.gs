@@ -31,7 +31,7 @@ function iniciarAutorizacaoBling() {
   const state = Utilities.getUuid();
   props.setProperty('BLING_OAUTH_STATE', state);
 
-  const url = 'https://www.bling.com.br/Api/v3/oauth/authorize'
+  const url = 'https://api.bling.com.br/Api/v3/oauth/authorize'
     + '?response_type=code'
     + '&client_id=' + encodeURIComponent(clientId)
     + '&state=' + encodeURIComponent(state)
@@ -55,7 +55,7 @@ function handleBlingOAuthCallback_(params) {
   const redirectUri = ScriptApp.getService().getUrl();
   const auth = Utilities.base64Encode(clientId + ':' + clientSecret);
 
-  const resp = UrlFetchApp.fetch('https://www.bling.com.br/Api/v3/oauth/token', {
+  const resp = UrlFetchApp.fetch('https://api.bling.com.br/Api/v3/oauth/token', {
     method: 'post',
     headers: { Authorization: 'Basic ' + auth, Accept: 'application/json' },
     payload: { grant_type: 'authorization_code', code: params.code, redirect_uri: redirectUri },
@@ -96,7 +96,7 @@ function getBlingAccessToken_() {
   if (!refreshToken) throw new Error('Bling ainda não autorizado. Rode iniciarAutorizacaoBling() e siga as instruções no Log.');
 
   const auth = Utilities.base64Encode(clientId + ':' + clientSecret);
-  const resp = UrlFetchApp.fetch('https://www.bling.com.br/Api/v3/oauth/token', {
+  const resp = UrlFetchApp.fetch('https://api.bling.com.br/Api/v3/oauth/token', {
     method: 'post',
     headers: { Authorization: 'Basic ' + auth, Accept: 'application/json' },
     payload: { grant_type: 'refresh_token', refresh_token: refreshToken },

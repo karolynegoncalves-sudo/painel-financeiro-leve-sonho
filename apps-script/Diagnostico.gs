@@ -40,7 +40,7 @@ function diagnosticar() {
     diz('   ERRO AO PEGAR TOKEN: ' + e);
   }
   if (token) {
-    var teste = UrlFetchApp.fetch('https://www.bling.com.br/Api/v3/contas/pagar?pagina=1&limite=1',
+    var teste = UrlFetchApp.fetch('https://api.bling.com.br/Api/v3/contas/pagar?pagina=1&limite=1',
       { headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' }, muteHttpExceptions: true });
     diz('   GET /contas/pagar -> HTTP ' + teste.getResponseCode());
     if (teste.getResponseCode() >= 400) diz('   corpo: ' + teste.getContentText().slice(0, 300));
@@ -85,7 +85,7 @@ function diagnosticar() {
     vencidas.slice(0, 5).forEach(function (l) {
       const tipo = String(l[13] || '').trim();
       const id = l[12];
-      const url = 'https://www.bling.com.br/Api/v3/contas/' + tipo + '/' + id;
+      const url = 'https://api.bling.com.br/Api/v3/contas/' + tipo + '/' + id;
       const r = UrlFetchApp.fetch(url, { headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' }, muteHttpExceptions: true });
       var sit = '?';
       try { sit = JSON.parse(r.getContentText()).data.situacao; } catch (e) {}
@@ -183,13 +183,13 @@ function listarSemCategoriaPorFornecedor() {
   function nomeDe(tipo, id) {
     const chave = tipo + ':' + id;
     if (cacheNome[chave] !== undefined) return cacheNome[chave];
-    const r = fetchBlingStatus_('https://www.bling.com.br/Api/v3/contas/' + tipo + '/' + id, token);
+    const r = fetchBlingStatus_('https://api.bling.com.br/Api/v3/contas/' + tipo + '/' + id, token);
     let nome = '';
     const d = r.json && r.json.data;
     if (d && d.contato) {
       nome = d.contato.nome || '';
       if (!nome && d.contato.id) {
-        const c = fetchBling_('https://www.bling.com.br/Api/v3/contatos/' + d.contato.id, token);
+        const c = fetchBling_('https://api.bling.com.br/Api/v3/contatos/' + d.contato.id, token);
         nome = (c && c.data && c.data.nome) || ('id ' + d.contato.id);
         Utilities.sleep(250);
       }

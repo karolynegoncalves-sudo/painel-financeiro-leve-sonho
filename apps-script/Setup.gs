@@ -135,16 +135,27 @@ function setupSyncLog_(ss) {
 
 function setupFluxoCaixa_(ss) {
   const sheet = getOrCreateSheet_(ss, ABA_FLUXO_CAIXA);
+  // 'competencia' entra no FIM de proposito: BlingSync.gs enderessa as
+  // colunas por indice fixo (COL_DATA=1, COL_VALOR=12, COL_ORIGEM_ID=13...),
+  // entao inserir no meio quebraria a atualizacao das contas em aberto.
+  //
+  // 'data'        = quando o dinheiro entrou/saiu -> visao REALIZADO
+  // 'competencia' = quando o fato aconteceu       -> visao COMPETENCIA
+  // A Karolyne quer as duas; um lancamento so atende as duas.
   ensureHeader_(sheet, [
     'data', 'tipo', 'situacao', 'categoriaId', 'categoriaNome', 'grupoDRE',
     'contaBancariaId', 'contaBancariaNome', 'contatoNome', 'formaPagamento',
-    'descricao', 'valor', 'origemId', 'origemTipo'
+    'descricao', 'valor', 'origemId', 'origemTipo', 'competencia'
   ]);
 }
 
 function setupDre_(ss) {
   const sheet = getOrCreateSheet_(ss, ABA_DRE);
-  ensureHeader_(sheet, ['mes', 'grupoDRE', 'valor']);
+  // 'regime' distingue as duas visoes que a Karolyne pediu em 27/08/2026:
+  //   realizado   = pela data em que o dinheiro entrou/saiu
+  //   competencia = pela data em que o fato aconteceu
+  // As duas convivem na mesma aba; o painel filtra por regime.
+  ensureHeader_(sheet, ['mes', 'grupoDRE', 'valor', 'regime']);
 }
 
 /**
@@ -354,7 +365,8 @@ function setupPrecificacaoMateriais_(ss) {
   if (jaTinhaDados) return;
 
   const linhas = [
-    ['', 'Cetim Elastano', '', '', 5.99],
+    // 5,99 -> 5,89 (correção de 2026-08) -> 6,99 (novo preço, 27/08/2026)
+    ['', 'Cetim Elastano', '', '', 6.99],
     ['', 'Cetim Poliéster', '', '', 2.99],
     ['Tritan', 'Malha PV', 1.2, 2.3, 48.90],
     ['Tritan', 'Piquet', 1.2, 2, 59.90],
@@ -661,10 +673,13 @@ function migrarTuleFlare_() {
   mat.rows.forEach((r, i) => {
     const nome = String(r[iMatNome] || '').trim().toLowerCase();
     if (nome === 'tule') temTule = true;
-    if (nome === 'cetim elastano' && num_(r[iMatValor]) !== 5.89) {
-      shMat.getRange(i + 2, iMatValor + 1).setValue(5.89);
-      log.push('Cetim Elastano: ' + r[iMatValor] + ' -> 5,89');
-    }
+    // O preço do Cetim Elastano ERA corrigido aqui para R$ 5,89. Removido
+    // em 27/08/2026: o tecido passou para R$ 6,99 e esta linha reescrevia
+    // o valor a cada execução, desfazendo em silêncio qualquer atualização
+    // — feita na planilha ou no seed. Correção de dado pontual não deve
+    // morar numa migração que roda de novo. Preço agora vive só na aba
+    // _Precificacao_Materiais; para alterar, use atualizarPrecoCetimElastano_
+    // ou edite a planilha direto.
   });
   if (!temTule) {
     shMat.appendRow(['', 'Tule', '', '', 22.90]);
@@ -751,7 +766,7 @@ function migrarMateriais2026_() {
   // material, rendimento, valor, unidade, observacao
   const TECIDOS = [
     ['Cetim Poliéster', '', 2.99, 'm', ''],
-    ['Cetim Elastano', '', 5.89, 'm', ''],
+    ['Cetim Elastano', '', 6.99, 'm', ''],
     ['Crepe Amanda', '', 12.90, 'm', ''],
     ['Prada', '', 14.90, 'm', ''],
     ['Crepe Monalisa', '', 58.90, 'm', ''],
@@ -1666,4 +1681,48 @@ function aplicarFaixasShopee_() {
 
 function _rodarAplicarFaixasShopee() {
   aplicarFaixasShopee_();
+}
+
+
+/**
+ * Cetim Elastano: R$ 5,89 -> R$ 6,99 o metro (27/08/2026, informado pela
+ * Karolyne).
+ *
+ * O preço do tecido entra no custo de TODA peça de elastano — pijama, robe
+ * com elastano, pantufa, scrunchie — então mexe no piso de queima de cada
+ * uma. Depois de rodar, vale reconferir o piso dos itens que estão em
+ * promoção: um robe que fechava no limite a R$ 5,89 pode passar a dar
+ * prejuízo a R$ 6,99.
+ *
+ * Diferente da migração antiga, esta NÃO força o valor: se alguém já tiver
+ * ajustado para outro número, ela avisa e não mexe.
+ */
+function atualizarPrecoCetimElastano_() {
+  const ANTIGO = 5.89, NOVO = 6.99;
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sh = ss.getSheetByName(ABA_PRECIFICACAO_MATERIAIS);
+  if (!sh) throw new Error('aba ' + ABA_PRECIFICACAO_MATERIAIS + ' não existe');
+  const { headers, rows } = sheetData_(ABA_PRECIFICACAO_MATERIAIS);
+  const iNome = headers.indexOf('material'), iValor = headers.indexOf('valor');
+  if (iNome < 0 || iValor < 0) throw new Error('faltam as colunas material/valor');
+
+  const log = [];
+  let achou = false;
+  rows.forEach((r, i) => {
+    if (String(r[iNome] || '').trim().toLowerCase() !== 'cetim elastano') return;
+    achou = true;
+    const atual = num_(r[iValor]);
+    if (Math.abs(atual - NOVO) < 0.005) {
+      log.push('já está em R$ ' + NOVO.toFixed(2) + ' — nada a fazer');
+    } else if (Math.abs(atual - ANTIGO) < 0.005) {
+      sh.getRange(i + 2, iValor + 1).setValue(NOVO);
+      log.push('Cetim Elastano: ' + atual.toFixed(2) + ' -> ' + NOVO.toFixed(2));
+    } else {
+      log.push('NÃO mexi: esperava ' + ANTIGO.toFixed(2) + ' e encontrei ' +
+        atual.toFixed(2) + '. Alguém já alterou — confira antes.');
+    }
+  });
+  if (!achou) log.push('não achei a linha "Cetim Elastano" na aba de materiais');
+  Logger.log(log.join('\n'));
+  return log.join('\n');
 }
