@@ -597,6 +597,34 @@ const CANAL_PARA_CONFIG = {
  * Continua sem descontar custo de produto: para isso existe o painel de
  * ponto de equilibrio logo acima.
  */
+/*
+ * Faturamento do período: a venda pela DATA DA VENDA, não pela data em que
+ * o dinheiro entrou.
+ *
+ * É outra coisa do que a "Receita bruta recebida" do primeiro cartão, e as
+ * duas precisam conviver: uma diz quanto a loja vendeu, a outra quanto o
+ * caixa recebeu. Na Shopee a diferença é de semanas — a venda de 28/08 só
+ * cai na carteira em setembro. Sem o faturamento, um mês de venda forte com
+ * liberação lenta aparece como mês fraco.
+ *
+ * Pedido cancelado não entra (contaReceita = false na aba Vendas), mas é
+ * contado à parte pra ficar visível.
+ */
+function faturamento_(inicio, fim) {
+  const todas = (VENDAS_ROWS || []).filter(v => v.date >= inicio && v.date <= fim);
+  const vendas = todas.filter(v => v.contaReceita);
+  const total = vendas.reduce((s, v) => s + v.total, 0);
+  const canceladas = todas.filter(v => !v.contaReceita);
+  return {
+    total: total,
+    pedidos: vendas.length,
+    ticket: vendas.length ? total / vendas.length : 0,
+    canceladas: canceladas.length,
+    valorCancelado: canceladas.reduce((s, v) => s + v.total, 0),
+    temDados: todas.length > 0
+  };
+}
+
 function margemPorCanal_(rows) {
   const vendas = (VENDAS_ROWS || []).filter(v => v.date >= FILTER.start && v.date <= FILTER.end && v.contaReceita);
   const porCanal = {};
@@ -806,14 +834,27 @@ function renderKpis(el, rows) {
   const indPmr = pmr_(rows);
   const eq = pontoEquilibrio_(rows);
   const canais = margemPorCanal_(rows);
+  const fat = faturamento_(FILTER.start, FILTER.end);
+  const fatAnterior = faturamento_(prevStart, prevEnd);
+  const variacaoFat = fatAnterior.total ? (fat.total / fatAnterior.total - 1) : null;
+  const totalCanais = canais.reduce((s, c) => s + c.receita, 0);
 
   el.innerHTML = `
     <div class="section-head">
       <h2 class="section-title">KPIs &amp; Gráficos</h2>
-      <div class="section-desc">Calculado a partir dos lançamentos do Bling (contas a pagar/receber por categoria) no período selecionado.</div>
+      <div class="section-desc">Faturamento e distribuição por canal saem da aba Vendas (pela data da venda). O resto vem dos lançamentos do Bling — contas a pagar/receber já baixadas, por categoria.</div>
     </div>
     ${renderFiltroBar_()}
-    <div class="kpi-grid">
+    <div class="kpi-grid k5">
+      <div class="kpi ${fat.total > 0 ? 'ok' : ''}">
+        <div class="kpi-label">Faturamento — vendas</div>
+        <div class="kpi-value">${fat.temDados ? fmtBRL(fat.total) : '—'}</div>
+        <div class="kpi-foot">${fat.temDados
+          ? fat.pedidos + ' pedido(s) · ticket ' + fmtBRL(fat.ticket, 2)
+            + (variacaoFat === null ? '' : ' · ' + fmtPct(variacaoFat) + ' vs. anterior')
+            + (fat.canceladas ? ' · ' + fat.canceladas + ' cancelado(s), ' + fmtBRL(fat.valorCancelado, 2) + ' fora' : '')
+          : 'A aba Vendas alimenta este número'}</div>
+      </div>
       <div class="kpi ${receitaBruta >= 0 ? 'ok' : 'bad'}">
         <div class="kpi-label">Receita bruta recebida</div>
         <div class="kpi-value">${fmtBRL(receitaBruta)}</div>
@@ -866,9 +907,10 @@ function renderKpis(el, rows) {
     </div>
 
     <div class="panel">
-      <h3>Margem de contribuição por canal</h3>
+      <h3>Vendas e margem por canal</h3>
       <div class="sub">Receita pela data da venda, menos a taxa real de cada canal — imposto, comissão, antecipação e a cobrança fixa por pedido. <b>Ainda não desconta o custo do produto</b>: para o número final, veja o ponto de equilíbrio acima. Canal marcado com <span class="pill md">estimado</span> tem taxa não medida ainda.</div>
       <div style="overflow-x:auto;"><table class="simple" id="tblCanais"></table></div>
+      <div class="chart-box" style="height:260px; margin-top:16px;"><canvas id="chartCanais"></canvas></div>
     </div>
     <div class="panel">
       <h3>Receita bruta x Resultado líquido</h3>
@@ -880,10 +922,14 @@ function renderKpis(el, rows) {
 
   const tblC = document.getElementById('tblCanais');
   if (canais.length) {
+    // "Part." e a fatia do faturamento que cada canal representa. E o numero
+    // que responde "de onde vem meu dinheiro" — sem ele a tabela so mostra
+    // valores absolutos e a concentracao num canal so passa despercebida.
     let h = '<tr><th>Canal</th><th class="num">Pedidos</th><th class="num">Ticket</th>'
-      + '<th class="num">Receita</th><th class="num">Taxa do canal</th>'
+      + '<th class="num">Receita</th><th class="num">Part.</th><th class="num">Taxa do canal</th>'
       + '<th class="num">Margem de contrib.</th><th class="num">%</th></tr>';
-    canais.sort((a, b) => b.receita - a.receita).forEach(c => {
+    const ordenados = canais.slice().sort((a, b) => b.receita - a.receita);
+    ordenados.forEach(c => {
       const selo = c.semTaxa
         ? ' <span class="pill md">sem taxa cadastrada</span>'
         : (c.medido ? '' : ' <span class="pill md">estimado</span>');
@@ -893,13 +939,44 @@ function renderKpis(el, rows) {
         + `<td class="num">${c.pedidos}</td>`
         + `<td class="num">${fmtBRL(c.ticket, 2)}</td>`
         + `<td class="num val-in">${fmtBRL(c.receita, 2)}</td>`
+        + `<td class="num">${totalCanais ? fmtPctSimples_(c.receita / totalCanais) : '—'}</td>`
         + `<td class="num val-out">−${fmtBRL(c.taxa, 2)}<small>${detTaxa}</small></td>`
         + `<td class="num val-in">${fmtBRL(c.mc, 2)}</td>`
         + `<td class="num">${fmtPctSimples_(c.mcPct)}</td></tr>`;
     });
+    const totPedidos = ordenados.reduce((s, c) => s + c.pedidos, 0);
+    const totTaxa = ordenados.reduce((s, c) => s + c.taxa, 0);
+    const totMc = ordenados.reduce((s, c) => s + c.mc, 0);
+    h += `<tr><th>Total</th>`
+      + `<th class="num">${totPedidos}</th>`
+      + `<th class="num">${totPedidos ? fmtBRL(totalCanais / totPedidos, 2) : '—'}</th>`
+      + `<th class="num val-in">${fmtBRL(totalCanais, 2)}</th>`
+      + `<th class="num">100%</th>`
+      + `<th class="num val-out">−${fmtBRL(totTaxa, 2)}</th>`
+      + `<th class="num val-in">${fmtBRL(totMc, 2)}</th>`
+      + `<th class="num">${totalCanais ? fmtPctSimples_(totMc / totalCanais) : '—'}</th></tr>`;
     tblC.innerHTML = h;
+
+    const cores = [PALETTE.sage, PALETTE.terracotta, PALETTE.sageSoft, PALETTE.amber, PALETTE.peach, PALETTE.terracottaDark, PALETTE.brick];
+    new Chart(document.getElementById('chartCanais'), {
+      type: 'doughnut',
+      data: {
+        labels: ordenados.map(c => c.canal),
+        datasets: [{ data: ordenados.map(c => c.receita), backgroundColor: ordenados.map((_, i) => cores[i % cores.length]), borderWidth: 0 }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false, cutout: '58%',
+        plugins: {
+          legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 11 } } },
+          tooltip: { callbacks: { label: (c) => c.label + ': ' + fmtBRL(c.raw, 2)
+            + (totalCanais ? ' (' + fmtPctSimples_(c.raw / totalCanais) + ')' : '') } }
+        }
+      }
+    });
   } else {
     tblC.outerHTML = '<div class="state-msg">Sem vendas no período (a aba Vendas alimenta esta tabela).</div>';
+    const cv = document.getElementById('chartCanais');
+    if (cv && cv.parentElement) cv.parentElement.style.display = 'none';
   }
 
   const serie = serieTemporal_(rows, FILTER.start, FILTER.end);

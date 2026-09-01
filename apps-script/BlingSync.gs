@@ -44,8 +44,10 @@ function syncBling() {
     const mapaCategoria = getMapaCategoria_();
 
     let novos = 0;
-    novos += sincronizarTipo_('pagar', token, sheet, existentes, contasBancarias, mapaCategoria);
-    novos += sincronizarTipo_('receber', token, sheet, existentes, contasBancarias, mapaCategoria);
+    // metade do orcamento pra cada um: 'pagar' vem primeiro e, sem teto
+    // proprio, engolia o tempo inteiro (ver comentario em sincronizarTipo_)
+    novos += sincronizarTipo_('pagar', token, sheet, existentes, contasBancarias, mapaCategoria, TETO_APPEND_MS / 2);
+    novos += sincronizarTipo_('receber', token, sheet, existentes, contasBancarias, mapaCategoria, TETO_APPEND_MS);
 
     const atualizadas = atualizarContasEmAberto_(token, sheet);
     const remapeadas = reaplicarMapaDre_(sheet, mapaCategoria);
@@ -277,14 +279,53 @@ function janelasDeSync_(desde, ate) {
   return janelas;
 }
 
-function sincronizarTipo_(tipo, token, sheet, existentes, contasBancarias, mapaCategoria) {
+/*
+ * CURSOR DA BUSCA POR CONTA NOVA (01/09/2026)
+ *
+ * Antes desta versao a varredura recomecava em JANELA_SYNC_DESDE
+ * (01/01/2025), pagina 1, a CADA execucao — ela apenas pulava o que ja
+ * existia. Conforme a planilha cresce, quase todo o orcamento de 2,5 min
+ * vai embora re-lendo o que ja se sabe, e sobra cada vez menos pra achar o
+ * que falta. O sync entao parece rodar sem erro e nao anda.
+ *
+ * Medido em 01/09/2026: depois de OITO execucoes seguidas, agosto travou em
+ * R$ 34.569 de receita quando o espelho ja havia lancado R$ 46.811 so de
+ * Shopee. As duas ultimas rodadas nao trouxeram uma linha sequer.
+ *
+ * Agora cada tipo guarda onde parou (janela + pagina) e retoma dali. Ao
+ * terminar a volta inteira o cursor zera e ele recomeca do inicio — assim
+ * conta antiga lancada depois nao fica orfa pra sempre.
+ */
+function cursorAppend_(tipo) {
+  const bruto = PropertiesService.getScriptProperties().getProperty('CURSOR_APPEND_' + tipo) || '0|1';
+  const p = String(bruto).split('|');
+  const j = parseInt(p[0], 10);
+  const pg = parseInt(p[1], 10);
+  return { j: (j >= 0 ? j : 0), pagina: (pg >= 1 ? pg : 1) };
+}
+
+function gravarCursorAppend_(tipo, j, pagina) {
+  PropertiesService.getScriptProperties().setProperty('CURSOR_APPEND_' + tipo, j + '|' + pagina);
+}
+
+/**
+ * limiteMs: em quanto tempo de sync (contado desde o inicio do syncBling)
+ * este tipo deve parar. Existe porque 'pagar' roda antes de 'receber': sem
+ * um teto proprio, o primeiro consumia o orcamento inteiro e o segundo nunca
+ * chegava a rodar — que foi exatamente o que segurou a receita de agosto.
+ */
+function sincronizarTipo_(tipo, token, sheet, existentes, contasBancarias, mapaCategoria, limiteMs) {
+  const teto = limiteMs || TETO_APPEND_MS;
   const hoje = Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'yyyy-MM-dd');
   const janelas = janelasDeSync_(JANELA_SYNC_DESDE, hoje);
+  const cur = cursorAppend_(tipo);
+  const jInicial = cur.j < janelas.length ? cur.j : 0;
   let novos = 0;
+  let parouPorTempo = false;
 
-  for (let j = 0; j < janelas.length; j++) {
+  for (let j = jInicial; j < janelas.length; j++) {
    const DE = janelas[j][0], ATE = janelas[j][1];
-   let pagina = 1;
+   let pagina = (j === jInicial) ? cur.pagina : 1;
    while (true) {
     const url = 'https://api.bling.com.br/Api/v3/contas/' + tipo
       + '?pagina=' + pagina + '&limite=100'
@@ -333,9 +374,11 @@ function sincronizarTipo_(tipo, token, sheet, existentes, contasBancarias, mapaC
     });
 
     // para de buscar conta nova pra sobrar tempo pro atualizarContasEmAberto_
-    if (tempoGasto_() > TETO_APPEND_MS) {
+    if (tempoGasto_() > teto) {
+      gravarCursorAppend_(tipo, j, pagina);
       logSync_('sincronizarTipo', 'ok', tipo + ': parei em ' + DE + ' pagina ' + pagina
-        + ' por tempo, continuo no proximo sync');
+        + ' por tempo, retomo daqui no proximo sync');
+      parouPorTempo = true;
       break;
     }
 
@@ -343,8 +386,10 @@ function sincronizarTipo_(tipo, token, sheet, existentes, contasBancarias, mapaC
     pagina++;
     if (pagina > 60) break;
    }
-   if (tempoGasto_() > TETO_APPEND_MS) break;
+   if (parouPorTempo) break;
   }
+  // varreu tudo sem estourar o tempo: volta pro comeco na proxima execucao
+  if (!parouPorTempo) gravarCursorAppend_(tipo, 0, 1);
   return novos;
 }
 
