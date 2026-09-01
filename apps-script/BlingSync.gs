@@ -300,7 +300,7 @@ function sincronizarTipo_(tipo, token, sheet, existentes, contasBancarias, mapaC
       const detalheResp = fetchBling_('https://api.bling.com.br/Api/v3/contas/' + tipo + '/' + item.id, token);
       const d = (detalheResp && detalheResp.data) || item;
 
-      extrairRateioCategorias_(d).forEach(rateio => {
+      extrairRateioCategorias_(d, token).forEach(rateio => {
         const mapCat = mapaCategoria[String(rateio.categoriaId)] || { categoria: rateio.categoriaNome || '(sem categoria)', grupoDRE: '(sem mapear)' };
         const portador = extrairPortador_(d, contasBancarias);
         sheet.appendRow([
@@ -354,7 +354,20 @@ function sincronizarTipo_(tipo, token, sheet, existentes, contasBancarias, mapaC
  * sem categoria se nenhum bater (fica visível como "(sem categoria)" na
  * planilha, fácil de achar e corrigir).
  */
-function extrairRateioCategorias_(d) {
+/**
+ * A categoria de uma conta pode morar em TRES lugares, e o Bling nao
+ * avisa em qual:
+ *   1. rateio (d.categorias) - conta dividida em varias categorias
+ *   2. d.categoria - o caso comum
+ *   3. o BORDERO da baixa - quando quem categorizou foi a baixa, nao a
+ *      conta. Mesma familia do portador, que tambem mora la.
+ *
+ * Medido em 01/09/2026: as 10 despesas que apareciam como
+ * '(sem categoria)' no painel tinham TODAS categoria no bordero -
+ * faccao da Deise e Limpeza e manutencao da desentupidora. Nao havia
+ * nada para classificar; era a leitura que estava incompleta.
+ */
+function extrairRateioCategorias_(d, token) {
   if (Array.isArray(d.categorias) && d.categorias.length) {
     return d.categorias.map(c => ({
       categoriaId: (c.categoria && c.categoria.id) || c.categoriaId,
@@ -362,8 +375,22 @@ function extrairRateioCategorias_(d) {
       valor: c.valor != null ? c.valor : d.valor
     }));
   }
-  if (d.categoria && d.categoria.id) {
+  if (d.categoria && d.categoria.id && String(d.categoria.id) !== '0') {
     return [{ categoriaId: d.categoria.id, categoriaNome: d.categoria.descricao, valor: d.valor }];
+  }
+  // ultimo recurso: o bordero. So tenta se recebeu token - assim quem
+  // chama sem ele (algum uso antigo) continua funcionando igual.
+  if (token && d.borderos) {
+    const lista = Array.isArray(d.borderos) ? d.borderos : [d.borderos];
+    for (let i = 0; i < lista.length; i++) {
+      const b = fetchBling_('https://api.bling.com.br/Api/v3/borderos/' + lista[i], token);
+      const cat = b && b.data && b.data.categoria;
+      if (cat && cat.id && String(cat.id) !== '0') {
+        Utilities.sleep(150);
+        return [{ categoriaId: cat.id, categoriaNome: cat.descricao || '', valor: d.valor }];
+      }
+      Utilities.sleep(150);
+    }
   }
   return [{ categoriaId: '', categoriaNome: '(sem categoria)', valor: d.valor }];
 }
@@ -765,7 +792,7 @@ function reprocessarLinhasSemCategoria_() {
     const d = r0.json && r0.json.data;
     if (!d) { falhou++; Utilities.sleep(300); continue; }
 
-    const rateio = extrairRateioCategorias_(d);
+    const rateio = extrairRateioCategorias_(d, token);
 
     // Conta rateada em varias categorias nao cabe numa linha so. Sao
     // poucas; deixo passar e registro em vez de inventar um rateio.
