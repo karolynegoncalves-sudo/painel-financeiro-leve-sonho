@@ -1726,3 +1726,32 @@ function atualizarPrecoCetimElastano_() {
   Logger.log(log.join('\n'));
   return log.join('\n');
 }
+
+/**
+ * Atalho PUBLICO para rodar as migracoes de 01/09/2026 pelo menu do
+ * editor.
+ *
+ * Existe porque funcao terminada em '_' e privada no Apps Script e NAO
+ * aparece na lista de execucao - entao atualizarPrecoCetimElastano_ e
+ * recalcularDre_ ficariam inalcancaveis pela tela.
+ *
+ * Roda as duas na ordem certa e devolve o log das duas juntas.
+ */
+function aplicarMudancas0109() {
+  const log = [];
+  log.push('--- preco do Cetim Elastano ---');
+  try { log.push(atualizarPrecoCetimElastano_()); }
+  catch (e) { log.push('ERRO: ' + e.message); }
+
+  log.push('');
+  log.push('--- recalculando a DRE nos dois regimes ---');
+  try {
+    recalcularDre_();
+    log.push('DRE recalculada (realizado + competencia)');
+  } catch (e) { log.push('ERRO: ' + e.message); }
+
+  const txt = log.join('\n');
+  Logger.log(txt);
+  try { SpreadsheetApp.getUi().alert(txt); } catch (e) {}
+  return txt;
+}
