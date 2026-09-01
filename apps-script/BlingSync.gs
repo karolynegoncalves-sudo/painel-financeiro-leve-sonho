@@ -154,7 +154,13 @@ function nomeDoContato_(contato, token) {
   if (Object.prototype.hasOwnProperty.call(CACHE_CONTATOS_, id)) return CACHE_CONTATOS_[id];
   const resp = fetchBling_('https://api.bling.com.br/Api/v3/contatos/' + id, token);
   const nome = (resp && resp.data && resp.data.nome) || '';
-  CACHE_CONTATOS_[id] = nome;
+  // So guarda no cache se ACHOU. Guardar vazio faz uma falha passageira
+  // (timeout, 429) contaminar o resto da execucao inteira: o contato fica
+  // marcado como 'sem nome' e todas as linhas seguintes dele saem vazias.
+  // Foi o que deixou a coluna QUEM do painel meio preenchida - o MESMO
+  // contato aparecia com nome numa linha e vazio na outra, so por causa de
+  // em qual execucao cada linha foi gravada.
+  if (nome) CACHE_CONTATOS_[id] = nome;
   Utilities.sleep(200);
   return nome;
 }
@@ -811,3 +817,64 @@ function _rodarReprocessarSemCategoria() {
   reprocessarLinhasSemCategoria_();
 }
 
+/**
+ * Preenche a coluna QUEM (contatoNome) nas linhas que ficaram vazias.
+ *
+ * O sync e append-only: linha gravada sem nome fica sem nome pra sempre,
+ * mesmo que a conta tenha contato no Bling. Isso acontecia quando a busca
+ * do nome falhava na execucao que criou a linha.
+ *
+ * Aqui a gente varre a Fluxo de Caixa, pega as linhas com QUEM vazio e
+ * reBusca pelo id da conta. Respeita o mesmo teto de tempo do resto:
+ * se nao der pra terminar, para e avisa quantas faltaram - e so rodar
+ * de novo.
+ */
+function reprocessarContatosVazios_() {
+  const COL_CONTATO = 9, COL_ORIGEM_ID = 13, COL_ORIGEM_TIPO = 14;
+  const LIMITE_MS = 4.5 * 60 * 1000;
+  const inicio = Date.now();
+
+  const token = getBlingAccessToken_();
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(ABA_FLUXO_CAIXA);
+  const ultima = sheet.getLastRow();
+  if (ultima < 2) return 'planilha vazia';
+
+  const dados = sheet.getRange(2, 1, ultima - 1, 14).getValues();
+  let vazias = 0, preenchidas = 0, semContato = 0, restam = 0;
+
+  for (let i = 0; i < dados.length; i++) {
+    const nome = String(dados[i][COL_CONTATO - 1] || '').trim();
+    if (nome) continue;
+    vazias++;
+    if (Date.now() - inicio > LIMITE_MS) { restam++; continue; }
+
+    const id = dados[i][COL_ORIGEM_ID - 1];
+    const tipo = String(dados[i][COL_ORIGEM_TIPO - 1] || '').trim();
+    if (!id || !tipo) { semContato++; continue; }
+
+    const resp = fetchBling_('https://api.bling.com.br/Api/v3/contas/' + tipo + '/' + id, token);
+    const d = resp && resp.data;
+    if (!d) { semContato++; continue; }
+    const achado = nomeDoContato_(d.contato, token);
+    if (achado) {
+      sheet.getRange(i + 2, COL_CONTATO).setValue(achado);
+      preenchidas++;
+    } else {
+      semContato++;
+    }
+    Utilities.sleep(250);
+  }
+
+  const msg = vazias + ' linha(s) sem QUEM | ' + preenchidas + ' preenchida(s) | ' +
+    semContato + ' sem contato na origem | ' + restam + ' pra proxima rodada';
+  Logger.log(msg);
+  return msg;
+}
+
+/** Atalho publico: a funcao acima termina em '_' e nao aparece no menu. */
+function preencherQuemVazio() {
+  const msg = reprocessarContatosVazios_();
+  try { SpreadsheetApp.getUi().alert(msg); } catch (e) {}
+  return msg;
+}
