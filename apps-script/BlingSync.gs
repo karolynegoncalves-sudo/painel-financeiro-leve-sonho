@@ -347,15 +347,39 @@ function sincronizarTipo_(tipo, token, sheet, existentes, contasBancarias, mapaC
    const DE = janelas[j][0], ATE = janelas[j][1];
    let pagina = (j === jInicial) ? cur.pagina : 1;
    while (true) {
-    // tipoFiltroData=V (vencimento): e o par que o Bling realmente respeita.
-    // dataEmissaoInicial/Final, usado ate 02/09/2026, era ignorado em silencio
-    // (ver comentario em janelasDeSync_).
+    // CADA ROTA TEM O SEU PARAMETRO, e ignora o da outra em silencio.
+    // Medido em 02/09/2026 pedindo marco/2026 nas duas:
+    //   /contas/receber  dataInicial+dataFinal+tipoFiltroData=V  -> 100/100 dentro
+    //   /contas/pagar    dataVencimentoInicial/Final             -> 100/100 dentro
+    // Em pagar, dataInicial+tipoFiltroData (V, E ou P) devolveu agosto inteiro
+    // quando pedi marco - identico a nao filtrar. Em receber e o contrario.
+    // Usar o par errado nao da erro: devolve a lista toda como se fosse a
+    // janela pedida, que foi o que escondeu este bug por meses.
+    const filtro = (tipo === 'pagar')
+      ? '&dataVencimentoInicial=' + DE + '&dataVencimentoFinal=' + ATE
+      : '&dataInicial=' + DE + '&dataFinal=' + ATE + '&tipoFiltroData=V';
     const url = 'https://api.bling.com.br/Api/v3/contas/' + tipo
-      + '?pagina=' + pagina + '&limite=100'
-      + '&dataInicial=' + DE + '&dataFinal=' + ATE + '&tipoFiltroData=V';
+      + '?pagina=' + pagina + '&limite=100' + filtro;
     const resp = fetchBling_(url, token);
     const lista = (resp && resp.data) || [];
     if (lista.length === 0) break;
+
+    // CANARIO: se o Bling voltar a ignorar o filtro, ele nao da erro - so
+    // devolve a lista inteira como se fosse a janela pedida. Foi assim que o
+    // bug passou meses despercebido. Uma pagina INTEIRA fora da janela e o
+    // sintoma exato disso, entao vale um aviso no log.
+    if (pagina === 1) {
+      let fora = 0;
+      for (let k = 0; k < lista.length; k++) {
+        const venc = String(lista[k].vencimento || '');
+        if (venc && (venc < DE || venc > ATE)) fora++;
+      }
+      if (fora === lista.length && lista.length > 0) {
+        logSync_('sincronizarTipo', 'erro', tipo + ': o filtro de data parou de'
+          + ' funcionar - pedi ' + DE + ' a ' + ATE + ' e as ' + lista.length
+          + ' contas da pagina 1 estao fora. Conferir os parametros na API.');
+      }
+    }
 
     lista.forEach(item => {
       const chave = tipo + ':' + item.id;
