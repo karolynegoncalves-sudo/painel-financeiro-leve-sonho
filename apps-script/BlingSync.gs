@@ -252,31 +252,43 @@ function getChavesExistentes_(sheet) {
 }
 
 /**
- * O Bling recusa filtro de data com janela maior que 366 dias:
- *   HTTP 400 BAD_REQUEST "O periodo do filtro por 'dataEmissao' e maior
- *   que o periodo permitido (366 dias)."
- * Como a janela do painel comeca em 2025-01-01, a chamada estourava o
- * limite e falhava na PRIMEIRA pagina - o sync fechava com "0 nova(s)"
- * sem parecer erro nenhum. Medido em 23/08/2026 direto na API.
- * Aqui a janela vira fatias de 365 dias.
+ * JANELAS DE SYNC - refeitas em 02/09/2026, depois de medir na API.
+ *
+ * A versao anterior fatiava em 365 dias e filtrava com
+ * dataEmissaoInicial/dataEmissaoFinal. Medido em 02/09/2026: esse par esta
+ * na familia de parametros que o Bling ACEITA E IGNORA. Pedir um unico dia
+ * de marco/2025 devolvia as MESMAS 100 contas que pedir sem filtro nenhum -
+ * vencimentos de setembro a novembro de 2025.
+ *
+ * O efeito: as janelas nunca existiram. Toda execucao varria a lista
+ * inteira, na ordem padrao do Bling, duas vezes (uma por "janela"). Sao
+ * 6.897 contas a receber em 69 paginas, e o laco parava na pagina 60 -
+ * cerca de 900 contas eram invisiveis para o sync, para sempre.
+ *
+ * O par que FUNCIONA e dataInicial + dataFinal + tipoFiltroData (E emissao,
+ * V vencimento, P pagamento). Medido no mesmo dia: pedindo agosto/2026 com
+ * tipoFiltroData=V voltaram so vencimentos de 01 a 04/08, zero fora.
+ *
+ * Agora a janela e MENSAL e a lista vem do mes MAIS NOVO para o mais velho:
+ * lancamento novo entra na primeira janela varrida, em vez de esperar o
+ * rastelo chegar em 2026 depois de atravessar 2025 inteiro.
  */
 function janelasDeSync_(desde, ate) {
   const janelas = [];
   const fim = new Date(ate + 'T12:00:00');
   let ini = new Date(desde + 'T12:00:00');
+  ini = new Date(ini.getFullYear(), ini.getMonth(), 1, 12, 0, 0);
   let guarda = 0;
-  while (ini <= fim && guarda++ < 50) {
-    const prox = new Date(ini.getTime());
-    prox.setDate(prox.getDate() + 364);
-    const f = prox < fim ? prox : fim;
+  while (ini <= fim && guarda++ < 400) {
+    const ultimoDia = new Date(ini.getFullYear(), ini.getMonth() + 1, 0, 12, 0, 0);
+    const f = ultimoDia < fim ? ultimoDia : fim;
     janelas.push([
       Utilities.formatDate(ini, 'America/Sao_Paulo', 'yyyy-MM-dd'),
       Utilities.formatDate(f, 'America/Sao_Paulo', 'yyyy-MM-dd')
     ]);
-    ini = new Date(f.getTime());
-    ini.setDate(ini.getDate() + 1);
+    ini = new Date(ini.getFullYear(), ini.getMonth() + 1, 1, 12, 0, 0);
   }
-  return janelas;
+  return janelas.reverse();
 }
 
 /*
@@ -316,8 +328,16 @@ function gravarCursorAppend_(tipo, j, pagina) {
  */
 function sincronizarTipo_(tipo, token, sheet, existentes, contasBancarias, mapaCategoria, limiteMs) {
   const teto = limiteMs || TETO_APPEND_MS;
-  const hoje = Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'yyyy-MM-dd');
-  const janelas = janelasDeSync_(JANELA_SYNC_DESDE, hoje);
+  // Ate 02/09/2026 a janela ia so ate hoje, mas o filtro de data era ignorado
+  // e na pratica varria tudo. Agora que ele FUNCIONA, parar em hoje deixaria
+  // de fora toda conta de vencimento futuro - e elas existem: parcelamento,
+  // boleto a vencer, imposto adiado de proposito. Por isso o fim vai 12 meses
+  // pra frente. Custa umas poucas janelas vazias, que fecham na primeira
+  // pagina.
+  const limite = new Date();
+  limite.setMonth(limite.getMonth() + 12);
+  const ate = Utilities.formatDate(limite, 'America/Sao_Paulo', 'yyyy-MM-dd');
+  const janelas = janelasDeSync_(JANELA_SYNC_DESDE, ate);
   const cur = cursorAppend_(tipo);
   const jInicial = cur.j < janelas.length ? cur.j : 0;
   let novos = 0;
@@ -327,9 +347,12 @@ function sincronizarTipo_(tipo, token, sheet, existentes, contasBancarias, mapaC
    const DE = janelas[j][0], ATE = janelas[j][1];
    let pagina = (j === jInicial) ? cur.pagina : 1;
    while (true) {
+    // tipoFiltroData=V (vencimento): e o par que o Bling realmente respeita.
+    // dataEmissaoInicial/Final, usado ate 02/09/2026, era ignorado em silencio
+    // (ver comentario em janelasDeSync_).
     const url = 'https://api.bling.com.br/Api/v3/contas/' + tipo
       + '?pagina=' + pagina + '&limite=100'
-      + '&dataEmissaoInicial=' + DE + '&dataEmissaoFinal=' + ATE;
+      + '&dataInicial=' + DE + '&dataFinal=' + ATE + '&tipoFiltroData=V';
     const resp = fetchBling_(url, token);
     const lista = (resp && resp.data) || [];
     if (lista.length === 0) break;
