@@ -957,12 +957,27 @@ function renderKpis(el, rows) {
       + `<th class="num">${totalCanais ? fmtPctSimples_(totMc / totalCanais) : '—'}</th></tr>`;
     tblC.innerHTML = h;
 
-    const cores = [PALETTE.sage, PALETTE.terracotta, PALETTE.sageSoft, PALETTE.amber, PALETTE.peach, PALETTE.terracottaDark, PALETTE.brick];
+    // Cor fixa por canal, na cor da marca de cada um: a mesma fatia tem a
+    // mesma cor todo mes, mesmo quando a ordem muda. Canal fora da lista cai
+    // na paleta rotativa.
+    const CORES_CANAL = {
+      'shopee': '#D9342B',           // vermelho
+      'mercado livre': '#E8B500',    // amarelo
+      'tiktok': '#141414',           // preto
+      'nuvemshop': '#2B50D8',        // azul royal
+      'site': '#2B50D8'
+    };
+    const coresFallback = [PALETTE.sage, PALETTE.terracotta, PALETTE.sageSoft, PALETTE.amber, PALETTE.peach, PALETTE.terracottaDark, PALETTE.brick];
+    function corDoCanal_(nome, i) {
+      const n = String(nome || '').toLowerCase();
+      const chave = Object.keys(CORES_CANAL).find(k => n.indexOf(k) >= 0);
+      return chave ? CORES_CANAL[chave] : coresFallback[i % coresFallback.length];
+    }
     new Chart(document.getElementById('chartCanais'), {
       type: 'doughnut',
       data: {
         labels: ordenados.map(c => c.canal),
-        datasets: [{ data: ordenados.map(c => c.receita), backgroundColor: ordenados.map((_, i) => cores[i % cores.length]), borderWidth: 0 }]
+        datasets: [{ data: ordenados.map(c => c.receita), backgroundColor: ordenados.map((c, i) => corDoCanal_(c.canal, i)), borderWidth: 0 }]
       },
       options: {
         responsive: true, maintainAspectRatio: false, cutout: '58%',
