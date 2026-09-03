@@ -700,10 +700,27 @@ function pontoEquilibrio_(rows) {
 
   /* Sem zerar a hora, 01/07 00:00 ate 31/07 23:59 da 30,99 dias, que
      arredonda pra 31, e o +1 leva a 32 - julho ganhava um dia de custo
-     fixo que nao existe. */
+     fixo que nao existe. Os dias seguem sendo calculados porque a tela
+     mostra o periodo, mas nao entram mais no custo fixo (ver abaixo). */
   const dias = Math.max(1, Math.round(
     (startOfDay_(FILTER.end) - startOfDay_(FILTER.start)) / 86400000) + 1);
-  const meses = dias / 30.44;
+
+  /*
+   * CUSTO FIXO E DO MES INTEIRO, NAO RATEADO POR DIA (mudado em 03/09/2026).
+   *
+   * Antes isto era fixasMes * (dias / 30,44). No dia 3 de setembro o painel
+   * cobrava 3/30 do aluguel e anunciava "95,9% da meta" - uma meta de tres
+   * dias. A Karolyne apontou: "da uma sensacao burra de meta atingida".
+   * Ela esta certa. Aluguel, salario e contador nao chegam em parcelas
+   * diarias: o mes inteiro vence de qualquer jeito, entao a meta do mes
+   * nasce cheia no dia 1 e vai sendo coberta conforme a venda entra.
+   *
+   * Para periodo que cruza meses, conta os meses do CALENDARIO tocados
+   * (jul+ago = 2), nao a fracao - dois meses custam dois alugueis.
+   */
+  const meses = Math.max(1,
+    (FILTER.end.getFullYear() - FILTER.start.getFullYear()) * 12
+    + (FILTER.end.getMonth() - FILTER.start.getMonth()) + 1);
   const fixasPeriodo = fixasMes * meses;
 
   const faturamentoNecessario = mcPct > 0 ? fixasPeriodo / mcPct : 0;
@@ -856,7 +873,7 @@ function renderKpis(el, rows) {
           : 'A aba Vendas alimenta este número'}</div>
       </div>
       <div class="kpi ${receitaBruta >= 0 ? 'ok' : 'bad'}">
-        <div class="kpi-label">Receita bruta recebida</div>
+        <div class="kpi-label">Receita bruta recebida <small style="text-transform:none;letter-spacing:0;">(antes das deduções)</small></div>
         <div class="kpi-value">${fmtBRL(receitaBruta)}</div>
         <div class="kpi-foot">${variacaoReceita === null ? 'Sem período anterior comparável' : fmtPct(variacaoReceita) + ' vs. período anterior'}</div>
       </div>
@@ -878,10 +895,11 @@ function renderKpis(el, rows) {
           <div style="height:100%;width:${Math.min(100, eq.cobertura * 100).toFixed(1)}%;border-radius:3px;background:currentColor;opacity:.55;"></div>
         </div>` : ''}
         <div class="kpi-foot">${eq.faturamentoNecessario
-          ? 'Você fez ' + fmtBRL(eq.receita) + ' — ' + fmtPctSimples_(eq.cobertura)
+          ? 'Meta de ' + eq.meses + ' mês(es) — custo fixo cheio. Você fez ' + fmtBRL(eq.receita)
+            + ' (' + fmtPctSimples_(eq.cobertura) + ')'
             + (eq.cobertura >= 1
               ? '. Passou em ' + fmtBRL(eq.receita - eq.faturamentoNecessario) + '.'
-              : '. Faltaram ' + fmtBRL(eq.faturamentoNecessario - eq.receita) + '.')
+              : '. Faltam ' + fmtBRL(eq.faturamentoNecessario - eq.receita) + '.')
           : 'Cadastre o custo fixo na aba Custo Fixo'}</div>
       </div>
     </div>
@@ -895,7 +913,7 @@ function renderKpis(el, rows) {
         <tr><td>CMV (tecido, aviamento, facção)</td><td class="num val-out">−${fmtBRL(eq.cmv, 2)}</td></tr>
         <tr><td>Despesas comerciais (frete, marketing)</td><td class="num val-out">−${fmtBRL(eq.comerciais, 2)}</td></tr>
         <tr><th>Margem de contribuição <small>é isto que sobra pra pagar o custo fixo</small></th><th class="num val-in">${fmtBRL(eq.mc, 2)} · ${fmtPctSimples_(eq.mcPct)}</th></tr>
-        <tr><td>Custo fixo no período <small>${fmtBRL(eq.fixasMes, 2)}/mês × ${eq.dias} dia(s)</small></td><td class="num val-out">−${fmtBRL(eq.fixasPeriodo, 2)}</td></tr>
+        <tr><td>Custo fixo no período <small>${fmtBRL(eq.fixasMes, 2)}/mês × ${eq.meses} mês(es) — cheio, não rateado por dia</small></td><td class="num val-out">−${fmtBRL(eq.fixasPeriodo, 2)}</td></tr>
         <tr><th>Resultado</th><th class="num ${eq.mc - eq.fixasPeriodo >= 0 ? 'val-in' : 'val-out'}">${fmtBRL(eq.mc - eq.fixasPeriodo, 2)}</th></tr>
         <tr><th>Faturamento necessário <small>o ponto de equilíbrio</small></th><th class="num">${eq.faturamentoNecessario ? fmtBRL(eq.faturamentoNecessario, 2) : '—'}</th></tr>
       </table></div>
