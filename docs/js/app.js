@@ -365,6 +365,24 @@ async function garantirVendas_(el) {
   VENDAS_ROWS = (dv && !dv.error) ? parseVendasRows_(dv) : [];
 }
 
+/*
+ * A taxa por canal mora na aba Precificação_Config, e ate 03/09/2026 a aba
+ * KPIs nunca a carregava - garantia so as vendas. Com precifConfig nulo, o
+ * margemPorCanal_ nao achava chave nenhuma e TODO canal aparecia como "sem
+ * taxa cadastrada", taxa R$ 0,00 e margem 100%. As taxas estavam cadastradas
+ * o tempo todo (Shopee 50,78%, Mercado Livre 36,92%, SHEIN 23%, TikTok
+ * 32,73%, Nuvemshop 20,74% + R$ 0,50).
+ *
+ * O sintoma denunciava a causa: abrir a aba Precificacao antes e voltar pra
+ * KPIs fazia as taxas aparecerem, porque ai o config ja estava em memoria.
+ */
+async function garantirConfigCanais_(el) {
+  if (precifConfig !== null) return;
+  if (el) el.innerHTML = '<div class="state-msg">Carregando taxas por canal...</div>';
+  const dc = await apiFetch_('precificacaoConfig', idToken);
+  precifConfig = (dc && dc.config) || { despesasFixasPctPadrao: 0, canais: {} };
+}
+
 async function safeRenderTab(view) {
   const el = document.getElementById('tab-' + view);
   try {
@@ -433,7 +451,7 @@ async function safeRenderTab(view) {
     // KPIs e DRE sao regime de CAIXA: so entra o que foi efetivamente pago/recebido.
     // O Fluxo de Caixa mostra os dois, com a situacao visivel e filtravel.
     const rowsPagas = rowsFiltradas.filter(r => r.paga);
-    if (view === 'kpis') { await garantirVendas_(el); return renderKpis(el, rowsPagas); }
+    if (view === 'kpis') { await garantirVendas_(el); await garantirConfigCanais_(el); return renderKpis(el, rowsPagas); }
     if (view === 'fluxoCaixa') return renderFluxoCaixa(el, rowsFiltradas);
     // a DRE em regime de competencia le VENDAS_ROWS; sem garantir aqui,
     // ela cairia calada pro regime de caixa na primeira abertura
