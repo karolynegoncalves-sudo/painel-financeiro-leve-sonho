@@ -876,6 +876,123 @@ function renderHoje(el) {
 
 /* ---------------- KPIs & Gráficos ---------------- */
 
+/*
+ * CRUZAMENTO vendas × resultado × caixa (07/09/2026).
+ *
+ * As três respondem perguntas diferentes e a confusão entre elas foi o que
+ * gerou "por que a DRE não bate com o relatório de vendas?":
+ *   VENDI    - data da venda            (competência) "quanto saiu da loja"
+ *   RECEBI   - data do dinheiro         (caixa)       "quanto entrou na conta"
+ *   RESULTADO- receita menos despesa    (competência) "quanto o mês rendeu"
+ *   CAIXA    - entradas menos saídas    (caixa)       "quanto o saldo andou"
+ *
+ * Lado a lado elas mostram o comportamento que nenhuma mostra sozinha: mês que
+ * vende bem e não gera caixa (venda a prazo, liberação lenta), mês que gera
+ * caixa de venda velha, mês que dá lucro e mesmo assim o saldo cai porque teve
+ * retirada ou compra de máquina.
+ */
+function mesesDoPeriodo_(start, end) {
+  const out = [];
+  let d = new Date(start.getFullYear(), start.getMonth(), 1);
+  while (d <= end) {
+    out.push({
+      chave: d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'),
+      label: monthLabel(d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'))
+    });
+    d = new Date(d.getFullYear(), d.getMonth() + 1, 1);
+  }
+  return out;
+}
+
+function renderCruzamento_(rows) {
+  const meses = mesesDoPeriodo_(FILTER.start, FILTER.end);
+  if (meses.length < 1) return '';
+  const chaveDe = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+  const val = (r) => (r.tipo === 'entrada' ? 1 : -1) * r.valor;
+
+  // competência precisa do conjunto completo: `rows` chegou filtrado por caixa
+  const todasComp = (FLUXO_ROWS || []).filter(r => r.paga
+    && r.dateComp >= FILTER.start && r.dateComp <= FILTER.end);
+
+  const linha = meses.map(m => {
+    const vendi = (VENDAS_ROWS || [])
+      .filter(v => v.contaReceita && chaveDe(v.date) === m.chave
+        && v.date >= FILTER.start && v.date <= FILTER.end)
+      .reduce((s, v) => s + v.total, 0);
+
+    const doMesCaixa = rows.filter(r => chaveDe(r.date) === m.chave);
+    const recebi = doMesCaixa.filter(r => r.grupoDRE === 'Receita Bruta').reduce((s, r) => s + val(r), 0);
+
+    // caixa: tudo menos transferência entre contas (sai de um portador, entra em outro)
+    const caixa = doMesCaixa
+      .filter(r => !/transfer/i.test(r.categoria || ''))
+      .reduce((s, r) => s + val(r), 0);
+
+    // resultado: competência, fora o não operacional e o que não tem grupo
+    const resultado = todasComp
+      .filter(r => chaveDe(r.dateComp) === m.chave)
+      .filter(r => r.grupoDRE.indexOf('ignorar') < 0 && r.grupoDRE !== '(sem mapear)')
+      .reduce((s, r) => s + val(r), 0);
+
+    return { ...m, vendi, recebi, resultado, caixa };
+  });
+
+  const somaDe = (k) => linha.reduce((s, l) => s + l[k], 0);
+  const tv = somaDe('vendi'), tr = somaDe('recebi'), tres = somaDe('resultado'), tc = somaDe('caixa');
+
+  let tab = `<tr><th>Mês</th><th>Vendi <small>data da venda</small></th>
+    <th>Recebi <small>data do dinheiro</small></th>
+    <th>Resultado <small>competência</small></th>
+    <th>Caixa <small>variação</small></th></tr>`;
+  linha.forEach(l => {
+    tab += `<tr><td>${l.label}</td>
+      <td class="num">${fmtBRL(l.vendi, 2)}</td>
+      <td class="num">${fmtBRL(l.recebi, 2)}</td>
+      <td class="num ${l.resultado >= 0 ? 'val-in' : 'val-out'}">${fmtBRL(l.resultado, 2)}</td>
+      <td class="num ${l.caixa >= 0 ? 'val-in' : 'val-out'}">${fmtBRL(l.caixa, 2)}</td></tr>`;
+  });
+  tab += `<tr class="dre-subtotal"><th>Total</th>
+    <th class="num">${fmtBRL(tv, 2)}</th>
+    <th class="num">${fmtBRL(tr, 2)}</th>
+    <th class="num ${tres >= 0 ? 'val-in' : 'val-out'}">${fmtBRL(tres, 2)}</th>
+    <th class="num ${tc >= 0 ? 'val-in' : 'val-out'}">${fmtBRL(tc, 2)}</th></tr>`;
+
+  // leituras: só o que os números sustentam, uma frase por achado
+  const notas = [];
+  const dif = tr - tv;
+  if (Math.abs(dif) > tv * 0.03 && tv > 0) {
+    notas.push(dif > 0
+      ? `Entrou <b>${fmtBRL(dif, 2)}</b> a mais do que se vendeu no período — é venda anterior sendo liberada agora.`
+      : `Entrou <b>${fmtBRL(Math.abs(dif), 2)}</b> a menos do que se vendeu — esse valor ainda está para liberar.`);
+  }
+  const difRC = tc - tres;
+  if (Math.abs(difRC) > 500) {
+    notas.push(difRC > 0
+      ? `O caixa cresceu <b>${fmtBRL(difRC, 2)}</b> a mais que o resultado — entrou dinheiro que não é lucro (empréstimo, venda de ativo, ou recebimento de venda antiga).`
+      : `O caixa ficou <b>${fmtBRL(Math.abs(difRC), 2)}</b> abaixo do resultado — saiu dinheiro que não é despesa do mês (retirada, compra de máquina, ou pagamento de conta antiga).`);
+  }
+  const descolados = linha.filter(l => l.resultado > 0 && l.caixa < 0);
+  if (descolados.length) {
+    notas.push(`${descolados.map(l => l.label).join(', ')}: deu <b>lucro mas o caixa caiu</b> —
+      o mês rendeu, mas o dinheiro saiu para outra coisa ou ainda não entrou.`);
+  }
+  const inverso = linha.filter(l => l.resultado < 0 && l.caixa > 0);
+  if (inverso.length) {
+    notas.push(`${inverso.map(l => l.label).join(', ')}: <b>caixa subiu com resultado negativo</b> —
+      o saldo enganou; o mês deu prejuízo e o dinheiro veio de fora da operação.`);
+  }
+
+  return `<div class="panel">
+    <h3>Vendas × Resultado × Caixa</h3>
+    <div class="sub">As quatro colunas respondem perguntas diferentes, e por isso quase nunca são iguais.
+    <b>Vendi</b> é o que saiu da loja; <b>Recebi</b> é o que entrou na conta; <b>Resultado</b> é o que o mês
+    rendeu de fato; <b>Caixa</b> é o quanto o saldo andou.</div>
+    <div style="overflow-x:auto;"><table class="simple dre">${tab}</table></div>
+    ${notas.length ? '<ul class="sub" style="margin-top:.7rem;padding-left:1.1rem;">'
+      + notas.map(n => `<li style="margin-bottom:.35rem;">${n}</li>`).join('') + '</ul>' : ''}
+  </div>`;
+}
+
 function renderKpis(el, rows) {
   const { receitaBruta, resultadoLiquido } = totais_(rows);
   const margem = receitaBruta ? resultadoLiquido / receitaBruta : 0;
@@ -938,6 +1055,8 @@ function renderKpis(el, rows) {
           : 'Cadastre o custo fixo na aba Custo Fixo'}</div>
       </div>
     </div>
+
+    ${renderCruzamento_(rows)}
 
     <div class="panel">
       <h3>Ponto de equilíbrio</h3>
