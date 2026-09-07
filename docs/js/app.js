@@ -209,14 +209,24 @@ function parseFluxoRows_(data) {
   const idx = (n) => headers.indexOf(n);
   const iData = idx('data'), iTipo = idx('tipo'), iSit = idx('situacao'), iGrupo = idx('grupoDRE'),
     iCategoria = idx('categoriaNome'), iContato = idx('contatoNome'),
-    iBanco = idx('contaBancariaNome'), iValor = idx('valor');
+    iBanco = idx('contaBancariaNome'), iValor = idx('valor'),
+    iComp = idx('competencia');
   return rows.map(r => {
     const date = new Date(String(r[iData]).slice(0, 10) + 'T00:00:00');
+    // COMPETENCIA: quando o fato aconteceu, que nem sempre e quando o dinheiro
+    // mexeu. Na Shopee a venda so e liberada dias depois, entao a mesma linha
+    // alimenta as duas visoes. Conta sem competencia cai na data do caixa - e o
+    // melhor palpite, e some do radar em vez de sumir da tela.
+    const bruto = iComp >= 0 ? String(r[iComp] || '').slice(0, 10) : '';
+    let dateComp = bruto ? new Date(bruto + 'T00:00:00') : null;
+    if (!dateComp || isNaN(dateComp.getTime())) dateComp = date;
     // Situacoes do Bling: 1 em aberto, 2 baixada, 3 parcial, 5 cancelada.
     // Desconhecida entra como paga, pra nao sumir lancamento sem aviso.
     const sit = String(iSit >= 0 ? r[iSit] : '2').trim();
     return {
       date,
+      dateComp,
+      temComp: !!bruto,
       tipo: r[iTipo],
       situacao: sit,
       cancelada: sit === '5',
@@ -493,7 +503,13 @@ function inicioSemana_(d) {
  * tamanho do periodo — antes so existia dia ou mes, e um mes inteiro virava
  * ~30 colunas, que nao cabem na tela.
  */
-function serieTemporal_(rows, start, end) {
+/*
+ * `campoData` escolhe por qual data a linha cai na coluna: 'date' (caixa,
+ * quando o dinheiro mexeu) ou 'dateComp' (competência, quando o fato
+ * aconteceu). Default 'date' — todo chamador antigo continua igual.
+ */
+function serieTemporal_(rows, start, end, campoData) {
+  const campo = campoData || 'date';
   const dias = Math.round((end - start) / 86400000) + 1;
   const modo = dias <= 14 ? 'dia' : (dias <= 92 ? 'semana' : 'mes');
 
@@ -515,7 +531,7 @@ function serieTemporal_(rows, start, end) {
 
   const buckets = {};
   rows.forEach(r => {
-    const k = chave(r.date);
+    const k = chave(r[campo] || r.date);
     buckets[k] = buckets[k] || [];
     buckets[k].push(r);
   });
@@ -1199,8 +1215,8 @@ function renderDre(el, rows) {
     <div class="section-head">
       <h2 class="section-title">DRE</h2>
       <div class="section-desc">${competencia
-        ? 'Receita pela <b>data da venda</b> (competência) — mostra o quanto você vendeu, mesmo que o dinheiro ainda não tenha entrado.'
-        : 'Receita pela <b>data do recebimento</b> (caixa) — mostra o dinheiro que efetivamente entrou. Agrupado pela aba <code>_DRE_Mapa</code>.'}</div>
+        ? 'Tudo pela <b>data do fato</b> (competência) — receita e despesa entram no mês em que aconteceram, mesmo que o dinheiro tenha andado em outro. É o regime que responde <b>quanto o mês rendeu</b>.'
+        : 'Tudo pela <b>data do dinheiro</b> (caixa) — o que entrou e saiu de fato no período. Responde <b>quanto o mês movimentou</b>, não quanto rendeu.'}</div>
     </div>
     ${renderFiltroBar_()}
     <div class="regime-switch">
@@ -1219,11 +1235,33 @@ function renderDre(el, rows) {
   });
 
   const corpo = el.querySelector('#dreCorpo');
-  if (competencia) renderDreCompetencia_(corpo);
-  else renderDreCaixa_(corpo, rows);
 
-  // A DFC vale nos dois regimes: ela fala de dinheiro que entrou e saiu,
-  // não de competência. Vai sempre abaixo da DRE.
+  /*
+   * COMPETÊNCIA vs CAIXA (07/09/2026).
+   *
+   * Até aqui o botão "Competência" trocava só a RECEITA (pela data do pedido)
+   * e deixava despesa e CMV pelo caixa - meio termo que confunde mais do que
+   * ajuda: o mês mostrava a venda de julho contra a despesa paga em julho,
+   * que é de junho.
+   *
+   * Agora o regime vale para a DRE inteira, usando a coluna `competencia` que
+   * o sync já gravava e o painel ignorava. Refiltra do conjunto completo
+   * (FLUXO_ROWS), porque `rows` chegou aqui filtrado pela data de CAIXA - usar
+   * ele deixaria de fora justamente a conta cuja competência é deste mês mas
+   * o pagamento é de outro.
+   *
+   * A DFC continua sempre por caixa: ela existe para dizer quanto dinheiro
+   * entrou e saiu, e isso não tem versão por competência.
+   */
+  if (competencia) {
+    const rowsComp = (FLUXO_ROWS || [])
+      .filter(r => r.paga && r.dateComp >= FILTER.start && r.dateComp <= FILTER.end);
+    renderDreCaixa_(corpo, rowsComp, true);
+    renderDreCompetenciaVendas_(corpo);
+  } else {
+    renderDreCaixa_(corpo, rows, false);
+  }
+
   const caixa = document.createElement('div');
   corpo.appendChild(caixa);
   renderDfc_(caixa, rows);
@@ -1382,11 +1420,14 @@ const DRE_ESTRUTURA = [
 /* Ficam FORA do resultado, mostrados à parte para não sumirem calados. */
 const DRE_FORA = ['Não Operacional (ignorar na DRE)', '(sem mapear)'];
 
-/* Regime de caixa: grupos do _DRE_Mapa sobre o fluxo, em ordem de DRE. */
-function renderDreCaixa_(corpo, rows) {
+/*
+ * A tabela da DRE. `porCompetencia` só muda a data usada para distribuir nas
+ * colunas — a estrutura contábil é a mesma nos dois regimes.
+ */
+function renderDreCaixa_(corpo, rows, porCompetencia) {
   if (!rows.length) { corpo.innerHTML = '<div class="state-msg">Sem lançamentos nesse período.</div>'; return; }
 
-  const serie = serieTemporal_(rows, FILTER.start, FILTER.end);
+  const serie = serieTemporal_(rows, FILTER.start, FILTER.end, porCompetencia ? 'dateComp' : 'date');
   const porColuna = serie.map(b => agregarPorGrupo_(b.rows));
   const nCols = serie.length;
 
@@ -1463,17 +1504,19 @@ function renderDreCaixa_(corpo, rows) {
 }
 
 /*
- * Regime de competência: receita bruta pela data do pedido, por canal.
- * Cancelado nao entra (contaReceita = false na aba Vendas).
+ * Painel de VENDAS por competência: receita bruta pela data do pedido, por
+ * canal, e a ponte caixa × competência. Vem ABAIXO da DRE por competência,
+ * como conferência: o "vendi no período" daqui deve bater com a Receita Bruta
+ * da tabela de cima. Se não bater, há venda sem conta lançada (ou o contrário).
  *
- * Ainda e so a linha de receita — deducoes e CMV por competencia exigem
- * a taxa e o custo por pedido, que sao o proximo passo. Por isso a tela
- * mostra so o que da pra afirmar com os dados que existem hoje.
+ * Cancelado nao entra (contaReceita = false na aba Vendas).
  */
-function renderDreCompetencia_(corpo) {
+function renderDreCompetenciaVendas_(corpoPai) {
+  const corpo = document.createElement('div');
+  corpoPai.appendChild(corpo);
   const todas = (VENDAS_ROWS || []).filter(v => v.date >= FILTER.start && v.date <= FILTER.end);
   const vendas = todas.filter(v => v.contaReceita);
-  if (!todas.length) { corpo.innerHTML = '<div class="state-msg">Sem vendas nesse período.</div>'; return; }
+  if (!todas.length) { corpo.innerHTML = ''; return; }
 
   const canceladas = todas.filter(v => !v.contaReceita);
   const totalBruto = vendas.reduce((s, v) => s + v.total, 0);
