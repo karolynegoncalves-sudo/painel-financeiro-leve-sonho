@@ -23,9 +23,33 @@ const SITUACAO_VENDA = {
   6: 'Em aberto',
   9: 'Atendido',
   12: 'Cancelado',
-  24: 'Verificado'
+  24: 'Verificado',
+  890573: 'Financeiro Auxiliar'
 };
-const SITUACOES_NAO_CONTAM = [12];
+
+/*
+ * NAO CONTAM COMO VENDA (07/09/2026):
+ *   12     Cancelado          - a venda nao aconteceu
+ *   890573 Financeiro Auxiliar - e PEDIDO-CLONE, nao venda
+ *
+ * O clone e uma copia financeira de uma venda real: existe so pra gerar conta
+ * a receber e a receita aparecer na DRE (ver memoria
+ * bling-migracao-lancamentos-unitarios). Contando o clone como venda, a
+ * receita entra duas vezes - uma no pedido do canal, outra na copia.
+ *
+ * Medido em julho/2026: 1.140 pedidos, dos quais 383 sao clone (marca FIN- no
+ * numeroPedidoCompra) somando R$ 27.223,94. O painel mostrava R$ 88.641,55 de
+ * faturamento quando o real era R$ 61.417,61 - 31% a mais. E batia com o
+ * relatorio do Bling, que conta os clones do mesmo jeito: bater nao provava
+ * que estava certo, provava que erravam igual.
+ *
+ * LIMITE CONHECIDO: o filtro e pela SITUACAO porque a listagem de pedidos nao
+ * traz numeroPedidoCompra - so o detalhe traz, e abrir 10 mil pedidos por sync
+ * seria inviavel. Em julho isso pega 382 dos 383 clones. O que escapa e clone
+ * que ficou noutra situacao (ex: o pedido 21239, em 'Em aberto'). Se aparecer
+ * faturamento estranho num mes antigo, conferir com diag_clones_no_relatorio.ps1.
+ */
+const SITUACOES_NAO_CONTAM = [12, 890573];
 
 /**
  * Lojas/canais. O endpoint /lojas responde 404 nessa conta, então o mapa
