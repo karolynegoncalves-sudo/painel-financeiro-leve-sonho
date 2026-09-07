@@ -466,6 +466,7 @@ async function safeRenderTab(view) {
     // a DRE em regime de competencia le VENDAS_ROWS; sem garantir aqui,
     // ela cairia calada pro regime de caixa na primeira abertura
     if (view === 'dre') { await garantirVendas_(el); return renderDre(el, rowsPagas); }
+    if (view === 'vendas') { await garantirVendas_(el); return renderVendas(el, rowsPagas); }
   } catch (e) {
     el.innerHTML = '<div class="state-msg">Erro ao desenhar esta aba (' + e.message + ').</div>';
   }
@@ -1501,6 +1502,103 @@ function renderDreCaixa_(corpo, rows, porCompetencia) {
 
   document.getElementById('tblDre').innerHTML = html;
   if (htmlFora) document.getElementById('tblDreFora').innerHTML = htmlFora;
+}
+
+/*
+ * ABA VENDAS — o relatório de vendas do Bling, dentro do painel.
+ *
+ * Pedida em 07/09/2026 depois de a DRE do Bling (R$ 107.094,63 em julho) não
+ * bater com o relatório de vendas dele (R$ 88.641,55). Não havia erro: um conta
+ * pela data do RECEBIMENTO e o outro pela data da VENDA. Ter as duas coisas na
+ * mesma ferramenta é o que evita a dúvida voltar todo mês.
+ *
+ * Serve também de conferência: "vendi no período" aqui deve bater com a
+ * Receita Bruta da DRE por competência. Divergência = venda sem conta lançada,
+ * ou conta de receita sem venda correspondente.
+ */
+function renderVendas(el, rowsPagas) {
+  const todas = (VENDAS_ROWS || []).filter(v => v.date >= FILTER.start && v.date <= FILTER.end);
+  const vendas = todas.filter(v => v.contaReceita);
+  const canceladas = todas.filter(v => !v.contaReceita);
+
+  el.innerHTML = `
+    <div class="section-head">
+      <h2 class="section-title">Vendas</h2>
+      <div class="section-desc">Pedidos pela <b>data da venda</b>, como no relatório de vendas do Bling.
+      Diferente da DRE em caixa, que conta pela data em que o dinheiro entrou.</div>
+    </div>
+    ${renderFiltroBar_()}
+    <div id="vendasCorpo"></div>`;
+  ligarFiltroBar_(el);
+  const corpo = el.querySelector('#vendasCorpo');
+
+  if (!todas.length) {
+    corpo.innerHTML = '<div class="state-msg">Sem vendas nesse período.</div>';
+    return;
+  }
+
+  const bruto = vendas.reduce((s, v) => s + v.total, 0);
+  const ticket = vendas.length ? bruto / vendas.length : 0;
+  const perdido = canceladas.reduce((s, v) => s + v.total, 0);
+
+  // recebido no período, pela DRE em caixa — a outra ponta da ponte
+  const recebido = rowsPagas
+    .filter(r => r.grupoDRE === 'Receita Bruta')
+    .reduce((s, r) => s + (r.tipo === 'entrada' ? r.valor : -r.valor), 0);
+
+  const serie = serieTemporal_(vendas, FILTER.start, FILTER.end);
+  const canais = [...new Set(vendas.map(v => v.canal))].sort();
+  const porCanalColuna = serie.map(b => {
+    const m = {};
+    b.rows.forEach(v => { m[v.canal] = (m[v.canal] || 0) + v.total; });
+    return m;
+  });
+
+  let tab = '<tr><th>Canal</th>' + serie.map(b => `<th>${b.label}</th>`).join('')
+          + '<th>Total</th><th>% do mix</th></tr>';
+  canais.forEach(c => {
+    const vals = porCanalColuna.map(m => m[c] || 0);
+    const tot = vals.reduce((a, b) => a + b, 0);
+    tab += `<tr><td>${c}</td>` + vals.map(v => `<td class="num">${fmtBRL(v, 2)}</td>`).join('')
+         + `<td class="num"><b>${fmtBRL(tot, 2)}</b></td>`
+         + `<td class="num">${fmtPctSimples_(bruto ? tot / bruto : 0)}</td></tr>`;
+  });
+  const totCol = serie.map((_, i) => canais.reduce((s, c) => s + (porCanalColuna[i][c] || 0), 0));
+  tab += `<tr class="dre-subtotal"><th>Total</th>`
+       + totCol.map(v => `<td class="num">${fmtBRL(v, 2)}</td>`).join('')
+       + `<th class="num val-in">${fmtBRL(bruto, 2)}</th><th></th></tr>`;
+
+  const dif = recebido - bruto;
+  corpo.innerHTML = `
+    <div class="kpi-grid">
+      <div class="kpi ok"><div class="kpi-label">Vendido no período</div>
+        <div class="kpi-valor">${fmtBRL(bruto, 0)}</div>
+        <div class="kpi-sub">${vendas.length} pedido(s) faturado(s)</div></div>
+      <div class="kpi"><div class="kpi-label">Ticket médio</div>
+        <div class="kpi-valor">${fmtBRL(ticket, 0)}</div>
+        <div class="kpi-sub">por pedido</div></div>
+      <div class="kpi ${canceladas.length ? 'alerta' : ''}"><div class="kpi-label">Cancelados</div>
+        <div class="kpi-valor">${canceladas.length}</div>
+        <div class="kpi-sub">${fmtBRL(perdido, 0)} fora da receita</div></div>
+    </div>
+    <div class="panel"><h3>Receita por canal</h3>
+      <div style="overflow-x:auto;"><table class="simple dre" id="tblVendasCanal"></table></div></div>
+    <div class="panel"><h3>Vendi × Recebi</h3>
+      <div class="sub">A diferença não é erro: é o descasamento entre vender e receber.
+      A Shopee libera dias depois, então parte do que entrou neste mês é venda do mês passado.</div>
+      <table class="simple">
+        <tr><td>Vendi no período <small>(data da venda)</small></td>
+            <td class="num"><b>${fmtBRL(bruto, 2)}</b></td></tr>
+        <tr><td>Recebi no período <small>(data do dinheiro)</small></td>
+            <td class="num"><b>${fmtBRL(recebido, 2)}</b></td></tr>
+        <tr class="dre-subtotal"><th>Diferença</th>
+            <th class="num ${dif >= 0 ? 'val-in' : 'val-out'}">${fmtBRL(dif, 2)}</th></tr>
+      </table>
+      <div class="sub" style="margin-top:.6rem;">${dif >= 0
+        ? `Entrou <b>${fmtBRL(dif, 2)}</b> a mais do que se vendeu — sobra de vendas anteriores caindo agora.`
+        : `Entrou <b>${fmtBRL(Math.abs(dif), 2)}</b> a menos do que se vendeu — esse valor ainda está para liberar.`}</div>
+    </div>`;
+  document.getElementById('tblVendasCanal').innerHTML = tab;
 }
 
 /*
