@@ -242,6 +242,24 @@ footer.app-footer{margin-top:50px; padding:26px 0; border-top:1px solid var(--li
 td.num, th.num{text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums;}
 table.simple td:last-child{text-align:right; font-variant-numeric:tabular-nums;}
 
+/* ---- DRE e DFC: hierarquia visual ----
+   Sem isto a tabela vira uma lista plana e o subtotal se confunde com o
+   grupo. O resultado precisa saltar aos olhos: e a unica linha que responde
+   "deu lucro ou nao". */
+table.dre tr.dre-subtotal th{background:var(--sage-bg, #EEF3EE); color:var(--ink, #1a1a1a);
+  font-family:inherit; font-size:13px; text-transform:none; letter-spacing:0;
+  font-weight:700; border-top:1px solid var(--line); border-bottom:1px solid var(--line);}
+table.dre tr.dre-subtotal td{background:var(--sage-bg, #EEF3EE);}
+table.dre tr.dre-resultado th{background:#2F4F43; color:#fff; font-family:inherit;
+  font-size:14px; text-transform:none; letter-spacing:0; font-weight:800;
+  border-top:2px solid #2F4F43;}
+table.dre tr.dre-resultado td{background:#2F4F43; color:#fff; font-weight:700;
+  border-top:2px solid #2F4F43;}
+table.dre tr.dre-resultado .val-in{color:#8FE3B0;}
+table.dre tr.dre-resultado .val-out{color:#FFB4A8;}
+table.dre tr.dre-secao th{padding-top:14px; color:var(--muted);
+  border-bottom:1px solid var(--line);}
+
 /* ---- Situacao do lancamento ---- */
 .pill{display:inline-block; padding:1px 8px; border-radius:999px; font-size:10.5px;
   font-family:'IBM Plex Mono',monospace; text-transform:uppercase; letter-spacing:.03em;}

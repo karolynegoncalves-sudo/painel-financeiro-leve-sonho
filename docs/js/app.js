@@ -1221,25 +1221,245 @@ function renderDre(el, rows) {
   const corpo = el.querySelector('#dreCorpo');
   if (competencia) renderDreCompetencia_(corpo);
   else renderDreCaixa_(corpo, rows);
+
+  // A DFC vale nos dois regimes: ela fala de dinheiro que entrou e saiu,
+  // não de competência. Vai sempre abaixo da DRE.
+  const caixa = document.createElement('div');
+  corpo.appendChild(caixa);
+  renderDfc_(caixa, rows);
 }
 
-/* Regime de caixa: o que ja existia — grupos do _DRE_Mapa sobre o fluxo. */
-function renderDreCaixa_(corpo, rows) {
-  if (!rows.length) { corpo.innerHTML = '<div class="state-msg">Sem lançamentos nesse período.</div>'; return; }
-  corpo.innerHTML = `<div class="panel"><h3>DRE do período</h3>
-    <div style="overflow-x:auto;"><table class="simple" id="tblDre"></table></div></div>`;
+/*
+ * DFC - para onde o dinheiro foi (07/09/2026).
+ *
+ * A DRE responde "o negócio deu lucro?". A DFC responde "por que o saldo
+ * mexeu isso?" - e as duas quase nunca dão o mesmo número, porque o caixa
+ * carrega coisas que a DRE ignora de propósito: retirada de sócio,
+ * empréstimo, compra de máquina, transferência entre contas.
+ *
+ * A separação dentro do "Não Operacional" é feita pela CATEGORIA, porque o
+ * grupo joga tudo num balde só. Transferência entre contas próprias fica
+ * numa linha à parte e NÃO entra na variação: o dinheiro sai de um portador
+ * e entra em outro, o caixa total não muda. Se ela aparecer com valor
+ * diferente de zero, é sinal de que só uma perna da transferência está
+ * lançada - vale investigar, e por isso a linha aparece mesmo zerada.
+ */
+const DFC_REGRAS = [
+  { chave: 'transf',      teste: /transfer/i },
+  { chave: 'emprestimo',  teste: /empr[ée]stimo|financiamento/i },
+  { chave: 'retirada',    teste: /retirada|pr[óo]-?labore|s[óo]cio|compra pessoal/i },
+  { chave: 'investimento',teste: /m[áa]quina|equipamento|imobilizado|m[óo]vel/i }
+];
+
+function renderDfc_(el, rows) {
+  if (!rows.length) { el.innerHTML = ''; return; }
 
   const serie = serieTemporal_(rows, FILTER.start, FILTER.end);
-  const grupos = [...new Set(rows.map(r => r.grupoDRE))];
-  const porGrupoColuna = serie.map(b => agregarPorGrupo_(b.rows));
+  const val = (r) => (r.tipo === 'entrada' ? 1 : -1) * r.valor;
 
-  let html = '<tr><th>Grupo</th>' + serie.map(b => `<th>${b.label}</th>`).join('') + '<th>Total</th></tr>';
-  grupos.forEach(g => {
-    const valores = porGrupoColuna.map(pg => pg[g] || 0);
-    const total = valores.reduce((a, b) => a + b, 0);
-    html += `<tr><td>${g}</td>` + valores.map(v => `<td>${fmtBRL(v, 2)}</td>`).join('') + `<td><b>${fmtBRL(total, 2)}</b></td></tr>`;
+  // classifica cada lançamento numa atividade da DFC
+  const classificar = (r) => {
+    const g = r.grupoDRE || '';
+    if (g === 'Receita Bruta') return 'receb';
+    if (g === 'Deduções da Receita') return 'deducoes';
+    if (g === 'CMV') return 'fornec';
+    if (g === 'Despesas com Pessoal') return 'pessoal';
+    if (g === 'Despesas Administrativas') return 'admin';
+    if (g === 'Despesas Comerciais') return 'comercial';
+    if (g === 'Impostos sobre o Lucro') return 'impostos';
+    if (g === 'Resultado Financeiro') return 'financeiro';
+    const cat = r.categoria || '';
+    for (const regra of DFC_REGRAS) if (regra.teste.test(cat)) return regra.chave;
+    return 'outros';
+  };
+
+  const somaPorColuna = (chave) => serie.map(b =>
+    b.rows.reduce((s, r) => s + (classificar(r) === chave ? val(r) : 0), 0));
+  const tot = (v) => v.reduce((a, b) => a + b, 0);
+
+  const LINHAS = [
+    { s: 'ATIVIDADES OPERACIONAIS' },
+    { k: 'receb',     n: 'Recebimento de vendas' },
+    { k: 'deducoes',  n: 'Taxas de marketplace e descontos' },
+    { k: 'fornec',    n: 'Fornecedores, tecido e facção' },
+    { k: 'pessoal',   n: 'Pessoal' },
+    { k: 'admin',     n: 'Administrativas' },
+    { k: 'comercial', n: 'Comerciais' },
+    { k: 'impostos',  n: 'Impostos' },
+    { k: 'outros',    n: 'Outros' },
+    { sub: 'Caixa gerado pela operação',
+      soma: ['receb','deducoes','fornec','pessoal','admin','comercial','impostos','outros'] },
+
+    { s: 'INVESTIMENTO' },
+    { k: 'investimento', n: 'Máquinas e equipamentos' },
+
+    { s: 'FINANCIAMENTO' },
+    { k: 'financeiro',  n: 'Juros, tarifas e antecipação' },
+    { k: 'emprestimo',  n: 'Empréstimos' },
+    { k: 'retirada',    n: 'Retiradas dos sócios' },
+    { sub: 'Caixa de investimento e financiamento',
+      soma: ['investimento','financeiro','emprestimo','retirada'] },
+
+    { res: 'VARIAÇÃO DE CAIXA NO PERÍODO',
+      soma: ['receb','deducoes','fornec','pessoal','admin','comercial','impostos','outros',
+             'investimento','financeiro','emprestimo','retirada'] }
+  ];
+
+  let html = '<tr><th>Movimento</th>' + serie.map(b => `<th>${b.label}</th>`).join('') + '<th>Total</th></tr>';
+  LINHAS.forEach(l => {
+    if (l.s) { html += `<tr class="dre-secao"><th colspan="${serie.length + 2}">${l.s}</th></tr>`; return; }
+    const vals = l.k ? somaPorColuna(l.k)
+                     : serie.map((_, i) => l.soma.reduce((s, k) => s + somaPorColuna(k)[i], 0));
+    const total = tot(vals);
+    if (l.k && total === 0 && !vals.some(v => v !== 0)) return;
+    const cls = l.res ? 'dre-resultado' : l.sub ? 'dre-subtotal' : '';
+    const nome = l.k ? `<td>${l.n}</td>` : `<th>${l.sub || l.res}</th>`;
+    const cel = l.k ? `<td class="num"><b>${fmtBRL(total, 2)}</b></td>`
+                    : `<th class="num ${total < 0 ? 'val-out' : 'val-in'}">${fmtBRL(total, 2)}</th>`;
+    html += `<tr class="${cls}">${nome}` + vals.map(v => `<td class="num">${fmtBRL(v, 2)}</td>`).join('') + cel + '</tr>';
   });
+
+  const transf = somaPorColuna('transf');
+  const totTransf = tot(transf);
+  const variacao = tot(serie.map((_, i) =>
+    ['receb','deducoes','fornec','pessoal','admin','comercial','impostos','outros',
+     'investimento','financeiro','emprestimo','retirada'].reduce((s, k) => s + somaPorColuna(k)[i], 0)));
+
+  const nota = Math.abs(totTransf) < 0.01
+    ? 'Transferências entre contas somam zero no período, como esperado — cada saída teve sua entrada.'
+    : `<b>Atenção:</b> transferências entre contas somam ${fmtBRL(totTransf, 2)} em vez de zero.
+       Isso significa que alguma transferência está com só uma perna lançada.`;
+
+  el.innerHTML = `<div class="panel"><h3>DFC — para onde o dinheiro foi</h3>
+    <div class="sub">A DRE diz se o negócio deu lucro. A DFC diz por que o saldo mexeu:
+    ela inclui o que a DRE ignora de propósito (retirada, empréstimo, compra de máquina).</div>
+    <div style="overflow-x:auto;"><table class="simple dre" id="tblDfc"></table></div>
+    <div class="sub" style="margin-top:.6rem;">
+      No período o caixa ${variacao >= 0 ? 'cresceu' : 'encolheu'}
+      <b>${fmtBRL(Math.abs(variacao), 2)}</b>. ${nota}</div></div>`;
+  document.getElementById('tblDfc').innerHTML = html;
+}
+
+/*
+ * ESTRUTURA DA DRE (reescrita em 07/09/2026).
+ *
+ * Antes isto era `[...new Set(rows.map(r => r.grupoDRE))]`: a tela listava os
+ * grupos na ordem em que apareciam nos dados e parava aí. Sem subtotal, sem
+ * resultado, e com "Não Operacional (ignorar na DRE)" somado no meio como se
+ * fosse despesa - o próprio nome mandava ignorar. Para saber se o mês deu
+ * lucro, era preciso somar de cabeça.
+ *
+ * Agora a ordem é contábil e fixa, com os subtotais que fazem a DRE ser
+ * legível: Receita Líquida, Lucro Bruto, Resultado Operacional e o Resultado
+ * Líquido no fim.
+ *
+ * SINAL: no fluxo, entrada é positiva e saída é negativa, então cada subtotal
+ * é uma SOMA simples dos grupos que o compõem - não subtrair de novo, senão o
+ * sinal inverte.
+ */
+const DRE_ESTRUTURA = [
+  { tipo: 'grupo',    nome: 'Receita Bruta' },
+  { tipo: 'grupo',    nome: 'Deduções da Receita' },
+  { tipo: 'subtotal', nome: 'Receita Líquida',
+    soma: ['Receita Bruta', 'Deduções da Receita'] },
+  { tipo: 'grupo',    nome: 'CMV' },
+  { tipo: 'subtotal', nome: 'Lucro Bruto',
+    soma: ['Receita Bruta', 'Deduções da Receita', 'CMV'] },
+  { tipo: 'grupo',    nome: 'Despesas Comerciais' },
+  { tipo: 'grupo',    nome: 'Despesas Administrativas' },
+  { tipo: 'grupo',    nome: 'Despesas com Pessoal' },
+  { tipo: 'subtotal', nome: 'Resultado Operacional',
+    soma: ['Receita Bruta', 'Deduções da Receita', 'CMV',
+           'Despesas Comerciais', 'Despesas Administrativas', 'Despesas com Pessoal'] },
+  { tipo: 'grupo',    nome: 'Resultado Financeiro' },
+  { tipo: 'grupo',    nome: 'Impostos sobre o Lucro' },
+  { tipo: 'resultado', nome: 'Resultado Líquido',
+    soma: ['Receita Bruta', 'Deduções da Receita', 'CMV',
+           'Despesas Comerciais', 'Despesas Administrativas', 'Despesas com Pessoal',
+           'Resultado Financeiro', 'Impostos sobre o Lucro'] }
+];
+
+/* Ficam FORA do resultado, mostrados à parte para não sumirem calados. */
+const DRE_FORA = ['Não Operacional (ignorar na DRE)', '(sem mapear)'];
+
+/* Regime de caixa: grupos do _DRE_Mapa sobre o fluxo, em ordem de DRE. */
+function renderDreCaixa_(corpo, rows) {
+  if (!rows.length) { corpo.innerHTML = '<div class="state-msg">Sem lançamentos nesse período.</div>'; return; }
+
+  const serie = serieTemporal_(rows, FILTER.start, FILTER.end);
+  const porColuna = serie.map(b => agregarPorGrupo_(b.rows));
+  const nCols = serie.length;
+
+  const valoresDe = (nome) => porColuna.map(pg => pg[nome] || 0);
+  const somaDe = (nomes) => porColuna.map(pg => nomes.reduce((s, n) => s + (pg[n] || 0), 0));
+  const totalDe = (vals) => vals.reduce((a, b) => a + b, 0);
+
+  // receita bruta por coluna: base do percentual de análise vertical
+  const receita = valoresDe('Receita Bruta');
+  const receitaTotal = totalDe(receita);
+  const pct = (v) => receitaTotal ? (v / receitaTotal) : 0;
+
+  let html = '<tr><th>Grupo</th>' + serie.map(b => `<th>${b.label}</th>`).join('')
+           + '<th>Total</th><th>% receita</th></tr>';
+
+  DRE_ESTRUTURA.forEach(item => {
+    const vals = item.tipo === 'grupo' ? valoresDe(item.nome) : somaDe(item.soma);
+    const total = totalDe(vals);
+    // grupo que não existe no período não polui a tela; subtotal sempre aparece
+    if (item.tipo === 'grupo' && total === 0 && !vals.some(v => v !== 0)) return;
+
+    const cls = item.tipo === 'resultado' ? 'dre-resultado'
+              : item.tipo === 'subtotal' ? 'dre-subtotal' : '';
+    const sinal = total < 0 ? 'val-out' : 'val-in';
+    const celTotal = item.tipo === 'grupo'
+      ? `<td class="num"><b>${fmtBRL(total, 2)}</b></td>`
+      : `<th class="num ${sinal}">${fmtBRL(total, 2)}</th>`;
+    const nome = item.tipo === 'grupo' ? `<td>${item.nome}</td>` : `<th>${item.nome}</th>`;
+
+    html += `<tr class="${cls}">${nome}`
+          + vals.map(v => `<td class="num">${fmtBRL(v, 2)}</td>`).join('')
+          + celTotal
+          + `<td class="num">${fmtPctSimples_(pct(total))}</td></tr>`;
+  });
+
+  // grupos que existem nos dados mas não estão na estrutura: mostrar, nunca sumir
+  const conhecidos = new Set(DRE_ESTRUTURA.filter(i => i.tipo === 'grupo').map(i => i.nome));
+  const extras = [...new Set(rows.map(r => r.grupoDRE))]
+    .filter(g => !conhecidos.has(g) && !DRE_FORA.includes(g));
+
+  const fora = DRE_FORA.concat(extras).filter(g => {
+    const v = valoresDe(g);
+    return v.some(x => x !== 0);
+  });
+
+  let htmlFora = '';
+  if (fora.length) {
+    htmlFora = '<tr><th>Fora do resultado</th>' + serie.map(b => `<th>${b.label}</th>`).join('')
+             + '<th>Total</th><th></th></tr>';
+    fora.forEach(g => {
+      const vals = valoresDe(g);
+      htmlFora += `<tr><td>${g}</td>`
+               + vals.map(v => `<td class="num">${fmtBRL(v, 2)}</td>`).join('')
+               + `<td class="num"><b>${fmtBRL(totalDe(vals), 2)}</b></td><td></td></tr>`;
+    });
+  }
+
+  const resultado = totalDe(somaDe(DRE_ESTRUTURA[DRE_ESTRUTURA.length - 1].soma));
+  const veredito = resultado >= 0
+    ? `Sobrou <b>${fmtBRL(resultado, 2)}</b> no período — ${fmtPctSimples_(pct(resultado))} do faturamento.`
+    : `Faltou <b>${fmtBRL(Math.abs(resultado), 2)}</b> no período — as saídas passaram as entradas.`;
+
+  corpo.innerHTML = `<div class="panel"><h3>DRE do período</h3>
+    <div style="overflow-x:auto;"><table class="simple dre" id="tblDre"></table></div>
+    <div class="sub" style="margin-top:.6rem;">${veredito}</div></div>`
+    + (htmlFora ? `<div class="panel"><h3>Fora do resultado</h3>
+    <div class="sub">Não entram no lucro. <b>(sem mapear)</b> é categoria sem grupo
+    na aba <code>_DRE_Mapa</code> — enquanto estiver aqui, esse dinheiro não aparece
+    em nenhuma linha da DRE.</div>
+    <div style="overflow-x:auto;"><table class="simple" id="tblDreFora"></table></div></div>` : '');
+
   document.getElementById('tblDre').innerHTML = html;
+  if (htmlFora) document.getElementById('tblDreFora').innerHTML = htmlFora;
 }
 
 /*
