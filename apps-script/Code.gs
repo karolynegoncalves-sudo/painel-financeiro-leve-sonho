@@ -24,9 +24,14 @@ function doGet(e) {
     // junto, entao, e o login passa a fazer uma chamada em vez de duas.
     case 'fluxoCaixa': {
       const r = getFluxoCaixaRows_();
-      return jsonResponse_({ email: email, rows: r, despesas: getDespesasFixasList_() });
+      // dreFontes vem no mesmo pacote pelo mesmo motivo de despesasFixas: cada
+      // chamada ao Web App custa ~2s de pedágio fixo, e a DRE precisa das duas
+      // logo na primeira tela.
+      return jsonResponse_({ email: email, rows: r, despesas: getDespesasFixasList_(),
+                             dreFontes: getDreFontes_() });
     }
     case 'dre': return jsonResponse_({ email: email, rows: getDreRows_(e && e.parameter && e.parameter.regime) });
+    case 'dreFontes': return jsonResponse_(Object.assign({ email: email }, getDreFontes_()));
     case 'precificacao': return jsonResponse_({ email: email, produtos: getPrecificacaoCatalogo_() });
     case 'precificacaoConfig': return jsonResponse_({ email: email, config: getPrecificacaoConfig_() });
     case 'precificacaoMateriais': return jsonResponse_({ email: email, materiais: getPrecificacaoMateriaisCatalogo_() });
@@ -201,13 +206,43 @@ function getFluxoCaixaRows_() {
 }
 
 /**
+ * As duas fontes que a DRE passou a usar no lugar das contas (08/09/2026):
+ * receita pela data do pedido a preço praticado, e CMV por consumo.
+ *
+ * Vêm em rota separada de propósito. A `Fluxo de Caixa` continua sendo espelho
+ * do razão do Bling — receita e CMV reconstruídos não são lançamento, e
+ * misturá-los ali contaminaria a DFC, que lê a mesma aba e passaria a contar
+ * a venda duas vezes: uma no recebimento real e outra na linha sintética.
+ */
+function getDreFontes_() {
+  const ler = (aba, cols) => {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName(aba);
+    if (!sheet || sheet.getLastRow() < 2) return [];
+    const dados = sheet.getRange(2, 1, sheet.getLastRow() - 1, cols).getValues();
+    return dados
+      .map(l => ({ mes: mesTexto_(l[0]), canal: String(l[1] || ''), valor: Number(l[2]) || 0,
+                   qtd: Number(l[3]) || 0, alerta: Number(l[4]) || 0 }))
+      .filter(r => r.mes && r.valor);
+  };
+  return {
+    receita: ler(ABA_RECEITA_PEDIDOS, 4),
+    cmv: ler(ABA_CMV_CONSUMO, 5)
+  };
+}
+
+/**
  * A aba DRE passou a guardar os DOIS regimes (coluna 'regime': realizado
  * e competencia) desde 27/08/2026. Quem le sem filtrar soma os dois e
  * DOBRA tudo. Por isso o filtro mora aqui, e o padrao e 'realizado',
  * que e o comportamento que existia antes.
  */
 function getDreRows_(regime) {
-  const alvo = regime || 'realizado';
+  // O padrão virou 'competencia' em 08/09/2026. O 'realizado' desta aba data
+  // pelo VENCIMENTO, não pela data do pagamento (que mora no borderô), então
+  // nunca foi uma visão de caixa — e chegava a ficar MAIOR que a competência,
+  // o que é aritmeticamente impossível. Caixa é o DFC, feito pelo extrato.
+  const alvo = regime || 'competencia';
   const { headers, rows } = sheetData_(ABA_DRE);
   const iReg = headers.indexOf('regime');
   if (iReg < 0) return { headers: headers, rows: rows };   // planilha antiga
@@ -232,9 +267,19 @@ function getPrecificacaoResumo_() {
   });
 }
 
-/** KPIs simples calculados em cima da DRE já agregada por mês. */
+/**
+ * KPIs calculados em cima da DRE já agregada por mês.
+ *
+ * Passou a ler COMPETÊNCIA em 08/09/2026. O regime "realizado" desta aba
+ * nunca foi caixa: ele data o lançamento pelo VENCIMENTO, porque a data em
+ * que o dinheiro entrou mora no borderô e o sync não lê. O sintoma que
+ * denunciou foi aritmético — em agosto o "realizado" (R$ 70.914) ficou maior
+ * que a competência (R$ 59.041), o que é impossível numa DRE sã, já que
+ * competência inclui o que ainda não foi pago. Caixa de verdade é o DFC,
+ * montado a partir do extrato bancário.
+ */
 function getKpis_() {
-  const { rows } = getDreRows_('realizado');   // KPI e de caixa
+  const { rows } = getDreRows_('competencia');
   const porMes = {};
   rows.forEach(([mesBruto, grupo, valor]) => {
     // mesmo cuidado do getDespesasFixasPct_: a coluna pode voltar como Date
@@ -249,15 +294,37 @@ function getKpis_() {
     const receitaBruta = g['Receita Bruta'] || 0;
     const deducoes = g['Deduções da Receita'] || 0;
     const cmv = g['CMV'] || 0;
-    const despesasOperacionais = (g['Despesas Comerciais'] || 0) + (g['Despesas Administrativas'] || 0) + (g['Despesas com Pessoal'] || 0);
+    // grupo novo (08/09/2026): taxa de marketplace e frete saíram das
+    // deduções e passaram a compor o custo variável de venda, abaixo do
+    // lucro bruto. É o que faz existir margem de contribuição.
+    const variaveis = g['Despesas Variáveis de Venda'] || 0;
+    const fixas = (g['Despesas Comerciais'] || 0) + (g['Despesas Administrativas'] || 0) + (g['Despesas com Pessoal'] || 0);
     const resultadoFinanceiro = g['Resultado Financeiro'] || 0;
     const impostosLucro = g['Impostos sobre o Lucro'] || 0;
-    const resultadoLiquido = receitaBruta + deducoes + cmv + despesasOperacionais + resultadoFinanceiro + impostosLucro;
+
+    const receitaLiquida = receitaBruta + deducoes;
+    const lucroBruto = receitaLiquida + cmv;
+    const margemContribuicao = lucroBruto + variaveis;
+    const ebitda = margemContribuicao + fixas;
+    const resultadoLiquido = ebitda + resultadoFinanceiro + impostosLucro;
+    const pct = (v) => receitaBruta ? (v / receitaBruta) : 0;
     return {
       mes: mes,
       receitaBruta: receitaBruta,
+      receitaLiquida: receitaLiquida,
+      lucroBruto: lucroBruto,
+      margemBrutaPct: pct(lucroBruto),
+      margemContribuicao: margemContribuicao,
+      margemContribuicaoPct: pct(margemContribuicao),
+      custoFixo: -fixas,
+      ebitda: ebitda,
+      margemEbitdaPct: pct(ebitda),
       resultadoLiquido: resultadoLiquido,
-      margemLiquidaPct: receitaBruta ? (resultadoLiquido / receitaBruta) : 0
+      margemLiquidaPct: pct(resultadoLiquido),
+      // ponto de equilíbrio = custo fixo ÷ margem de contribuição %.
+      // Sem MC positiva ele não existe: não há faturamento que empate.
+      pontoEquilibrio: (margemContribuicao > 0 && receitaBruta)
+        ? (-fixas) / (margemContribuicao / receitaBruta) : null
     };
   });
 }
@@ -299,9 +366,48 @@ function _rodarCorrigirDreMapa() {
 function corrigirDreMapa_() {
   const CORRECOES = {
     '14639321646': 'Não Operacional (ignorar na DRE)', // Rendimento de aplicação financeira
-    '14639321695': 'Deduções da Receita',              // Descontos concedidos
-    '14639321698': 'Deduções da Receita',              // Taxas do marketplace
-    '14741903825': 'Não Operacional (ignorar na DRE)'  // Retirada de socio
+    '14741903825': 'Não Operacional (ignorar na DRE)', // Retirada de socio
+
+    // ---- revisão de 08/09/2026, medida sobre agosto ----
+    //
+    // COMPRA NÃO É CUSTO DO VENDIDO. As quatro categorias abaixo somavam
+    // R$ 16.975 em agosto e caíam inteiras em CMV. Comprar malha no Brás é
+    // estoque; vira custo quando a peça sai. Enquanto isso valia, julho
+    // fechou com CMV de R$ 186 e agosto com R$ 16.815 — uma oscilação de
+    // R$ 57 mil no resultado sem causa econômica. O CMV agora vem de
+    // _CMV_Consumo (peças vendidas × ficha técnica).
+    // Facção entra aqui junto: a costura já está dentro da ficha, então
+    // contar também o pagamento à costureira seria dobra.
+    '14639321654': 'Estoque (ignorar na DRE)',         // Compras de fornecedores
+    '14639321655': 'Estoque (ignorar na DRE)',         // Compra de insumos e matéria prima
+    '14739930076': 'Estoque (ignorar na DRE)',         // Embalagem e Insumos de Produção
+    '14739931044': 'Estoque (ignorar na DRE)',         // Facção / Mão de obra terceirizada
+    '14639321661': 'Estoque (ignorar na DRE)',         // Custo dos serviços prestados
+
+    // RECEITA NÃO VEM MAIS DA CONTA A RECEBER. A conta só nasce quando o
+    // marketplace libera o dinheiro, e cada espelho grava numa base
+    // diferente (Shopee a preço de lista, ML a preço praticado), com a
+    // integração do Bling lançando por cima. Em agosto as contas somavam
+    // R$ 64.929 para uma venda real de R$ 56.860. Agora vem de
+    // _Receita_Pedidos, pela data do pedido e a preço praticado.
+    '14639321643': 'Receita pelo pedido (ignorar na DRE)', // Vendas de produtos
+    '14639321644': 'Receita pelo pedido (ignorar na DRE)', // Vendas de mercadorias
+    '14639321645': 'Receita pelo pedido (ignorar na DRE)', // Vendas de serviços
+
+    // DESCONTO DE VITRINE NÃO É DEDUÇÃO. O espelho gravava receita a preço
+    // de lista e o desconto como dedução; em agosto isso injetou R$ 19.600
+    // de receita que ninguém faturou e a mesma quantia de dedução. Como a
+    // receita agora já entra a preço praticado, o desconto sai da conta.
+    // (Que o preço de lista é ficção se vê no contraste: 37,3% de desconto
+    // na Shopee contra 0,1% no Mercado Livre.)
+    '14639321657': 'Desconto de vitrine (ignorar na DRE)', // Descontos incondicionais
+
+    // TAXA DE CANAL É DESPESA VARIÁVEL DE VENDA, não dedução da receita.
+    // Somada ao desconto de vitrine, era o que levava a linha de deduções a
+    // 64% da receita em agosto. Some abaixo do lucro bruto, junto do frete.
+    '14639321698': 'Despesas Variáveis de Venda',      // Taxas do marketplace
+    '14639321695': 'Despesas Variáveis de Venda',      // Descontos concedidos (comissão Shopee legada)
+    '14639321667': 'Despesas Variáveis de Venda'       // Fretes e seguros
   };
 
   const ss = SpreadsheetApp.getActiveSpreadsheet();

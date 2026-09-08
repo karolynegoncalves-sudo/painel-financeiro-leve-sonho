@@ -17,6 +17,12 @@ const PALETTE = { entrada: '#2F6F4E', saida: '#C0392B', sage: '#557571', sageSof
 let idToken = sessionStorage.getItem('id_token') || null;
 const cache = {};
 let FLUXO_ROWS = null; // [{date, tipo, grupoDRE, categoria, contato, banco, valor}]
+/* Receita pela data do pedido e CMV por consumo, mensais, vindos das abas
+   _Receita_Pedidos e _CMV_Consumo. Ficam FORA de FLUXO_ROWS de propósito: a
+   aba Fluxo de Caixa é espelho do razão do Bling, e a DFC lê a mesma aba —
+   injetar receita reconstruída ali faria a DFC contar a venda duas vezes,
+   uma no recebimento real e outra na linha sintética. */
+let DRE_FONTES = { receita: [], cmv: [] };
 let VENDAS_ROWS = null; // [{date, canal, cliente, numero, situacao, contaReceita, total}]
 let DRE_REGIME = 'caixa'; // 'caixa' (dinheiro que entrou) | 'competencia' (venda que aconteceu)
 
@@ -130,6 +136,8 @@ async function verificarESeguir_(token) {
      24/08/2026: buscar as 24 linhas delas numa chamada separada custava
      2,26s - quase tudo pedagio do Web App, nao leitura. */
   precifDespesasFixas = data.despesas || [];
+  DRE_FONTES = (data.dreFontes && data.dreFontes.receita)
+    ? data.dreFontes : { receita: [], cmv: [] };
   document.getElementById('userEmail').textContent = data.email || '';
   document.getElementById('loginGate').style.display = 'none';
   document.getElementById('app').style.display = 'block';
@@ -509,10 +517,14 @@ function inicioSemana_(d) {
  * quando o dinheiro mexeu) ou 'dateComp' (competência, quando o fato
  * aconteceu). Default 'date' — todo chamador antigo continua igual.
  */
-function serieTemporal_(rows, start, end, campoData) {
+function serieTemporal_(rows, start, end, campoData, forcarMes) {
   const campo = campoData || 'date';
   const dias = Math.round((end - start) / 86400000) + 1;
-  const modo = dias <= 14 ? 'dia' : (dias <= 92 ? 'semana' : 'mes');
+  /* forcarMes existe para a DRE (08/09/2026). Receita e CMV passaram a vir de
+     fontes MENSAIS - receita pela data do pedido, CMV por consumo - e não há
+     como recortá-las por semana sem inventar rateio. Uma DRE semanal também
+     não diz nada: despesa fixa não acontece em fatias de sete dias. */
+  const modo = forcarMes ? 'mes' : (dias <= 14 ? 'dia' : (dias <= 92 ? 'semana' : 'mes'));
 
   const chave = (d) => {
     if (modo === 'dia') return toDateInputValue_(d);
@@ -1515,6 +1527,24 @@ function renderDfc_(el, rows) {
  * é uma SOMA simples dos grupos que o compõem - não subtrair de novo, senão o
  * sinal inverte.
  */
+/*
+ * Estrutura revisada em 08/09/2026. Duas mudanças, as duas para o mesmo fim:
+ * fazer a MARGEM DE CONTRIBUIÇÃO existir.
+ *
+ * 1. "Despesas Variáveis de Venda" é grupo novo. Taxa de marketplace e frete
+ *    saíram das deduções da receita, onde não são dedução nenhuma: taxa de
+ *    canal é custo de vender, some abaixo do lucro bruto. Em agosto/2026 a
+ *    linha de deduções chegava a 64% da receita por causa disso somado ao
+ *    desconto de vitrine — número que não existe em varejo nenhum.
+ *
+ * 2. "Resultado Operacional" virou EBITDA, que é o nome do que ele calcula.
+ *
+ * A margem de contribuição é o número que decide preço, desconto e mix de
+ * canal; sem ela a DRE respondia "deu lucro?" e nunca "quanto sobra de cada
+ * venda para pagar a estrutura?".
+ */
+const CUSTO_FIXO_GRUPOS = ['Despesas Comerciais', 'Despesas Administrativas', 'Despesas com Pessoal'];
+const ATE_MC = ['Receita Bruta', 'Deduções da Receita', 'CMV', 'Despesas Variáveis de Venda'];
 const DRE_ESTRUTURA = [
   { tipo: 'grupo',    nome: 'Receita Bruta' },
   { tipo: 'grupo',    nome: 'Deduções da Receita' },
@@ -1523,22 +1553,35 @@ const DRE_ESTRUTURA = [
   { tipo: 'grupo',    nome: 'CMV' },
   { tipo: 'subtotal', nome: 'Lucro Bruto',
     soma: ['Receita Bruta', 'Deduções da Receita', 'CMV'] },
+  { tipo: 'grupo',    nome: 'Despesas Variáveis de Venda' },
+  { tipo: 'subtotal', nome: 'Margem de Contribuição', soma: ATE_MC },
   { tipo: 'grupo',    nome: 'Despesas Comerciais' },
   { tipo: 'grupo',    nome: 'Despesas Administrativas' },
   { tipo: 'grupo',    nome: 'Despesas com Pessoal' },
-  { tipo: 'subtotal', nome: 'Resultado Operacional',
-    soma: ['Receita Bruta', 'Deduções da Receita', 'CMV',
-           'Despesas Comerciais', 'Despesas Administrativas', 'Despesas com Pessoal'] },
+  { tipo: 'subtotal', nome: 'EBITDA', soma: ATE_MC.concat(CUSTO_FIXO_GRUPOS) },
   { tipo: 'grupo',    nome: 'Resultado Financeiro' },
   { tipo: 'grupo',    nome: 'Impostos sobre o Lucro' },
   { tipo: 'resultado', nome: 'Resultado Líquido',
-    soma: ['Receita Bruta', 'Deduções da Receita', 'CMV',
-           'Despesas Comerciais', 'Despesas Administrativas', 'Despesas com Pessoal',
-           'Resultado Financeiro', 'Impostos sobre o Lucro'] }
+    soma: ATE_MC.concat(CUSTO_FIXO_GRUPOS, ['Resultado Financeiro', 'Impostos sobre o Lucro']) }
 ];
 
 /* Ficam FORA do resultado, mostrados à parte para não sumirem calados. */
-const DRE_FORA = ['Não Operacional (ignorar na DRE)', '(sem mapear)'];
+/*
+ * Ficam FORA do resultado, mas aparecem numa tabela à parte — nunca somem
+ * calados. Os três grupos novos (08/09/2026) saíram da DRE por motivos
+ * diferentes, e cada um vale ser visto:
+ *   Estoque              compra de tecido e facção. Não é custo do mês; é ativo
+ *                        até a peça sair. O custo entra pelo CMV por consumo.
+ *   Receita pelo pedido  a conta a receber deixou de ser fonte de receita; a
+ *                        receita vem da aba _Receita_Pedidos.
+ *   Desconto de vitrine  o preço de lista da Shopee é inflado para a plataforma
+ *                        exibir o "de/por" (37,3% contra 0,1% no ML). Como a
+ *                        receita já entra a preço praticado, o desconto não é
+ *                        dedução de nada.
+ */
+const DRE_FORA = ['Não Operacional (ignorar na DRE)', 'Estoque (ignorar na DRE)',
+                  'Receita pelo pedido (ignorar na DRE)',
+                  'Desconto de vitrine (ignorar na DRE)', '(sem mapear)'];
 
 /*
  * A tabela da DRE. `porCompetencia` só muda a data usada para distribuir nas
@@ -1547,8 +1590,30 @@ const DRE_FORA = ['Não Operacional (ignorar na DRE)', '(sem mapear)'];
 function renderDreCaixa_(corpo, rows, porCompetencia) {
   if (!rows.length) { corpo.innerHTML = '<div class="state-msg">Sem lançamentos nesse período.</div>'; return; }
 
-  const serie = serieTemporal_(rows, FILTER.start, FILTER.end, porCompetencia ? 'dateComp' : 'date');
+  /* Receita e CMV vêm das abas _Receita_Pedidos e _CMV_Consumo quando elas
+     existem, e não mais das contas a receber/pagar. Motivo medido em
+     agosto/2026: a conta a receber só nasce quando o marketplace LIBERA o
+     dinheiro, e cada espelho grava numa base diferente (Shopee a preço de
+     lista, ML a preço praticado), com a integração do Bling lançando por cima
+     — as contas somavam R$ 64.929 para uma venda real de R$ 56.860. E compra
+     de tecido é ESTOQUE, não custo do que foi vendido: enquanto ela fazia o
+     CMV, julho fechou com R$ 186 e agosto com R$ 16.815, uma oscilação de
+     R$ 57 mil de resultado sem nada ter mudado no negócio.
+     As categorias correspondentes viraram "(ignorar na DRE)" no _DRE_Mapa,
+     então não há risco de contar duas vezes. */
+  const fontes = (DRE_FONTES && (DRE_FONTES.receita || []).length) ? DRE_FONTES : null;
+  const serie = serieTemporal_(rows, FILTER.start, FILTER.end,
+                               porCompetencia ? 'dateComp' : 'date', !!fontes);
   const porColuna = serie.map(b => agregarPorGrupo_(b.rows));
+  if (fontes) {
+    const soma = (lista, mes) => (lista || [])
+      .filter(r => r.mes === mes)
+      .reduce((s, r) => s + Math.abs(Number(r.valor) || 0), 0);
+    serie.forEach((b, i) => {
+      porColuna[i]['Receita Bruta'] = soma(fontes.receita, b.chave);
+      porColuna[i]['CMV'] = -soma(fontes.cmv, b.chave);
+    });
+  }
   const nCols = serie.length;
 
   const valoresDe = (nome) => porColuna.map(pg => pg[nome] || 0);
