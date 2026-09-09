@@ -23,6 +23,12 @@
  * @return {Object} { linhas, contasAchadas, contasSemLinha }
  */
 function recategorizarContas_(mapa) {
+  // O mapa precisa conhecer a categoria NOVA antes de qualquer coisa: sem isso a
+  // linha fica com o id novo e o nome/grupo velhos, que e pior do que nao ter
+  // mexido - o painel mostraria "Imposto de renda" apontando para outra coisa.
+  // Deixo estourar de proposito se o token falhar.
+  sincronizarCategorias_(getBlingAccessToken_());
+
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName(ABA_FLUXO_CAIXA);
   if (!sheet) throw new Error('Aba ' + ABA_FLUXO_CAIXA + ' nao existe.');
