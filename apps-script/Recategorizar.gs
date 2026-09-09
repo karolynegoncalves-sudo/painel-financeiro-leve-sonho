@@ -157,3 +157,44 @@ function recategorizarPeriodo(desde, ate) {
   Logger.log(msg);
   return msg;
 }
+
+/**
+ * Conferencia: onde as linhas de uma categoria estao caindo na DRE.
+ *
+ * Existe porque o painel exige login Google e a planilha nao se deixa consultar
+ * por gviz de fora - depois de recategorizar, esta e a forma barata de ver se o
+ * dinheiro andou mesmo de linha.
+ */
+function conferirCategoria_(idCategoria, desde, ate) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_FLUXO_CAIXA);
+  const ultimaLinha = sheet.getLastRow();
+  const COL_DATA = 1, COL_CATEGORIA_ID = 4, COL_NOME = 5, COL_GRUPO = 6, COL_VALOR = 12;
+  const dados = sheet.getRange(2, 1, ultimaLinha - 1, 14).getValues();
+  const achadas = [];
+  let total = 0;
+  dados.forEach(function (l) {
+    if (String(l[COL_CATEGORIA_ID - 1]).trim() !== String(idCategoria)) return;
+    const d = l[COL_DATA - 1];
+    const txt = d instanceof Date
+      ? Utilities.formatDate(d, 'America/Sao_Paulo', 'yyyy-MM-dd')
+      : String(d || '').trim().slice(0, 10);
+    if (desde && txt < desde) return;
+    if (ate && txt > ate) return;
+    total += Number(l[COL_VALOR - 1] || 0);
+    achadas.push(txt + ' R$ ' + Number(l[COL_VALOR - 1] || 0).toFixed(2)
+      + ' | ' + l[COL_NOME - 1] + ' | ' + l[COL_GRUPO - 1]);
+  });
+  return { total: total, linhas: achadas };
+}
+
+/** O caso de 09/09/2026: conferir que o IPTU saiu de Imposto de renda. */
+function conferirIPTU() {
+  const nova = conferirCategoria_('14744250501', '2026-01-01', '2026-12-31');
+  const velha = conferirCategoria_('14639321700', '2026-01-01', '2026-12-31');
+  const msg = 'IPTU e taxas municipais: R$ ' + nova.total.toFixed(2) + ' em ' + nova.linhas.length + ' linha(s)\n'
+    + nova.linhas.join('\n')
+    + '\n\nImposto de renda (deveria ficar ZERO no Simples): R$ ' + velha.total.toFixed(2)
+    + ' em ' + velha.linhas.length + ' linha(s)\n' + velha.linhas.join('\n');
+  Logger.log(msg);
+  return msg;
+}
