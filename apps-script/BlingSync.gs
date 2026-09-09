@@ -552,6 +552,50 @@ function recalcularDre_() {
     });
   }
 
+  // ------------------------------------------------------------------
+  // Receita e CMV nao saem mais das contas. Ver o comentario grande em
+  // corrigirDreMapa_ (Code.gs): a conta a receber so nasce quando o
+  // marketplace libera o dinheiro e cada espelho grava numa base
+  // diferente; e compra de tecido e estoque, nao custo do vendido.
+  //
+  // As duas fontes novas sao lancadas por mes e canal, ja fechadas:
+  //   _Receita_Pedidos  data do pedido, preco praticado
+  //   _CMV_Consumo      pecas vendidas x ficha tecnica
+  //
+  // Entram nos DOIS regimes com o mesmo valor de proposito: sao numeros de
+  // competencia, e repeti-los no realizado e menos errado do que deixar a
+  // visao de caixa com receita zero e CMV zero. A visao de caixa de
+  // verdade e o DFC, montado a partir do extrato bancario - nao esta aba.
+  // ------------------------------------------------------------------
+  const somaExterna = (aba, grupo) => {
+    const s = ss.getSheetByName(aba);
+    if (!s || s.getLastRow() < 2) return 0;
+    const linhas = s.getRange(2, 1, s.getLastRow() - 1, 3).getValues();
+    let n = 0;
+    linhas.forEach(([mesBruto, canal, valor]) => {
+      const mes = mesTexto_(mesBruto);
+      const v = Number(valor) || 0;
+      if (!mes || !v) return;
+      const sinal = (grupo === 'CMV') ? -1 : 1;
+      ['competencia', 'realizado'].forEach(regime => {
+        const chave = regime + '|' + mes + '|' + grupo;
+        totais[chave] = (totais[chave] || 0) + sinal * Math.abs(v);
+      });
+      n++;
+    });
+    return n;
+  };
+  const nRec = somaExterna(ABA_RECEITA_PEDIDOS, 'Receita Bruta');
+  const nCmv = somaExterna(ABA_CMV_CONSUMO, 'CMV');
+  if (!nRec) {
+    logSync_('recalcularDre', 'erro', 'a aba ' + ABA_RECEITA_PEDIDOS + ' esta vazia:'
+      + ' a DRE vai sair SEM RECEITA. Rode o alimentador antes.');
+  }
+  if (!nCmv) {
+    logSync_('recalcularDre', 'erro', 'a aba ' + ABA_CMV_CONSUMO + ' esta vazia:'
+      + ' a DRE vai sair SEM CMV e com lucro bruto inflado.');
+  }
+
   dre.getRange(2, 1, Math.max(dre.getLastRow() - 1, 0), 4).clearContent();
   const linhas = Object.keys(totais).sort().map(chave => {
     const [regime, mes, grupoDRE] = chave.split('|');

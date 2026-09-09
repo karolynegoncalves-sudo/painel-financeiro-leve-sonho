@@ -29,6 +29,14 @@ const ABA_PRECIFICACAO_MODELOS = '_Precificacao_Modelos';
 const ABA_PRECIFICACAO_FICHA = '_Precificacao_Ficha';
 const ABA_DESPESAS_FIXAS = '_Despesas_Fixas';
 const ABA_VENDAS = 'Vendas';
+// Duas fontes novas (08/09/2026). A DRE parou de tirar receita e CMV das
+// contas a receber/pagar, que nunca souberam medir nem uma nem outro:
+//   - a conta so nasce quando o marketplace LIBERA o dinheiro, entao a venda
+//     do fim do mes cai no mes seguinte;
+//   - a conta de compra de tecido e ESTOQUE, nao custo do que foi vendido.
+// Alimentadas por script externo, um lancamento por mes e canal.
+const ABA_RECEITA_PEDIDOS = '_Receita_Pedidos';
+const ABA_CMV_CONSUMO = '_CMV_Consumo';
 
 // IDs reais das planilhas FPV 2026 (uma por canal) — usados para espelhar
 // a Precificação ao vivo via IMPORTRANGE, sem recriar as fórmulas.
@@ -46,6 +54,8 @@ function setupWorkbook() {
   setupAcesso_(ss);
   setupSyncLog_(ss);
   setupFluxoCaixa_(ss);
+  setupReceitaPedidos_(ss);
+  setupCmvConsumo_(ss);
   setupDre_(ss);
   setupDreMapa_(ss);
   setupPrecificacao_(ss);
@@ -149,6 +159,30 @@ function setupFluxoCaixa_(ss) {
   ]);
 }
 
+/**
+ * Receita bruta pela DATA DO PEDIDO e a PRECO PRATICADO, uma linha por mes e
+ * canal. Substitui a leitura das contas a receber, que misturava tres
+ * metodologias no mesmo balde (Shopee lancada a preco de lista, ML a preco
+ * praticado, integracao do Bling por cima) e ainda chegava atrasada.
+ * Medido em agosto/2026: as contas somavam R$ 64.929 para uma venda real de
+ * R$ 56.860.
+ */
+function setupReceitaPedidos_(ss) {
+  const sheet = getOrCreateSheet_(ss, ABA_RECEITA_PEDIDOS);
+  ensureHeader_(sheet, ['mes', 'canal', 'valor', 'pedidos', 'atualizadoEm']);
+}
+
+/**
+ * CMV pelo CONSUMO: pecas vendidas no mes x ficha tecnica (rendimento x preco
+ * do tecido + corte + costura + aviamentos). Uma linha por mes e canal.
+ * `pecasSemFicha` e o aviso: onde ele e alto, a margem do canal esta otimista
+ * por falta de custo, nao por sobra de margem.
+ */
+function setupCmvConsumo_(ss) {
+  const sheet = getOrCreateSheet_(ss, ABA_CMV_CONSUMO);
+  ensureHeader_(sheet, ['mes', 'canal', 'valor', 'pecas', 'pecasSemFicha', 'atualizadoEm']);
+}
+
 function setupDre_(ss) {
   const sheet = getOrCreateSheet_(ss, ABA_DRE);
   // 'regime' distingue as duas visoes que a Karolyne pediu em 27/08/2026:
@@ -226,7 +260,14 @@ function setupDreMapa_(ss) {
     ['14639321695', 'Descontos concedidos', '1', '14639321693', 'Resultado Financeiro'],
     ['14639321696', 'Acréscimos pagos', '1', '14639321693', 'Resultado Financeiro'],
     ['14639321697', 'Taxas pagas', '1', '14639321693', 'Resultado Financeiro'],
-    ['14639321698', 'Taxas do marketplace', '1', '14639321693', 'Despesas Comerciais'],
+    // DEDUCAO, nao despesa: a comissao do canal nunca chega na conta - a
+    // plataforma retem antes de repassar. Divergimos do Bling de proposito:
+    // la a categoria e filha de 'Despesas adicionais em operacoes financeiras'
+    // e herda o grupo de DESPESA FINANCEIRA (idGrupoDre 9), o que faz a DRE
+    // dele mostrar R$ 191 mil de despesa financeira em 2026 que na verdade e
+    // comissao de Shopee e Mercado Livre. Nao da pra corrigir la: o idGrupoDre
+    // e derivado do pai, nao editavel (medido em 07/09/2026).
+    ['14639321698', 'Taxas do marketplace', '1', '14639321693', 'Deduções da Receita'],
     ['14639321699', 'Perda de capital na alienação de ativo', '1', '0', 'Outras Receitas/Despesas'],
     ['14639321700', 'Imposto de renda', '1', '0', 'Impostos sobre o Lucro'],
     ['14639321701', 'Contribuição social sobre lucro líquido', '1', '0', 'Impostos sobre o Lucro'],
