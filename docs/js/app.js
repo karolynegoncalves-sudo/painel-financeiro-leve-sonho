@@ -482,11 +482,44 @@ async function safeRenderTab(view) {
 
 /* ---------------- Agregação (DRE a partir do Fluxo de Caixa) ---------------- */
 
+/*
+ * O nome do grupo é digitado à mão no _DRE_Mapa, e acento é onde isso quebra:
+ * a planilha ficou com "Despesas Variaveis de Venda" e a estrutura da DRE
+ * espera "Despesas Variáveis de Venda". Sem casar, o grupo virava "extra" e
+ * caía no bloco de fora do resultado — em agosto/2026 isso escondeu
+ * R$ 14.676,67 de taxa de marketplace e frete, e a margem de contribuição
+ * apareceu igual ao lucro bruto.
+ *
+ * Comparar sem acento e sem caixa resolve na leitura, sem exigir que ninguém
+ * digite certo na planilha.
+ */
+let GRUPOS_CANONICOS = null;
+
+function chaveGrupo_(s) {
+  // ̀-ͯ e o bloco de acentos combinantes. Escrito como escape de
+  // proposito: os caracteres literais nao sobrevivem a copiar e colar.
+  return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase();
+}
+
+function canonizarGrupo_(nome) {
+  /* Montado na PRIMEIRA CHAMADA, nao no topo do arquivo: DRE_ESTRUTURA e
+     DRE_FORA sao declaradas mais abaixo, e ler um `const` antes da declaracao
+     e ReferenceError - derrubaria o painel inteiro no carregamento. */
+  if (!GRUPOS_CANONICOS) {
+    GRUPOS_CANONICOS = {};
+    DRE_ESTRUTURA.filter(i => i.tipo === 'grupo').map(i => i.nome)
+      .concat(DRE_FORA)
+      .forEach(n => { GRUPOS_CANONICOS[chaveGrupo_(n)] = n; });
+  }
+  return GRUPOS_CANONICOS[chaveGrupo_(nome)] || nome;
+}
+
 function agregarPorGrupo_(rows) {
   const porGrupo = {};
   rows.forEach(r => {
     const sinal = r.tipo === 'entrada' ? 1 : -1;
-    porGrupo[r.grupoDRE] = (porGrupo[r.grupoDRE] || 0) + sinal * r.valor;
+    const g = canonizarGrupo_(r.grupoDRE);
+    porGrupo[g] = (porGrupo[g] || 0) + sinal * r.valor;
   });
   return porGrupo;
 }
@@ -1386,8 +1419,13 @@ function renderDre(el, rows) {
    * entrou e saiu, e isso não tem versão por competência.
    */
   if (competencia) {
+    /* Competência inclui o que AINDA NÃO FOI PAGO — é o ponto inteiro do
+       regime. Exigir `r.paga` aqui deixava de fora, em agosto/2026, os
+       R$ 4.580,21 de imposto sobre vendas que estavam em aberto: a linha de
+       deduções aparecia como R$ 2.937 quando o fato gerador do mês era
+       R$ 7.518. Cancelada continua fora, essa não aconteceu mesmo. */
     const rowsComp = (FLUXO_ROWS || [])
-      .filter(r => r.paga && r.dateComp >= FILTER.start && r.dateComp <= FILTER.end);
+      .filter(r => !r.cancelada && r.dateComp >= FILTER.start && r.dateComp <= FILTER.end);
     renderDreCaixa_(corpo, rowsComp, true);
     renderDreCompetenciaVendas_(corpo);
   } else {
