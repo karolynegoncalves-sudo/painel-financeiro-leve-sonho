@@ -1601,7 +1601,13 @@ function renderDreCaixa_(corpo, rows, porCompetencia) {
      R$ 57 mil de resultado sem nada ter mudado no negócio.
      As categorias correspondentes viraram "(ignorar na DRE)" no _DRE_Mapa,
      então não há risco de contar duas vezes. */
-  const fontes = (DRE_FONTES && (DRE_FONTES.receita || []).length) ? DRE_FONTES : null;
+  /* As DUAS fontes precisam ter dado. Exigir só a receita deixa um buraco
+     real: se _Receita_Pedidos estiver preenchida e _CMV_Consumo vazia, a
+     receita vem da fonte nova e o CMV é sobrescrito por ZERO — lucro bruto
+     inflado, pior do que a versão antiga. Aconteceu em 09/09/2026, quando o
+     script de carga falhou no meio e escreveu só a primeira aba. */
+  const fontes = (DRE_FONTES && (DRE_FONTES.receita || []).length
+                              && (DRE_FONTES.cmv || []).length) ? DRE_FONTES : null;
   const serie = serieTemporal_(rows, FILTER.start, FILTER.end,
                                porCompetencia ? 'dateComp' : 'date', !!fontes);
   const porColuna = serie.map(b => agregarPorGrupo_(b.rows));
