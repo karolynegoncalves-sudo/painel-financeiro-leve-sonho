@@ -24,7 +24,12 @@ let FLUXO_ROWS = null; // [{date, tipo, grupoDRE, categoria, contato, banco, val
    uma no recebimento real e outra na linha sintética. */
 let DRE_FONTES = { receita: [], cmv: [] };
 let VENDAS_ROWS = null; // [{date, canal, cliente, numero, situacao, contaReceita, total}]
-let DRE_REGIME = 'caixa'; // 'caixa' (dinheiro que entrou) | 'competencia' (venda que aconteceu)
+/* A DRE e SEMPRE por competencia desde 09/09/2026. Receita e CMV passaram a
+   vir de fontes mensais por data do pedido (_Receita_Pedidos e _CMV_Consumo),
+   entao um "modo caixa" misturaria receita pelo fato gerador com despesa pela
+   data de pagamento - duas reguas na mesma tabela. Quem responde caixa e a
+   DFC, logo abaixo na mesma tela, que le o dinheiro que de fato mexeu. */
+let DRE_REGIME = 'competencia';
 
 /* ---------------- Precificação: estado local ---------------- */
 let precifProdutos = null;       // array de produtos vinda do backend (cache mutável local)
@@ -1374,30 +1379,20 @@ function desenharTabelaFluxo_(rows) {
 
 function renderDre(el, rows) {
   const temVendas = (VENDAS_ROWS || []).length > 0;
-  const competencia = DRE_REGIME === 'competencia' && temVendas;
+  const competencia = true;   // ver o comentario em DRE_REGIME
 
   el.innerHTML = `
     <div class="section-head">
       <h2 class="section-title">DRE</h2>
-      <div class="section-desc">${competencia
-        ? 'Tudo pela <b>data do fato</b> (competência) — receita e despesa entram no mês em que aconteceram, mesmo que o dinheiro tenha andado em outro. É o regime que responde <b>quanto o mês rendeu</b>.'
-        : 'Tudo pela <b>data do dinheiro</b> (caixa) — o que entrou e saiu de fato no período. Responde <b>quanto o mês movimentou</b>, não quanto rendeu.'}</div>
+      <div class="section-desc">Tudo pela <b>data do fato</b> — receita e despesa entram no mês em que aconteceram, mesmo que o dinheiro tenha andado em outro. É o regime que responde <b>quanto o mês rendeu</b>.</div>
     </div>
     ${renderFiltroBar_()}
-    <div class="regime-switch">
-      <button type="button" data-regime="caixa" class="${competencia ? '' : 'ativo'}">Caixa</button>
-      <button type="button" data-regime="competencia" class="${competencia ? 'ativo' : ''}" ${temVendas ? '' : 'disabled title="Rode syncVendas() no Apps Script pra habilitar"'}>Competência</button>
-    </div>
+    <p class="dre-nota">Sempre por <b>competência</b>: cada valor entra no mês em
+      que o fato aconteceu, não no mês em que o dinheiro andou. Quanto o caixa
+      mexeu está na <b>DFC</b>, logo abaixo.</p>
     <div id="dreCorpo"></div>
   `;
   ligarFiltroBar_(el);
-  el.querySelectorAll('.regime-switch button[data-regime]').forEach(b => {
-    b.addEventListener('click', () => {
-      if (b.disabled) return;
-      DRE_REGIME = b.dataset.regime;
-      renderDre(el, rows);
-    });
-  });
 
   const corpo = el.querySelector('#dreCorpo');
 

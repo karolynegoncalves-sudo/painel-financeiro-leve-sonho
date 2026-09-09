@@ -384,3 +384,8 @@ tr.linha-aberta td{background:#FFFDF7;}
 .fp-acab input[type="number"] { width: 82px; flex: none; padding: 5px 7px; font-size: .86rem; }
 .fp-acab .un { font-size: 11px; opacity: .6; flex: none; }
 .fp-acab.off label { opacity: .55; }
+
+/* Nota fixa no topo da DRE: ela nao tem mais seletor de regime. */
+.dre-nota { margin: 0 0 14px; font-size: 13px; line-height: 1.5;
+            color: var(--muted, #6b7280); max-width: 70ch; }
+.dre-nota b { color: inherit; font-weight: 600; }
