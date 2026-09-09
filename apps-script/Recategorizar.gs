@@ -168,7 +168,8 @@ function recategorizarPeriodo(desde, ate) {
 function conferirCategoria_(idCategoria, desde, ate) {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_FLUXO_CAIXA);
   const ultimaLinha = sheet.getLastRow();
-  const COL_DATA = 1, COL_CATEGORIA_ID = 4, COL_NOME = 5, COL_GRUPO = 6, COL_VALOR = 12;
+  const COL_DATA = 1, COL_CATEGORIA_ID = 4, COL_NOME = 5, COL_GRUPO = 6, COL_VALOR = 12,
+        COL_ORIGEM_ID = 13, COL_ORIGEM_TIPO = 14;
   const dados = sheet.getRange(2, 1, ultimaLinha - 1, 14).getValues();
   const achadas = [];
   let total = 0;
@@ -181,8 +182,11 @@ function conferirCategoria_(idCategoria, desde, ate) {
     if (desde && txt < desde) return;
     if (ate && txt > ate) return;
     total += Number(l[COL_VALOR - 1] || 0);
+    // o id da conta vai junto: e por ele que se corrige do lado do Bling, e
+    // procurar conta por conta na tela do Bling e o que custa tempo de verdade
     achadas.push(txt + ' R$ ' + Number(l[COL_VALOR - 1] || 0).toFixed(2)
-      + ' | ' + l[COL_NOME - 1] + ' | ' + l[COL_GRUPO - 1]);
+      + ' | ' + l[COL_NOME - 1] + ' | ' + l[COL_GRUPO - 1]
+      + ' | ' + l[COL_ORIGEM_TIPO - 1] + ':' + l[COL_ORIGEM_ID - 1]);
   });
   return { total: total, linhas: achadas };
 }
