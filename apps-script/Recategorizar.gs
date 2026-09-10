@@ -86,7 +86,9 @@ function recategorizarIPTU() {
     + ' | achadas: ' + JSON.stringify(r.contasAchadas);
   // a propria funcao prova o resultado: sem isso a unica evidencia e "n linhas
   // recategorizadas", que nao diz onde o dinheiro foi parar
-  const depois = conferirIPTU();
+  // conferirFaturas entra aqui porque o dropdown do editor fica preso nesta
+  // funcao (ver manutencaoCompleta) - e a unica que consigo executar.
+  const depois = conferirIPTU() + '\n\n' + conferirFaturas();
   logSync_('recategorizarIPTU', 'ok', msg);
   Logger.log(msg + '\n\n' + depois);
   try { SpreadsheetApp.getUi().alert('Recategorizar', msg, SpreadsheetApp.getUi().ButtonSet.OK); } catch (e) {}
@@ -203,6 +205,26 @@ function conferirCategoria_(idCategoria, desde, ate) {
       + ' | ' + l[COL_ORIGEM_TIPO - 1] + ':' + l[COL_ORIGEM_ID - 1]);
   });
   return { total: total, linhas: achadas };
+}
+
+/**
+ * PONTO DE ENTRADA DE FATO.
+ *
+ * O dropdown "selecione a funcao" do editor do Apps Script nao troca de funcao
+ * de forma confiavel: clicar no item da lista muda o rotulo, mas o botao
+ * Executar continua rodando a escolha anterior - testado por coordenada, por
+ * referencia de elemento e por teclado, em 09 e 10/09/2026. Ele fica preso em
+ * recategorizarIPTU.
+ *
+ * Em vez de brigar com a ferramenta, recategorizarIPTU passou a imprimir
+ * tambem a conferencia das faturas, e esta funcao junta as tres. Tudo aqui e
+ * idempotente: rodar de novo nao muda nada.
+ */
+function manutencaoCompleta() {
+  var msg = [manutencaoDre(), conferirIPTU(), conferirFaturas()].join(
+    '\n\n----------------------------------------------------------\n\n');
+  Logger.log(msg);
+  return msg;
 }
 
 /** O caso de 09/09/2026: conferir que o IPTU saiu de Imposto de renda. */
