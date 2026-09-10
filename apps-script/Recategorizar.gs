@@ -84,8 +84,11 @@ function recategorizarIPTU() {
   const msg = 'IPTU: ' + r.linhas + ' linha(s) recategorizada(s)'
     + (r.contasSemLinha.length ? ' | SEM LINHA na planilha: ' + r.contasSemLinha.join(', ') : '')
     + ' | achadas: ' + JSON.stringify(r.contasAchadas);
+  // a propria funcao prova o resultado: sem isso a unica evidencia e "n linhas
+  // recategorizadas", que nao diz onde o dinheiro foi parar
+  const depois = conferirIPTU();
   logSync_('recategorizarIPTU', 'ok', msg);
-  Logger.log(msg);
+  Logger.log(msg + '\n\n' + depois);
   try { SpreadsheetApp.getUi().alert('Recategorizar', msg, SpreadsheetApp.getUi().ButtonSet.OK); } catch (e) {}
   return msg;
 }
