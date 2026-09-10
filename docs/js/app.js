@@ -1458,7 +1458,10 @@ const RE_FATURA_CRUA = /cart[ãa]o de cr[ée]dito/i;
 
 function faturaNaoRateada_(rows) {
   const linhas = (rows || []).filter(function (r) {
-    return RE_FATURA_CRUA.test(String(r.descricao || ''));
+    // duas formas de reconhecer: o grupo proprio (jeito certo, desde 10/09/2026)
+    // ou o texto do lancamento (jeito antigo, para o que ja esta gravado)
+    return chaveGrupo_(r.grupoDRE) === chaveGrupo_('Cartão a ratear (ignorar na DRE)')
+        || RE_FATURA_CRUA.test(String(r.descricao || ''));
   });
   if (!linhas.length) return null;
   const total = linhas.reduce(function (s, r) {
@@ -1783,9 +1786,18 @@ const DRE_ESTRUTURA = [
  *                        receita já entra a preço praticado, o desconto não é
  *                        dedução de nada.
  */
+/* Grupos que NAO entram no lucro. "Cartao a ratear" e o mais novo, e existe por
+   um motivo de processo: a fatura de cartao entra no Bling como um lancamento
+   generico no vencimento, e o rateio por categoria e feito a mao por volta do
+   dia 18, quando a fatura fecha e o extrato existe. Antes disso o valor caia em
+   "Compra de insumos e materia prima" - a maior categoria do cartao, 71% do
+   gasto anual - e a DRE do mes corrente ficava ERRADA em silencio. Numa
+   categoria propria, fora do resultado, ela fica INCOMPLETA e visivel: o valor
+   aparece aqui cobrando o rateio. */
 const DRE_FORA = ['Não Operacional (ignorar na DRE)', 'Estoque (ignorar na DRE)',
                   'Receita pelo pedido (ignorar na DRE)',
-                  'Desconto de vitrine (ignorar na DRE)', '(sem mapear)'];
+                  'Desconto de vitrine (ignorar na DRE)',
+                  'Cartão a ratear (ignorar na DRE)', '(sem mapear)'];
 
 /*
  * A tabela da DRE. `porCompetencia` só muda a data usada para distribuir nas

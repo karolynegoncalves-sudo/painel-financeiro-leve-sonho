@@ -260,7 +260,17 @@ var GRUPO_CANONICO_ = {
   '14639321698': 'Despesas Variaveis de Venda',   // Taxas do marketplace
   '14639321695': 'Despesas Variaveis de Venda',   // Descontos concedidos (comissao Shopee legada)
   '14639321667': 'Despesas Variaveis de Venda',   // Fretes e seguros
-  '14744250501': 'Despesas Administrativas'       // IPTU e taxas municipais
+  '14744250501': 'Despesas Administrativas',      // IPTU e taxas municipais
+
+  // "Cartao a ratear": a fatura de cartao entra no Bling como UM lancamento
+  // generico no vencimento, e o rateio por categoria e feito a mao por volta do
+  // dia 18 - a fatura fechada e o extrato so existem depois de vencer. Antes
+  // desta categoria, o lancamento provisorio caia em "Compra de insumos e
+  // materia prima", a maior categoria do cartao (71% do gasto do ano): a DRE do
+  // mes corrente ficava errada calada. Fora do resultado ela fica incompleta e
+  // VISIVEL, no quadro "Fora do resultado", cobrando o rateio.
+  // O id entra aqui quando a categoria for criada no Bling.
+  // '<id>': 'Cartão a ratear (ignorar na DRE)'
 };
 
 /** Forca os grupos de GRUPO_CANONICO_ no _DRE_Mapa. Devolve o que mudou. */
