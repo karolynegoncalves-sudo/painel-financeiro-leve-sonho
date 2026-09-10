@@ -312,3 +312,56 @@ function manutencaoDre() {
   Logger.log(msg + '\n\n' + conferirIPTU());
   return msg;
 }
+
+/**
+ * As faturas de cartao lancadas no Fluxo de Caixa, mes a mes.
+ *
+ * POR QUE: a fatura de cartao e rateada A MAO em varias categorias, e a
+ * pergunta que aparece toda vez e "esse mes foi separado?". Auditado em
+ * 10/09/2026: agosto bate ao centavo nos tres cartoes (Nubank R$ 4.540,32,
+ * Mercado Pago R$ 3.144,48, Sicoob R$ 1.934,83), e setembro veio com tres
+ * linhas de historico generico "Cartao de Credito", todas jogadas em insumos.
+ *
+ * Uma fatura BEM lancada aparece aqui com varias linhas e varios grupos. Uma
+ * linha so, ou um grupo so, e sinal de que o rateio nao foi feito.
+ */
+function conferirFaturas() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_FLUXO_CAIXA);
+  const ultimaLinha = sheet.getLastRow();
+  const COL_DATA = 1, COL_NOME = 5, COL_GRUPO = 6, COL_DESC = 11, COL_VALOR = 12;
+  const dados = sheet.getRange(2, 1, ultimaLinha - 1, 15).getValues();
+
+  const grupos = {};
+  dados.forEach(function (l) {
+    const desc = String(l[COL_DESC - 1] || '');
+    if (!/fatura|cart[ãa]o de cr[ée]dito/i.test(desc)) return;
+    const d = l[COL_DATA - 1];
+    const txt = d instanceof Date
+      ? Utilities.formatDate(d, 'America/Sao_Paulo', 'yyyy-MM-dd')
+      : String(d || '').trim().slice(0, 10);
+    // "Fatura Nubank 17/08 - Insumos…" -> chave "Nubank 17/08"
+    const m = desc.match(/Fatura\s+([A-Za-zÀ-ÿ ]+?)\s+(\d{2}\/\d{2})/i);
+    const chave = m ? (m[1].trim() + ' ' + m[2]) : '(sem detalhe) ' + txt;
+    const g = grupos[chave] || (grupos[chave] = { mes: txt.slice(0, 7), linhas: 0,
+      total: 0, categorias: {}, gruposDre: {} });
+    g.linhas++;
+    g.total += Number(l[COL_VALOR - 1] || 0);
+    g.categorias[String(l[COL_NOME - 1] || '?')] = true;
+    g.gruposDre[String(l[COL_GRUPO - 1] || '?')] = true;
+  });
+
+  const chaves = Object.keys(grupos).sort(function (a, b) {
+    return grupos[a].mes < grupos[b].mes ? -1 : 1;
+  });
+  const linhas = chaves.map(function (k) {
+    const g = grupos[k];
+    const nCat = Object.keys(g.categorias).length;
+    const alerta = (g.linhas === 1 || nCat === 1) ? '   <-- NAO RATEADA' : '';
+    return k + '  ' + g.mes + '  R$ ' + g.total.toFixed(2)
+      + '  em ' + g.linhas + ' linha(s), ' + nCat + ' categoria(s)'
+      + ' [' + Object.keys(g.gruposDre).join(' / ') + ']' + alerta;
+  });
+  const msg = 'FATURAS DE CARTAO NO FLUXO DE CAIXA\n' + linhas.join('\n');
+  Logger.log(msg);
+  return msg;
+}
