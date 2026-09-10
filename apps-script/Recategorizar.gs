@@ -89,7 +89,8 @@ function recategorizarIPTU() {
   // conferirFaturas entra aqui porque o dropdown do editor fica preso nesta
   // funcao (ver manutencaoCompleta) - e a unica que consigo executar.
   const depois = conferirIPTU() + '\n\n' + conferirFaturas()
-    + '\n\n' + conferirFaturasPorData();
+    + '\n\n' + conferirFaturasPorData()
+    + '\n\n' + conferirFaturasPorPortador();
   logSync_('recategorizarIPTU', 'ok', msg);
   Logger.log(msg + '\n\n' + depois);
   try { SpreadsheetApp.getUi().alert('Recategorizar', msg, SpreadsheetApp.getUi().ButtonSet.OK); } catch (e) {}
@@ -483,6 +484,73 @@ function conferirFaturasPorData() {
   });
   out.push('');
   out.push(okN + ' conferem, ' + faltaN + ' com problema, de ' + FATURAS_2026.length + ' faturas');
+  var msg = out.join('\n');
+  Logger.log(msg);
+  return msg;
+}
+
+/**
+ * As faturas conferidas por PORTADOR e mes, sem depender da data.
+ *
+ * conferirFaturasPorData tem um ponto cego: se a fatura foi lancada com outra
+ * data que nao a do vencimento, a soma do dia nao a encontra e o resultado
+ * parece "faltando" sem estar. Toda linha da fatura de um cartao carrega o
+ * mesmo portador, em qualquer data - entao somar por (portador, mes) responde
+ * sem adivinhar o dia.
+ *
+ * Imprime os dois lados: o total das faturas do mes (dos extratos, em
+ * FATURAS_2026) e o que cada portador tem na planilha naquele mes.
+ */
+function conferirFaturasPorPortador() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_FLUXO_CAIXA);
+  var ult = sheet.getLastRow();
+  var COL_DATA = 1, COL_TIPO = 2, COL_PORT_NOME = 8, COL_VALOR = 12;
+  var dados = sheet.getRange(2, 1, ult - 1, 15).getValues();
+
+  var porta = {};      // portador -> mes -> {total, linhas}
+  dados.forEach(function (l) {
+    if (String(l[COL_TIPO - 1]).trim() !== 'saida') return;
+    var d = l[COL_DATA - 1];
+    var mes = (d instanceof Date
+      ? Utilities.formatDate(d, 'America/Sao_Paulo', 'yyyy-MM')
+      : String(d || '').trim().slice(0, 7));
+    if (mes < '2026-01' || mes > '2026-08') return;
+    var p = String(l[COL_PORT_NOME - 1] || '(sem portador)').trim();
+    var a = porta[p] || (porta[p] = {});
+    var b = a[mes] || (a[mes] = { total: 0, linhas: 0 });
+    b.total += Number(l[COL_VALOR - 1] || 0);
+    b.linhas++;
+  });
+
+  // o que os extratos dizem, por banco e mes
+  var extrato = {};
+  FATURAS_2026.forEach(function (f) {
+    var mes = f.venc.slice(0, 7);
+    (extrato[f.banco] || (extrato[f.banco] = {}))[mes] = f.total;
+  });
+
+  var meses = [];
+  for (var m = 1; m <= 8; m++) meses.push('2026-0' + m);
+
+  var out = ['FATURAS x PORTADOR (saidas de 2026, jan a ago)', '',
+             'EXTRATOS - total de cada fatura:'];
+  Object.keys(extrato).sort().forEach(function (b) {
+    out.push(('  ' + b + '              ').slice(0, 16)
+      + meses.map(function (m) {
+        return ('         ' + (extrato[b][m] ? extrato[b][m].toFixed(2) : '-')).slice(-10);
+      }).join(''));
+  });
+  out.push('');
+  out.push('PLANILHA - saidas por portador:');
+  out.push(('  portador        ') + meses.map(function (m) {
+    return ('       ' + m.slice(5)).slice(-10); }).join(''));
+  Object.keys(porta).sort().forEach(function (p) {
+    out.push(('  ' + p + '                    ').slice(0, 18)
+      + meses.map(function (m) {
+        var b = porta[p][m];
+        return ('         ' + (b ? b.total.toFixed(2) : '-')).slice(-10);
+      }).join(''));
+  });
   var msg = out.join('\n');
   Logger.log(msg);
   return msg;
