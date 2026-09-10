@@ -88,7 +88,8 @@ function recategorizarIPTU() {
   // recategorizadas", que nao diz onde o dinheiro foi parar
   // conferirFaturas entra aqui porque o dropdown do editor fica preso nesta
   // funcao (ver manutencaoCompleta) - e a unica que consigo executar.
-  const depois = conferirIPTU() + '\n\n' + conferirFaturas();
+  const depois = conferirIPTU() + '\n\n' + conferirFaturas()
+    + '\n\n' + conferirFaturasPorData();
   logSync_('recategorizarIPTU', 'ok', msg);
   Logger.log(msg + '\n\n' + depois);
   try { SpreadsheetApp.getUi().alert('Recategorizar', msg, SpreadsheetApp.getUi().ButtonSet.OK); } catch (e) {}
@@ -221,7 +222,8 @@ function conferirCategoria_(idCategoria, desde, ate) {
  * idempotente: rodar de novo nao muda nada.
  */
 function manutencaoCompleta() {
-  var msg = [manutencaoDre(), conferirIPTU(), conferirFaturas()].join(
+  var msg = [manutencaoDre(), conferirIPTU(), conferirFaturas(),
+             conferirFaturasPorData()].join(
     '\n\n----------------------------------------------------------\n\n');
   Logger.log(msg);
   return msg;
@@ -394,6 +396,94 @@ function conferirFaturas() {
       + ' [' + Object.keys(g.gruposDre).join(' / ') + ']' + alerta;
   });
   const msg = 'FATURAS DE CARTAO NO FLUXO DE CAIXA\n' + linhas.join('\n');
+  Logger.log(msg);
+  return msg;
+}
+
+/**
+ * As faturas de cartao de 2026 conferidas por VALOR e VENCIMENTO.
+ *
+ * POR QUE ASSIM: o historico das contas nunca chegou a planilha (a coluna
+ * descricao recebia numeroDocumento, corrigido em 10/09/2026), entao nao da
+ * para achar as faturas pelo texto nas linhas ja gravadas. Mas cada fatura tem
+ * um total e um vencimento, e isso basta: se as contas daquele vencimento somam
+ * o total da fatura, ela esta lancada; se estao em varias linhas e categorias,
+ * esta rateada.
+ *
+ * Os totais abaixo foram lidos dos extratos originais - CSV do Nubank e PDF do
+ * Sicoob e do Mercado Pago - nao do Bling. E por isso que isto e uma
+ * conferencia e nao um relatorio: as duas pontas vem de fontes diferentes.
+ */
+var FATURAS_2026 = [
+  { venc: '2026-01-11', banco: 'Sicoob', total: 3377.12 },
+  { venc: '2026-01-12', banco: 'Mercado Pago', total: 967.41 },
+  { venc: '2026-01-17', banco: 'Nubank', total: 2534.78 },
+  { venc: '2026-02-10', banco: 'Mercado Pago', total: 2134.93 },
+  { venc: '2026-02-11', banco: 'Sicoob', total: 1631.99 },
+  { venc: '2026-02-17', banco: 'Nubank', total: 1926.80 },
+  { venc: '2026-03-10', banco: 'Mercado Pago', total: 1702.55 },
+  { venc: '2026-03-11', banco: 'Sicoob', total: 875.50 },
+  { venc: '2026-03-17', banco: 'Nubank', total: 2626.27 },
+  { venc: '2026-04-10', banco: 'Mercado Pago', total: 2470.31 },
+  { venc: '2026-04-11', banco: 'Sicoob', total: 591.11 },
+  { venc: '2026-04-17', banco: 'Nubank', total: 6379.80 },
+  { venc: '2026-05-11', banco: 'Mercado Pago', total: 2060.83 },
+  { venc: '2026-05-11', banco: 'Sicoob', total: 844.92 },
+  { venc: '2026-05-17', banco: 'Nubank', total: 4345.35 },
+  { venc: '2026-06-10', banco: 'Mercado Pago', total: 4466.44 },
+  { venc: '2026-06-11', banco: 'Sicoob', total: 908.49 },
+  { venc: '2026-06-17', banco: 'Nubank', total: 4546.25 },
+  { venc: '2026-07-10', banco: 'Mercado Pago', total: 2636.12 },
+  { venc: '2026-07-11', banco: 'Sicoob', total: 1429.21 },
+  { venc: '2026-07-17', banco: 'Nubank', total: 10127.60 },
+  { venc: '2026-08-10', banco: 'Mercado Pago', total: 3144.48 },
+  { venc: '2026-08-11', banco: 'Sicoob', total: 1934.83 },
+  { venc: '2026-08-17', banco: 'Nubank', total: 4540.32 }
+];
+
+function conferirFaturasPorData() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_FLUXO_CAIXA);
+  var ult = sheet.getLastRow();
+  var COL_DATA = 1, COL_TIPO = 2, COL_NOME = 5, COL_GRUPO = 6, COL_DESC = 11, COL_VALOR = 12;
+  var dados = sheet.getRange(2, 1, ult - 1, 15).getValues();
+
+  var porData = {};
+  dados.forEach(function (l) {
+    if (String(l[COL_TIPO - 1]).trim() !== 'saida') return;
+    var d = l[COL_DATA - 1];
+    var txt = d instanceof Date
+      ? Utilities.formatDate(d, 'America/Sao_Paulo', 'yyyy-MM-dd')
+      : String(d || '').trim().slice(0, 10);
+    var g = porData[txt] || (porData[txt] = { linhas: 0, total: 0, cats: {}, grupos: {} });
+    g.linhas++;
+    g.total += Number(l[COL_VALOR - 1] || 0);
+    g.cats[String(l[COL_NOME - 1] || '?')] = true;
+    g.grupos[String(l[COL_GRUPO - 1] || '?')] = true;
+  });
+
+  var out = ['FATURAS DE CARTAO 2026 - extrato x planilha',
+             'venc        banco          fatura      na planilha  linhas cats  situacao'];
+  var okN = 0, faltaN = 0;
+  FATURAS_2026.forEach(function (f) {
+    var g = porData[f.venc];
+    var soma = g ? g.total : 0;
+    var nCat = g ? Object.keys(g.cats).length : 0;
+    var dif = soma - f.total;
+    var sit;
+    if (!g) { sit = 'NADA LANCADO nesse vencimento'; faltaN++; }
+    else if (Math.abs(dif) < 0.02 && nCat > 1) { sit = 'ok, rateada'; okN++; }
+    else if (Math.abs(dif) < 0.02) { sit = 'valor bate, 1 CATEGORIA SO'; faltaN++; }
+    else if (soma >= f.total - 0.02) { sit = 'tem mais que a fatura (ha outras contas no dia)'; okN++; }
+    else { sit = 'FALTA R$ ' + (f.total - soma).toFixed(2); faltaN++; }
+    out.push(f.venc + '  ' + (f.banco + '            ').slice(0, 14)
+      + ('          ' + f.total.toFixed(2)).slice(-12)
+      + ('          ' + soma.toFixed(2)).slice(-14)
+      + ('     ' + (g ? g.linhas : 0)).slice(-6) + ('    ' + nCat).slice(-5)
+      + '  ' + sit);
+  });
+  out.push('');
+  out.push(okN + ' conferem, ' + faltaN + ' com problema, de ' + FATURAS_2026.length + ' faturas');
+  var msg = out.join('\n');
   Logger.log(msg);
   return msg;
 }
