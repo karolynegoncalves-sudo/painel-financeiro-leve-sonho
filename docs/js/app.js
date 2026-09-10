@@ -271,6 +271,26 @@ function parseVendasRows_(data) {
 
 const FILTER = { preset: 'mes', start: null, end: null, monthStr: '' };
 
+/*
+ * CORRIDA DE RENDERIZACAO (09/09/2026).
+ *
+ * safeRenderTab e async: entre o `await` que busca as vendas e o desenho da
+ * tela cabe um clique no filtro. Quando isso acontece, `aplicarFiltro_` troca
+ * o FILTER e dispara uma renderizacao nova - mas a ANTIGA continua de onde
+ * parou e desenha na mesma tela, com as linhas do periodo velho e os rotulos
+ * lidos do FILTER novo.
+ *
+ * Foi o que produziu a coluna impossivel "07/09-31/08" na DFC: linhas de
+ * setembro (periodo antigo, "Este mes") rotuladas com o fim de agosto
+ * (periodo novo, "Mes passado"). A DFC mostrava setembro com titulo de agosto,
+ * e nada na tela dizia isso.
+ *
+ * Cada chamada agora pega um numero. Depois de cada await, quem nao e a
+ * renderizacao mais recente para em silencio - a nova ja esta desenhando.
+ */
+let RENDER_GEN = 0;
+function renderObsoleta_(gen) { return gen !== RENDER_GEN; }
+
 function startOfDay_(d) { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; }
 function endOfDay_(d) { const x = new Date(d); x.setHours(23, 59, 59, 999); return x; }
 function addDays_(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
@@ -408,6 +428,7 @@ async function garantirConfigCanais_(el) {
 
 async function safeRenderTab(view) {
   const el = document.getElementById('tab-' + view);
+  const gen = ++RENDER_GEN;   // ver RENDER_GEN
   try {
     if (view === 'precificacao') {
       if (precifProdutos === null || precifConfig === null) {
@@ -470,16 +491,30 @@ async function safeRenderTab(view) {
     }
     if (!FLUXO_ROWS) { el.innerHTML = '<div class="state-msg">Carregando...</div>'; return; }
     if (view === 'hoje') return renderHoje(el);
-    const rowsFiltradas = FLUXO_ROWS.filter(r => r.date >= FILTER.start && r.date <= FILTER.end);
-    // KPIs e DRE sao regime de CAIXA: so entra o que foi efetivamente pago/recebido.
-    // O Fluxo de Caixa mostra os dois, com a situacao visivel e filtravel.
-    const rowsPagas = rowsFiltradas.filter(r => r.paga);
-    if (view === 'kpis') { await garantirVendas_(el); await garantirConfigCanais_(el); return renderKpis(el, rowsPagas); }
-    if (view === 'fluxoCaixa') return renderFluxoCaixa(el, rowsFiltradas);
+
+    /* Recorta na hora de desenhar, nunca antes do await: o FILTER pode ter
+       mudado no meio. KPIs e DFC sao regime de CAIXA - so entra o que foi
+       efetivamente pago/recebido. O Fluxo de Caixa mostra os dois, com a
+       situacao visivel e filtravel. */
+    const recortar_ = () => FLUXO_ROWS.filter(r => r.date >= FILTER.start && r.date <= FILTER.end);
+    if (view === 'fluxoCaixa') return renderFluxoCaixa(el, recortar_());
+    if (view === 'kpis') {
+      await garantirVendas_(el); await garantirConfigCanais_(el);
+      if (renderObsoleta_(gen)) return;
+      return renderKpis(el, recortar_().filter(r => r.paga));
+    }
     // a DRE em regime de competencia le VENDAS_ROWS; sem garantir aqui,
     // ela cairia calada pro regime de caixa na primeira abertura
-    if (view === 'dre') { await garantirVendas_(el); return renderDre(el, rowsPagas); }
-    if (view === 'vendas') { await garantirVendas_(el); return renderVendas(el, rowsPagas); }
+    if (view === 'dre') {
+      await garantirVendas_(el);
+      if (renderObsoleta_(gen)) return;
+      return renderDre(el, recortar_().filter(r => r.paga));
+    }
+    if (view === 'vendas') {
+      await garantirVendas_(el);
+      if (renderObsoleta_(gen)) return;
+      return renderVendas(el, recortar_().filter(r => r.paga));
+    }
   } catch (e) {
     el.innerHTML = '<div class="state-msg">Erro ao desenhar esta aba (' + e.message + ').</div>';
   }
@@ -574,20 +609,42 @@ function serieTemporal_(rows, start, end, campoData, forcarMes) {
     const ini = new Date(k + 'T00:00:00');
     if (modo === 'dia') return dayLabel(ini);
     // semana: rotulo de intervalo, recortado no periodo filtrado
+    /* Semana que comeca DEPOIS do fim do periodo: nao existe recorte honesto,
+       e o rotulo sairia com o inicio depois do fim ("07/09-31/08"). Isso so
+       acontece com linha fora do periodo filtrado, o que e sintoma de bug -
+       melhor a coluna se denunciar do que mentir uma data. */
+    if (ini > end) return dayLabel(ini) + ' (fora do período)';
     let fim = new Date(ini.getFullYear(), ini.getMonth(), ini.getDate() + 6);
     const iniVis = ini < start ? start : ini;
     if (fim > end) fim = end;
     return dayLabel(iniVis) + '–' + dayLabel(fim);
   };
 
+  /* As colunas saem do PERIODO, nao dos dados.
+     Antes so existia coluna onde havia lancamento, e por isso a DFC e a tabela
+     de canais logo acima dela apareciam com numeros de colunas diferentes na
+     mesma tela - dava a impressao de serem periodos diferentes, e foi parte do
+     que escondeu a corrida de renderizacao de 09/09/2026. Semana sem
+     movimento agora aparece como R$ 0,00, que tambem e informacao. */
   const buckets = {};
+  const ordem = [];
+  for (let d = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+       d <= end;
+       d.setDate(d.getDate() + 1)) {
+    const k = chave(d);
+    if (!buckets[k]) { buckets[k] = []; ordem.push(k); }
+  }
+  const foraDoPeriodo = [];
   rows.forEach(r => {
     const k = chave(r[campo] || r.date);
-    buckets[k] = buckets[k] || [];
+    if (!buckets[k]) { buckets[k] = []; ordem.push(k); foraDoPeriodo.push(k); }
     buckets[k].push(r);
   });
-  const chaves = Object.keys(buckets).sort();
-  return chaves.map(k => ({ chave: k, label: label(k), rows: buckets[k] }));
+  ordem.sort();
+  return ordem.map(k => ({
+    chave: k, label: label(k), rows: buckets[k],
+    fora: foraDoPeriodo.indexOf(k) >= 0
+  }));
 }
 
 /* ---------------- Os 5 indicadores ---------------- */
@@ -1447,6 +1504,54 @@ function renderDre(el, rows) {
  * diferente de zero, é sinal de que só uma perna da transferência está
  * lançada - vale investigar, e por isso a linha aparece mesmo zerada.
  */
+/*
+ * De que linha da DFC cada grupo da DRE faz parte.
+ *
+ * "(ignorar na DRE)" e instrucao para a DRE, NAO para a DFC. A DRE ignora
+ * essas linhas por bons motivos - a receita passou a vir de _Receita_Pedidos,
+ * pela data do pedido, e contar tambem o lancamento do Bling duplicaria a
+ * venda. Mas o dinheiro entrou no banco de verdade, e a DFC existe justamente
+ * para dizer o que mexeu no caixa.
+ *
+ * Sem este mapa, tres coisas grandes caiam caladas em "Outros" ou sumiam:
+ *   - a receita recebida (o grupo virou "Receita pelo pedido (ignorar na
+ *     DRE)"), que fez "Recebi no periodo (caixa)" mostrar R$ 0 num mes com
+ *     R$ 56.860 de venda, e deixou a DFC sem linha de recebimento;
+ *   - "Despesas Variaveis de Venda", que nem estava previsto aqui - R$ 14.676
+ *     de taxa de marketplace e frete em agosto/2026;
+ *   - a compra de tecido e aviamento ("Estoque"), R$ 16.815 no mesmo mes.
+ *
+ * Compra de estoque fica em OPERACIONAL, nao em investimento: materia prima
+ * nao e imobilizado, o dinheiro dela e giro.
+ */
+const DFC_POR_GRUPO = {
+  'Receita Bruta':                          'receb',
+  'Receita pelo pedido (ignorar na DRE)':   'receb',
+  'Deduções da Receita':                    'deducoes',
+  'Desconto de vitrine (ignorar na DRE)':   'desconto',
+  'CMV':                                    'fornec',
+  'Estoque (ignorar na DRE)':               'estoque',
+  'Despesas Variáveis de Venda':            'variaveis',
+  'Despesas com Pessoal':                   'pessoal',
+  'Despesas Administrativas':               'admin',
+  'Despesas Comerciais':                    'comercial',
+  'Impostos sobre o Lucro':                 'impostos',
+  'Resultado Financeiro':                   'financeiro'
+};
+
+/* Grupos que sao dinheiro de VENDA entrando no caixa. Usado tambem pelo
+   comparativo Caixa x Competencia, que sem isso responde sempre R$ 0. */
+const GRUPOS_RECEBIMENTO_ = ['Receita Bruta', 'Receita pelo pedido (ignorar na DRE)'];
+
+let DFC_POR_GRUPO_CANON = null;   // lazy: comparacao sem acento e sem caixa
+function dfcChaveDoGrupo_(g) {
+  if (!DFC_POR_GRUPO_CANON) {
+    DFC_POR_GRUPO_CANON = {};
+    Object.keys(DFC_POR_GRUPO).forEach(k => { DFC_POR_GRUPO_CANON[chaveGrupo_(k)] = DFC_POR_GRUPO[k]; });
+  }
+  return DFC_POR_GRUPO_CANON[chaveGrupo_(g)] || null;
+}
+
 const DFC_REGRAS = [
   { chave: 'transf',      teste: /transfer/i },
   { chave: 'emprestimo',  teste: /empr[ée]stimo|financiamento/i },
@@ -1462,15 +1567,9 @@ function renderDfc_(el, rows) {
 
   // classifica cada lançamento numa atividade da DFC
   const classificar = (r) => {
-    const g = r.grupoDRE || '';
-    if (g === 'Receita Bruta') return 'receb';
-    if (g === 'Deduções da Receita') return 'deducoes';
-    if (g === 'CMV') return 'fornec';
-    if (g === 'Despesas com Pessoal') return 'pessoal';
-    if (g === 'Despesas Administrativas') return 'admin';
-    if (g === 'Despesas Comerciais') return 'comercial';
-    if (g === 'Impostos sobre o Lucro') return 'impostos';
-    if (g === 'Resultado Financeiro') return 'financeiro';
+    const porGrupo = dfcChaveDoGrupo_(r.grupoDRE);
+    if (porGrupo) return porGrupo;
+    // sem grupo conhecido, decide pela categoria (transferencia, socio, etc.)
     const cat = r.categoria || '';
     for (const regra of DFC_REGRAS) if (regra.teste.test(cat)) return regra.chave;
     return 'outros';
@@ -1483,15 +1582,18 @@ function renderDfc_(el, rows) {
   const LINHAS = [
     { s: 'ATIVIDADES OPERACIONAIS' },
     { k: 'receb',     n: 'Recebimento de vendas' },
-    { k: 'deducoes',  n: 'Taxas de marketplace e descontos' },
+    { k: 'deducoes',  n: 'Impostos sobre vendas, devoluções e descontos' },
+    { k: 'desconto',  n: 'Descontos de vitrine' },
+    { k: 'variaveis', n: 'Taxas de marketplace e frete' },
     { k: 'fornec',    n: 'Fornecedores, tecido e facção' },
+    { k: 'estoque',   n: 'Compra de estoque (tecido e aviamento)' },
     { k: 'pessoal',   n: 'Pessoal' },
     { k: 'admin',     n: 'Administrativas' },
     { k: 'comercial', n: 'Comerciais' },
     { k: 'impostos',  n: 'Impostos' },
     { k: 'outros',    n: 'Outros' },
     { sub: 'Caixa gerado pela operação',
-      soma: ['receb','deducoes','fornec','pessoal','admin','comercial','impostos','outros'] },
+      soma: ['receb','deducoes','desconto','variaveis','fornec','estoque','pessoal','admin','comercial','impostos','outros'] },
 
     { s: 'INVESTIMENTO' },
     { k: 'investimento', n: 'Máquinas e equipamentos' },
@@ -1504,7 +1606,7 @@ function renderDfc_(el, rows) {
       soma: ['investimento','financeiro','emprestimo','retirada'] },
 
     { res: 'VARIAÇÃO DE CAIXA NO PERÍODO',
-      soma: ['receb','deducoes','fornec','pessoal','admin','comercial','impostos','outros',
+      soma: ['receb','deducoes','desconto','variaveis','fornec','estoque','pessoal','admin','comercial','impostos','outros',
              'investimento','financeiro','emprestimo','retirada'] }
   ];
 
@@ -1525,7 +1627,7 @@ function renderDfc_(el, rows) {
   const transf = somaPorColuna('transf');
   const totTransf = tot(transf);
   const variacao = tot(serie.map((_, i) =>
-    ['receb','deducoes','fornec','pessoal','admin','comercial','impostos','outros',
+    ['receb','deducoes','desconto','variaveis','fornec','estoque','pessoal','admin','comercial','impostos','outros',
      'investimento','financeiro','emprestimo','retirada'].reduce((s, k) => s + somaPorColuna(k)[i], 0)));
 
   const nota = Math.abs(totTransf) < 0.01
@@ -1533,13 +1635,29 @@ function renderDfc_(el, rows) {
     : `<b>Atenção:</b> transferências entre contas somam ${fmtBRL(totTransf, 2)} em vez de zero.
        Isso significa que alguma transferência está com só uma perna lançada.`;
 
+  /* "Outros" e o balde de quem nao casou com nenhum grupo nem com nenhuma
+     regra de categoria. Balde grande nao e categoria residual, e classificacao
+     faltando - foi assim que a receita recebida ficou escondida ali por dois
+     dias sem ninguem ver. Acima de 10% do movimento, a tela avisa. */
+  const movimento = tot(somaPorColuna('receb').map(Math.abs))
+    + ['deducoes','desconto','variaveis','fornec','estoque','pessoal','admin','comercial',
+       'impostos','outros','investimento','financeiro','emprestimo','retirada']
+      .reduce((soma, k) => soma + tot(somaPorColuna(k).map(Math.abs)), 0);
+  const emOutros = Math.abs(tot(somaPorColuna('outros')));
+  const notaOutros = (movimento > 0 && emOutros / movimento > 0.10)
+    ? `<br><b>Olho aqui:</b> ${fmtBRL(emOutros, 2)} caíram em "Outros"
+       (${fmtPctSimples_(emOutros / movimento)} do movimento do período). Isso é grupo
+       ou categoria faltando no <code>_DRE_Mapa</code>, não uma sobra natural — enquanto
+       estiver ali, o dinheiro aparece no total mas não se explica.`
+    : '';
+
   el.innerHTML = `<div class="panel"><h3>DFC — para onde o dinheiro foi</h3>
     <div class="sub">A DRE diz se o negócio deu lucro. A DFC diz por que o saldo mexeu:
     ela inclui o que a DRE ignora de propósito (retirada, empréstimo, compra de máquina).</div>
     <div style="overflow-x:auto;"><table class="simple dre" id="tblDfc"></table></div>
     <div class="sub" style="margin-top:.6rem;">
       No período o caixa ${variacao >= 0 ? 'cresceu' : 'encolheu'}
-      <b>${fmtBRL(Math.abs(variacao), 2)}</b>. ${nota}</div></div>`;
+      <b>${fmtBRL(Math.abs(variacao), 2)}</b>. ${nota}${notaOutros}</div></div>`;
   document.getElementById('tblDfc').innerHTML = html;
 }
 
@@ -1764,9 +1882,12 @@ function renderVendas(el, rowsPagas) {
   const ticket = vendas.length ? bruto / vendas.length : 0;
   const perdido = canceladas.reduce((s, v) => s + v.total, 0);
 
-  // recebido no período, pela DRE em caixa — a outra ponta da ponte
+  // recebido no período, pela DRE em caixa — a outra ponta da ponte.
+  // Mesmo motivo do comparativo da DRE: comparar com 'Receita Bruta' cru parou
+  // de casar quando a receita do Fluxo de Caixa virou "Receita pelo pedido
+  // (ignorar na DRE)", e esta ponta da ponte passou a responder zero.
   const recebido = rowsPagas
-    .filter(r => r.grupoDRE === 'Receita Bruta')
+    .filter(r => GRUPOS_RECEBIMENTO_.some(g => chaveGrupo_(g) === chaveGrupo_(r.grupoDRE)))
     .reduce((s, r) => s + (r.tipo === 'entrada' ? r.valor : -r.valor), 0);
 
   const serie = serieTemporal_(vendas, FILTER.start, FILTER.end);
@@ -1888,8 +2009,12 @@ function renderDreCompetenciaVendas_(corpoPai) {
 
   // comparativo com o regime de caixa, que e a duvida que gera essa tela
   const rowsCaixa = (FLUXO_ROWS || []).filter(r => r.date >= FILTER.start && r.date <= FILTER.end);
+  /* Antes era indexOf('Receita Bruta'), que parou de casar quando a receita do
+     Fluxo de Caixa foi remapeada para "Receita pelo pedido (ignorar na DRE)" -
+     e a linha passou a responder R$ 0 em todo mes, dizendo que nada tinha sido
+     recebido. Ver GRUPOS_RECEBIMENTO_. */
   const receitaCaixa = rowsCaixa
-    .filter(r => r.tipo === 'entrada' && String(r.grupoDRE).indexOf('Receita Bruta') >= 0)
+    .filter(r => r.tipo === 'entrada' && GRUPOS_RECEBIMENTO_.some(g => chaveGrupo_(g) === chaveGrupo_(r.grupoDRE)))
     .reduce((s, r) => s + r.valor, 0);
   const dif = totalBruto - receitaCaixa;
   document.getElementById('dreComparativo').innerHTML = `
