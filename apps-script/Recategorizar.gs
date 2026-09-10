@@ -7,7 +7,7 @@
  * `atualizarContasEmAberto_` confere situacao, vencimento e valor - nao a
  * categoria, e so das contas em situacao 1.
  *
- * Resultado medido em 09/09/2026: as duas parcelas do IPTU foram movidas no
+ * Resultado medido em 09/09/2026: as 11 parcelas do IPTU foram movidas no
  * Bling de "Imposto de renda" para "IPTU e taxas municipais" (14744250501) e o
  * painel continuou mostrando R$ 74,65 em Impostos sobre o Lucro - linha que num
  * Simples Nacional deveria ser sempre zero, porque IRPJ e CSLL ja estao no DAS.
@@ -66,9 +66,20 @@ function recategorizarContas_(mapa) {
  * dos contas nao se adivinha depois.
  */
 function recategorizarIPTU() {
+  // As 11 parcelas do IPTU 2026 (fev a dez, dia 20). Comecei achando duas,
+  // olhando so ago/set - conferirIPTU mostrou que a recorrencia cobre o ano.
   const r = recategorizarContas_({
-    '23750120910': 14744250501,   // parcela venc 20/08/2026
-    '23969868738': 14744250501    // parcela venc 20/09/2026
+    '22373684390': 14744250501,   // 20/02
+    '22585956328': 14744250501,   // 20/03
+    '22889972676': 14744250501,   // 20/04
+    '23046460273': 14744250501,   // 20/05
+    '23258238496': 14744250501,   // 20/06  R$ 75,39
+    '23531325619': 14744250501,   // 20/07
+    '23750120910': 14744250501,   // 20/08
+    '23969868738': 14744250501,   // 20/09
+    '24250682870': 14744250501,   // 20/10
+    '24508098410': 14744250501,   // 20/11
+    '24777469219': 14744250501    // 20/12
   });
   const msg = 'IPTU: ' + r.linhas + ' linha(s) recategorizada(s)'
     + (r.contasSemLinha.length ? ' | SEM LINHA na planilha: ' + r.contasSemLinha.join(', ') : '')
