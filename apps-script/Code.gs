@@ -4,6 +4,10 @@
  *  2) API JSON pro dashboard (quando chega ?view=...&token=...).
  */
 
+/* ABA_RECEITA_PEDIDOS_ e ABA_CMV_CONSUMO_ sao declaradas no BlingSync.gs. Nao
+   redeclarar aqui: no Apps Script todos os .gs dividem o mesmo escopo global, e
+   um `const` repetido e SyntaxError que derruba o projeto inteiro. */
+
 function doGet(e) {
   const params = (e && e.parameter) || {};
 
@@ -226,8 +230,8 @@ function getDreFontes_() {
       .filter(r => r.mes && r.valor);
   };
   return {
-    receita: ler(ABA_RECEITA_PEDIDOS, 4),
-    cmv: ler(ABA_CMV_CONSUMO, 5)
+    receita: ler(ABA_RECEITA_PEDIDOS_, 4),
+    cmv: ler(ABA_CMV_CONSUMO_, 5)
   };
 }
 

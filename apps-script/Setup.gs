@@ -35,8 +35,11 @@ const ABA_VENDAS = 'Vendas';
 //     do fim do mes cai no mes seguinte;
 //   - a conta de compra de tecido e ESTOQUE, nao custo do que foi vendido.
 // Alimentadas por script externo, um lancamento por mes e canal.
-const ABA_RECEITA_PEDIDOS = '_Receita_Pedidos';
-const ABA_CMV_CONSUMO = '_CMV_Consumo';
+/* Os nomes destas duas abas moram no BlingSync.gs (ABA_RECEITA_PEDIDOS__ e
+   ABA_CMV_CONSUMO__), perto de quem mais depende deles: recalcularDre_ roda no
+   syncBling a cada duas horas, e uma constante vinda de outro arquivo faz a DRE
+   estourar com ReferenceError se aquele arquivo estiver atrasado no projeto -
+   foi o que aconteceu em 10/09/2026. Aqui so as funcoes de setup as usam. */
 
 // IDs reais das planilhas FPV 2026 (uma por canal) — usados para espelhar
 // a Precificação ao vivo via IMPORTRANGE, sem recriar as fórmulas.
@@ -168,7 +171,7 @@ function setupFluxoCaixa_(ss) {
  * R$ 56.860.
  */
 function setupReceitaPedidos_(ss) {
-  const sheet = getOrCreateSheet_(ss, ABA_RECEITA_PEDIDOS);
+  const sheet = getOrCreateSheet_(ss, ABA_RECEITA_PEDIDOS_);
   ensureHeader_(sheet, ['mes', 'canal', 'valor', 'pedidos', 'atualizadoEm']);
 }
 
@@ -179,7 +182,7 @@ function setupReceitaPedidos_(ss) {
  * por falta de custo, nao por sobra de margem.
  */
 function setupCmvConsumo_(ss) {
-  const sheet = getOrCreateSheet_(ss, ABA_CMV_CONSUMO);
+  const sheet = getOrCreateSheet_(ss, ABA_CMV_CONSUMO_);
   ensureHeader_(sheet, ['mes', 'canal', 'valor', 'pecas', 'pecasSemFicha', 'atualizadoEm']);
 }
 

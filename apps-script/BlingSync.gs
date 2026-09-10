@@ -13,6 +13,14 @@
  * ver o retorno real de financeiro_detalhe_dre_bling.ps1.
  */
 
+/* Nomes das duas abas que alimentam a DRE por competencia. Declarados AQUI, e
+   nao lidos do Setup.gs, de proposito: `recalcularDre_` roda dentro do
+   syncBling a cada duas horas, e uma constante vinda de outro arquivo faz a
+   DRE inteira estourar com ReferenceError se aquele arquivo estiver atrasado
+   no projeto. Aconteceu em 10/09/2026. O valor e o mesmo do Setup.gs. */
+const ABA_RECEITA_PEDIDOS_ = '_Receita_Pedidos';
+const ABA_CMV_CONSUMO_ = '_CMV_Consumo';
+
 const JANELA_SYNC_DESDE = '2025-01-01';
 
 /**
@@ -595,14 +603,14 @@ function recalcularDre_() {
     });
     return n;
   };
-  const nRec = somaExterna(ABA_RECEITA_PEDIDOS, 'Receita Bruta');
-  const nCmv = somaExterna(ABA_CMV_CONSUMO, 'CMV');
+  const nRec = somaExterna(ABA_RECEITA_PEDIDOS_, 'Receita Bruta');
+  const nCmv = somaExterna(ABA_CMV_CONSUMO_, 'CMV');
   if (!nRec) {
-    logSync_('recalcularDre', 'erro', 'a aba ' + ABA_RECEITA_PEDIDOS + ' esta vazia:'
+    logSync_('recalcularDre', 'erro', 'a aba ' + ABA_RECEITA_PEDIDOS_ + ' esta vazia:'
       + ' a DRE vai sair SEM RECEITA. Rode o alimentador antes.');
   }
   if (!nCmv) {
-    logSync_('recalcularDre', 'erro', 'a aba ' + ABA_CMV_CONSUMO + ' esta vazia:'
+    logSync_('recalcularDre', 'erro', 'a aba ' + ABA_CMV_CONSUMO_ + ' esta vazia:'
       + ' a DRE vai sair SEM CMV e com lucro bruto inflado.');
   }
 
