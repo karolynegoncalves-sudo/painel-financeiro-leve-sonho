@@ -223,7 +223,7 @@ function parseFluxoRows_(data) {
   const iData = idx('data'), iTipo = idx('tipo'), iSit = idx('situacao'), iGrupo = idx('grupoDRE'),
     iCategoria = idx('categoriaNome'), iContato = idx('contatoNome'),
     iBanco = idx('contaBancariaNome'), iValor = idx('valor'),
-    iComp = idx('competencia');
+    iComp = idx('competencia'), iDesc = idx('descricao');
   return rows.map(r => {
     const date = new Date(String(r[iData]).slice(0, 10) + 'T00:00:00');
     // COMPETENCIA: quando o fato aconteceu, que nem sempre e quando o dinheiro
@@ -249,6 +249,9 @@ function parseFluxoRows_(data) {
       categoria: r[iCategoria] || '(sem categoria)',
       contato: r[iContato] || '',
       banco: r[iBanco] || '',
+      // o texto que explica o lancamento. Vinha vazio ate 10/09/2026, quando o
+      // sync passou a gravar d.historico no lugar de d.numeroDocumento.
+      descricao: (iDesc >= 0 ? r[iDesc] : '') || '',
       valor: Math.abs(Number(r[iValor]) || 0)
     };
   }).filter(r => !isNaN(r.date.getTime()) && !r.cancelada);
@@ -1434,6 +1437,39 @@ function desenharTabelaFluxo_(rows) {
 
 /* ---------------- DRE ---------------- */
 
+/*
+ * FATURA DE CARTAO AINDA NAO RATEADA.
+ *
+ * A fatura de cartao entra no Bling como UM lancamento generico ("Cartao de
+ * Credito") no vencimento, e o rateio por categoria e feito a mao depois - por
+ * volta do dia 18, porque a fatura fechada e o extrato so existem depois do
+ * vencimento. Nao e erro: e o calendario.
+ *
+ * O efeito na DRE e que, entre o vencimento e o rateio, o valor inteiro fica
+ * numa categoria so (hoje "Compra de insumos e materia prima", que o mapa manda
+ * para Estoque). Nesse intervalo a DRE do mes corrente mostra administrativo,
+ * comercial e taxas MENORES do que sao, e o estoque maior. Em setembro/2026 sao
+ * R$ 10.216,10 nessa situacao.
+ *
+ * O painel nao tem como ratear sozinho - so quem viu a fatura sabe o que e o
+ * que. Mas pode dizer que esta assim, em vez de mostrar um numero calado.
+ */
+const RE_FATURA_CRUA = /cart[ãa]o de cr[ée]dito/i;
+
+function faturaNaoRateada_(rows) {
+  const linhas = (rows || []).filter(function (r) {
+    return RE_FATURA_CRUA.test(String(r.descricao || ''));
+  });
+  if (!linhas.length) return null;
+  const total = linhas.reduce(function (s, r) {
+    return s + (r.tipo === 'entrada' ? r.valor : -r.valor);
+  }, 0);
+  const datas = linhas.map(function (r) { return r.date; }).sort(function (a, b) { return a - b; });
+  return { n: linhas.length, total: total,
+           de: datas[0], ate: datas[datas.length - 1] };
+}
+
+
 function renderDre(el, rows) {
   const temVendas = (VENDAS_ROWS || []).length > 0;
   const competencia = true;   // ver o comentario em DRE_REGIME
@@ -1447,9 +1483,26 @@ function renderDre(el, rows) {
     <p class="dre-nota">Sempre por <b>competência</b>: cada valor entra no mês em
       que o fato aconteceu, não no mês em que o dinheiro andou. Quanto o caixa
       mexeu está na <b>DFC</b>, logo abaixo.</p>
+    <div id="avisoFatura"></div>
     <div id="dreCorpo"></div>
   `;
   ligarFiltroBar_(el);
+
+  /* ver faturaNaoRateada_: entre o vencimento e o rateio manual (~dia 18) a
+     fatura inteira fica numa categoria so, e a DRE do mes corrente subestima
+     administrativo, comercial e taxas. */
+  const fatura = faturaNaoRateada_(rows);
+  if (fatura) {
+    el.querySelector('#avisoFatura').innerHTML =
+      '<div class="alerta warn"><b>Fatura de cartão ainda não rateada.</b> '
+      + fatura.n + ' lançamento(s) de <b>' + fmtBRL(Math.abs(fatura.total), 2)
+      + '</b> entraram como "Cartão de Crédito" em uma única categoria, vencendo entre '
+      + fmtDataBR(fatura.de) + ' e ' + fmtDataBR(fatura.ate) + '. '
+      + 'O rateio por categoria é feito à mão depois do vencimento, quando a fatura fecha. '
+      + 'Até lá, este valor está todo em compra de insumos: as linhas de '
+      + 'administrativo, comercial e taxas deste período estão menores do que serão, '
+      + 'e o estoque maior.</div>';
+  }
 
   const corpo = el.querySelector('#dreCorpo');
 
