@@ -402,7 +402,17 @@ function sincronizarTipo_(tipo, token, sheet, existentes, contasBancarias, mapaC
           portador.nome || '',
           nomeDoContato_(d.contato, token),
           (d.formaPagamento && d.formaPagamento.descricao) || '',
-          d.numeroDocumento || '',
+          // HISTORICO, nao numeroDocumento (corrigido em 10/09/2026).
+          // A coluna se chama "descricao" e recebia d.numeroDocumento, que na
+          // pratica vem vazio quase sempre. O historico e onde mora TODO o
+          // texto que a Karolyne digita no Bling - "Fatura Nubank 17/08 -
+          // Insumos e materia prima (Italia, Aretha...)", "Saque Shopee ->
+          // Nubank", "IPTU" - e nada disso chegava ao painel. Sintoma que
+          // levou a achar: procurar as faturas de cartao de 2026 na planilha
+          // nao devolveu nenhuma, embora estejam todas lancadas e rateadas no
+          // Bling. As de 2025 aparecem porque entraram por outro caminho.
+          // numeroDocumento fica como reserva para nao perder o que ja havia.
+          d.historico || d.numeroDocumento || '',
           rateio.valor,
           d.id,
           tipo,
