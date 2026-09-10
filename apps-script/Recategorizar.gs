@@ -216,3 +216,99 @@ function conferirIPTU() {
   Logger.log(msg);
   return msg;
 }
+
+/* ------------------------------------------------------------- manutencao */
+
+/**
+ * Grupos do _DRE_Mapa que JA FORAM MOTIVO DE DIVERGENCIA e por isso ficam
+ * fixados aqui, com o porque. Quem discordar muda neste arquivo, nao na
+ * planilha - senao a proxima rodada desfaz e ninguem entende por que.
+ */
+var GRUPO_CANONICO_ = {
+  // Taxa de canal e DESPESA VARIAVEL DE VENDA, nao deducao da receita.
+  // Deducao e o que nunca foi seu: imposto sobre venda, devolucao, desconto
+  // incondicional. A comissao do marketplace e preco de acesso ao canal - some
+  // abaixo do lucro bruto, junto do frete, e e justamente ela que a Margem de
+  // Contribuicao precisa enxergar para responder "quanto sobra por venda".
+  // Joga-la em Deducoes zera o efeito na MC mas ESTRAGA a Margem Bruta, que e
+  // uma das tres margens do painel.
+  // (O idGrupoDre 9 do Bling - "despesa financeira", derivado do pai e nao
+  // editavel - nao vale nada aqui: o painel le a coluna grupo do _DRE_Mapa,
+  // nunca aquele campo. Nao ha motivo para contorcer a DRE por causa dele.)
+  '14639321698': 'Despesas Variaveis de Venda',   // Taxas do marketplace
+  '14639321695': 'Despesas Variaveis de Venda',   // Descontos concedidos (comissao Shopee legada)
+  '14639321667': 'Despesas Variaveis de Venda',   // Fretes e seguros
+  '14744250501': 'Despesas Administrativas'       // IPTU e taxas municipais
+};
+
+/** Forca os grupos de GRUPO_CANONICO_ no _DRE_Mapa. Devolve o que mudou. */
+function fixarGrupoCanonico_() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_DRE_MAPA);
+  if (!sheet) throw new Error('Aba ' + ABA_DRE_MAPA + ' nao existe.');
+  var ult = sheet.getLastRow();
+  var ids = sheet.getRange(2, 1, ult - 1, 1).getValues();
+  var grupos = sheet.getRange(2, 5, ult - 1, 1).getValues();
+  var mudou = 0, log = [], achados = {};
+  for (var i = 0; i < ids.length; i++) {
+    var id = String(ids[i][0]).trim();
+    if (!GRUPO_CANONICO_.hasOwnProperty(id)) continue;
+    achados[id] = true;
+    var atual = String(grupos[i][0] || '').trim();
+    var certo = GRUPO_CANONICO_[id];
+    // comparacao sem acento/caixa: o mesmo grupo ja apareceu escrito das duas
+    // formas e a divergencia so de acento ja escondeu R$ 14.676,67 numa linha
+    // de "Fora do resultado"
+    if (semAcento_(atual) === semAcento_(certo)) continue;
+    grupos[i][0] = certo;
+    log.push(id + ': "' + atual + '" -> "' + certo + '"');
+    mudou++;
+  }
+  if (mudou) sheet.getRange(2, 5, grupos.length, 1).setValues(grupos);
+  var faltando = [];
+  for (var k in GRUPO_CANONICO_) { if (!achados[k]) faltando.push(k); }
+  return { mudou: mudou, log: log, faltando: faltando };
+}
+
+function semAcento_(s) {
+  return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase();
+}
+
+/**
+ * Reclassificacoes feitas no Bling que ainda precisam alcancar a planilha.
+ * Idempotente: rodar de novo nao faz nada. Depois que o mes fecha, pode sair
+ * daqui - fica so como registro do que foi mexido e quando.
+ */
+var PENDENCIAS_ = {
+  // 11 parcelas do IPTU 2026 (fev a dez, dia 20) saindo de "Imposto de renda"
+  '22373684390': 14744250501, '22585956328': 14744250501, '22889972676': 14744250501,
+  '23046460273': 14744250501, '23258238496': 14744250501, '23531325619': 14744250501,
+  '23750120910': 14744250501, '23969868738': 14744250501, '24250682870': 14744250501,
+  '24508098410': 14744250501, '24777469219': 14744250501,
+  // SABESP (agua, R$ 185,98, venc 10/07/2026) estava em "Compra de insumos e
+  // materia prima" e inflava o CMV de julho. Vai para "Agua" (14639321671).
+  '26591060145': 14639321671
+};
+
+/**
+ * ENTRADA UNICA da manutencao da DRE. Faz, nesta ordem:
+ *   1. fixa os grupos canonicos do _DRE_Mapa
+ *   2. aplica as reclassificacoes pendentes nas linhas do Fluxo de Caixa
+ *   3. reaplica o mapa e recalcula a DRE
+ *   4. imprime a conferencia
+ *
+ * E uma funcao so de proposito: o dropdown "selecione a funcao" do editor
+ * costuma reverter para a escolha anterior, e trocar de funcao entre passos e
+ * onde se perde tempo e se roda a coisa errada sem perceber.
+ */
+function manutencaoDre() {
+  var fix = fixarGrupoCanonico_();
+  var r = recategorizarContas_(PENDENCIAS_);
+  var msg = '_DRE_Mapa: ' + fix.mudou + ' grupo(s) corrigido(s)'
+    + (fix.log.length ? ' [' + fix.log.join(' ; ') + ']' : '')
+    + (fix.faltando.length ? ' | NAO ACHADAS no mapa: ' + fix.faltando.join(', ') : '')
+    + '\nLinhas: ' + r.linhas + ' recategorizada(s)'
+    + (r.contasSemLinha.length ? ' | sem linha na planilha: ' + r.contasSemLinha.join(', ') : '');
+  logSync_('manutencaoDre', 'ok', msg);
+  Logger.log(msg + '\n\n' + conferirIPTU());
+  return msg;
+}
