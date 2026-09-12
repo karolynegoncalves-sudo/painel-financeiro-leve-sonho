@@ -274,6 +274,33 @@ var GRUPO_CANONICO_ = {
   // VISIVEL, no quadro "Fora do resultado", cobrando o rateio.
   // O id entra aqui quando a categoria for criada no Bling.
   // '<id>': 'Cartão a ratear (ignorar na DRE)'
+
+  // Antecipacao de recebiveis, criada em 12/09/2026 sob o pai financeiro. Os
+  // 1.477 lancamentos do Acelera (R$ 12.200,44) foram movidos para ela. E
+  // custo FINANCEIRO, nao despesa operacional: antecipar e o preco de receber
+  // antes, e jogar isso em despesa operacional afundava o EBITDA e escondia o
+  // custo da divida. Sem esta linha ela fica em "(sem mapear)" e o valor
+  // desaparece da DRE inteira.
+  , '14744322372': 'Resultado Financeiro'
+
+  // ---- as duas abaixo estao aqui porque DUPLICAM RECEITA se escorregarem ----
+  //
+  // A receita da DRE vem da aba _Receita_Pedidos, pela data do pedido e pelo
+  // valor PRATICADO (o campo `total`, ja liquido de desconto). Entao a conta a
+  // receber que a integracao cria para a mesma venda NAO pode entrar como
+  // receita outra vez - vai para "Receita pelo pedido (ignorar na DRE)", que
+  // existe so para isso. Em 12/09/2026 foram 247 contas, R$ 17.563,96, que sem
+  // este mapeamento apareceriam como receita nova.
+  , '14639321643': 'Receita pelo pedido (ignorar na DRE)'   // Vendas de produtos
+  //
+  // Mesma logica para o desconto: se a receita ja entra liquida, deduzir o
+  // desconto DE NOVO conta duas vezes. "Descontos incondicionais" fica fora do
+  // resultado por isso. CUIDADO com a categoria 14639321695 ("Descontos
+  // concedidos"), que esta mapeada como Despesas Variaveis de Venda porque
+  // historicamente recebia COMISSAO da Shopee, nao desconto - se um espelho
+  // novo passar a lancar desconto ali, o desconto volta a ser contado duas
+  // vezes e o mapeamento dela tem que mudar junto.
+  , '14639321657': 'Desconto de vitrine (ignorar na DRE)'   // Descontos incondicionais
 };
 
 /** Forca os grupos de GRUPO_CANONICO_ no _DRE_Mapa. Devolve o que mudou. */
