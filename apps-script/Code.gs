@@ -173,6 +173,17 @@ function onOpen() {
     .addItem('Sincronizar Bling agora', 'syncBling')
     .addItem('Instalar sincronização automática (2h)', 'criarGatilhoSync')
     .addSeparator()
+    /* MANUTENCAO DA DRE, no menu e nao so no seletor do editor.
+       As tres sao de rodar em sequencia e MAIS DE UMA VEZ - a fila de
+       categoria para sozinha aos 4,5 min e continua de onde parou. O seletor
+       de funcao do editor reverte para a escolha anterior entre execucoes, o
+       que faz rodar a funcao errada sem perceber; pelo menu da planilha cada
+       uma e um clique. */
+    .addItem('Buscar categoria das contas novas (repetir ate restar 0)',
+             '_rodarReprocessarSemCategoria')
+    .addItem('Manutencao da DRE (mapa + pendencias + recalculo)', 'manutencaoDre')
+    .addItem('O que ainda esta (sem mapear)', 'semMapearAno')
+    .addSeparator()
     .addItem('1) Configurar setup da planilha', 'setupWorkbook')
     .addItem('2) Importar produtos do NuvemShop (uma vez)', 'importarProdutosNuvemShop_')
     .addToUi();
