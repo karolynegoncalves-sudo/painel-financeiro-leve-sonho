@@ -3113,6 +3113,8 @@ function renderPrecificacao(el) {
       </table></div>
     </div>
 
+    ${tabelaPisos_(modelos, canais, dfx)}
+
     <div class="alerta info">
       <b>Margem de contribuição</b> é o que sobra depois do custo de produzir e das taxas do canal — antes das despesas fixas da empresa (hoje ${fmtPctPlano_(dfx)} do faturamento). É a régua certa para decidir preço e promoção, porque o custo fixo já está pago de qualquer jeito.
       O <b>piso de 15%</b> é a margem mínima para queima de estoque.
@@ -3290,6 +3292,102 @@ function avisosFicha_(r, preco, p15) {
   const a = r.avisos.slice();
   if (preco && p15 && preco < p15) a.push('A R$ ' + fmtNum_(preco) + ' este produto está abaixo do piso de queima (R$ ' + fmtNum_(p15) + ').');
   return a.length ? '<div class="fp-aviso">' + a.map(escapeHtml_).join(' ') + '</div>' : '';
+}
+
+/*
+ * QUANTO CADA PECA PRECISA CUSTAR PARA PAGAR O CUSTO FIXO.
+ *
+ * DE ONDE VEIO: em 14/09/2026 o custo fixo por peca estava sendo aplicado pela
+ * METADE (19,4% em vez de ~38,8%, por receita dobrada na conta - ver
+ * getDreRows_). Corrigido, a Karolyne perguntou quais fichas "mudam de lado".
+ *
+ * A regra e exata: muda de lado a ficha cuja MARGEM DE CONTRIBUICAO esta entre
+ * a % antiga e a nova. Acima da nova ja dava lucro e continua; abaixo da antiga
+ * ja dava prejuizo e continua. Quem vira e quem esta na faixa do meio.
+ *
+ * Mas nao existe LISTA de fichas para varrer - a rota `precificacao` devolveu
+ * 0 itens no testarRotas de hoje, porque a Ficha de Preco e calculadora, uma
+ * peca por vez, e nao cadastro de precos. Entao a pergunta certa nao e "qual
+ * muda", e "quanto cada peca precisa custar para se pagar". Esta tabela.
+ *
+ * A CONTA, e ela e brutal quando escrita:
+ *
+ *     preco x (1 - carga do canal - custo fixo %) = custo + taxa fixa
+ *
+ * Na Shopee a carga e ~50,8% e o custo fixo ~38,8%: sobram 10,4% do preco para
+ * pagar a peca. Logo o piso e cerca de DEZ VEZES o custo de fabricacao. Nao e
+ * exagero de calculo, e o que 89,6% de carga faz com qualquer numero.
+ *
+ * Quando o denominador fica <= 0, nao existe preco que feche - e a tabela diz
+ * isso com palavra, nao com um numero gigante que pareceria meta de preco.
+ *
+ * O tamanho usado e o M quando o modelo tem, senao o do meio da grade: e a
+ * peca representativa. Tamanho maior gasta mais tecido e piora; menor melhora.
+ */
+function tabelaPisos_(modelos, canais, dfx) {
+  const rend = rendimentoMapa_();
+  const tamDe = (m) => {
+    const t = Object.keys(rend[m] || {}).sort((x, y) => ORDEM_TAM.indexOf(x) - ORDEM_TAM.indexOf(y));
+    if (!t.length) return '';
+    return t.indexOf('M') >= 0 ? 'M' : t[Math.floor(t.length / 2)];
+  };
+
+  /* Preco que zera o LUCRO (ja com o rateio do custo fixo), nao a margem de
+     contribuicao. E a resposta para "vale ser feito?", diferente do piso de
+     queima, que responde "vale liquidar?". */
+  const pisoLucroZero = (custo, taxaPct, fixa) => {
+    const den = 1 - taxaPct - dfx;
+    return den > 0 ? (custo + fixa) / den : null;
+  };
+
+  let linhas = '';
+  let impossiveis = 0, total = 0;
+  modelos.forEach((m) => {
+    const tam = tamDe(m);
+    if (!tam) return;
+    let celulas = '';
+    canais.forEach((c) => {
+      const r = calcularFicha_(m, tam, '', [], c, 0);
+      const pz = pisoLucroZero(r.custo, r.taxaPct, r.fixa);
+      const pq = pisoQueima_(r.custo, r.taxaPct, r.fixa, c);
+      total++;
+      if (pz === null) impossiveis++;
+      celulas += '<td class="num' + (pz === null ? ' val-out' : '') + '">'
+        + (pz === null ? 'não fecha' : 'R$ ' + fmtNum_(pz))
+        + '<small>custo ' + fmtNum_(r.custo) + ' · carga ' + fmtPctPlano_(r.taxaPct)
+        + (pq ? ' · queima ' + fmtNum_(pq) : '') + '</small></td>';
+    });
+    linhas += '<tr><td>' + escapeHtml_(m) + '<small>' + escapeHtml_(tam) + '</small></td>'
+      + celulas + '</tr>';
+  });
+
+  return `<div class="panel">
+    <h3>Quanto cada peça precisa custar para pagar o custo fixo</h3>
+    <div class="sub">Preço que <b>zera o lucro</b> — já com o rateio de
+      <b>${fmtPctPlano_(dfx)}</b> de custo fixo. Abaixo dele a peça vende e a empresa
+      perde. É diferente do <b>piso de queima</b> (embaixo, em cinza), que ignora o
+      custo fixo de propósito e serve só para liquidar estoque.
+      O tamanho de cada linha é o representativo do modelo (M quando existe); tamanho
+      maior gasta mais tecido e piora o piso.</div>
+    <div style="overflow-x:auto;"><table class="simple pisos">
+      <thead><tr><th>Modelo</th>${canais.map(c => '<th class="num">' + escapeHtml_(c.canal) + '</th>').join('')}</tr></thead>
+      <tbody>${linhas}</tbody>
+    </table></div>
+    ${impossiveis ? `<div class="alerta warn"><b>${impossiveis} de ${total} combinações
+      não fecham a nenhum preço.</b> Quando a carga do canal somada ao custo fixo passa
+      de 100% do preço, não existe preço que pague a peça — aumentar o preço aumenta a
+      comissão na mesma proporção. Nesses casos a decisão não é de preço: é sair do
+      canal, cortar custo fixo, ou tratar aquele produto como isca e ganhar em
+      outro.</div>` : ''}
+    <div class="alerta info"><b>Por que os números são tão altos.</b> A conta é
+      <code>preço × (1 − carga do canal − custo fixo %) = custo da peça</code>. Na
+      Shopee a carga é ~50,8% e o custo fixo ${fmtPctPlano_(dfx)}: sobram cerca de
+      10% do preço para pagar a peça, então o piso fica perto de <b>dez vezes</b> o
+      custo de fabricação. Não é exagero de cálculo — é o que uma carga de ~90% faz
+      com qualquer número. Os dois caminhos que mudam isso são <b>canal</b> (o site
+      cobra 9,8% contra 29,5% da Shopee) e <b>custo fixo</b>, que hoje é
+      R$ 21.116,59 por mês.</div>
+  </div>`;
 }
 
 function linhasCanais_(canais, preco) {

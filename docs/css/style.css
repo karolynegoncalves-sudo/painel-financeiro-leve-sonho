@@ -434,3 +434,13 @@ table.razonete thead th{border-bottom:1px solid var(--ink);}
   table.razonete{min-width:0;}
   table.razonete .rz-meio{border-left:0; padding-left:0;}
 }
+
+
+/* ---- Tabela de pisos por modelo x canal ----
+   O numero grande responde "vale ser feito?"; o cinza embaixo mostra de onde
+   ele sai (custo e carga) para a resposta nao precisar de fe. */
+table.pisos td small, table.pisos td.num small{display:block; font-weight:400;
+  font-size:10.5px; color:var(--muted); margin-top:2px; white-space:nowrap;}
+table.pisos td{vertical-align:top;}
+table.pisos td.num{font-variant-numeric:tabular-nums; font-weight:600;}
+table.pisos td.val-out small{color:var(--brick);}
