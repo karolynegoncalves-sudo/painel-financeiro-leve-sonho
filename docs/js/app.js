@@ -3173,30 +3173,47 @@ function linhasVenda_(r, preco, taxaRs, sobra, p15, dfx, fixasRs, lucro) {
       + (sub ? '<small>' + escapeHtml_(sub) + '</small>' : '')
       + '</span><span class="val">' + val + '</span></div>');
 
-  vi('Preço de venda', '', 'R$ ' + fmtNum_(preco));
+  /* SEM PRECO, as linhas de taxa mostram travessao e nao "- R$ 0,00".
+     Em 14/09/2026 a Karolyne perguntou "nao entendi essas taxas 0.00": a ficha
+     estava com preco vazio, e todas as taxas sao percentual SOBRE o preco, logo
+     zero. Mas "- R$ 0,00" nao le como "ainda nao calculado" - le como "este
+     canal nao cobra nada", que e o oposto do que a ficha existe para dizer. E o
+     Lucro aparecia em VERMELHO com o custo inteiro, como se a peca desse
+     prejuizo, quando era so custo sem receita do outro lado.
+
+     Mesma regra do hero, que ja fazia certo ("Informe um preco de venda para
+     ver"): numero que depende do preco so aparece quando existe preco. */
+  const q = (v) => preco ? '− R$ ' + fmtNum_(v) : '—';
+
+  vi('Preço de venda', preco ? '' : 'digite acima para calcular as taxas',
+    preco ? 'R$ ' + fmtNum_(preco) : '—');
   vi('Custo até a porta', 'fabricação + embalagem', '− R$ ' + fmtNum_(r.custo));
 
-  vi('Imposto (' + fmtPctPlano_(r.taxa.imp) + ')', '', '− R$ ' + fmtNum_(preco * r.taxa.imp), 'sub');
+  vi('Imposto (' + fmtPctPlano_(r.taxa.imp) + ')', '', q(preco * r.taxa.imp), 'sub');
   vi('Comissão (' + fmtPctPlano_(r.taxa.com) + ')',
     escapeHtml_(r.canal.canal) + (r.faixa ? ' · faixa ' + escapeHtml_(r.faixa) : ''),
-    '− R$ ' + fmtNum_(preco * r.taxa.com), 'sub');
+    q(preco * r.taxa.com), 'sub');
   r.taxa.ex.forEach(e => vi(escapeHtml_(e[0]) + ' (' + fmtPctPlano_(e[1]) + ')', '',
-    '− R$ ' + fmtNum_(preco * e[1]), 'sub'));
+    q(preco * e[1]), 'sub'));
   if (r.fixa) vi('Taxa fixa por item', escapeHtml_(r.canal.canal)
     + (r.faixa ? ' cobra nesta faixa' : ' cobra por item vendido'),
     '− R$ ' + fmtNum_(r.fixa), 'sub');
 
-  vi('Margem de contribuição', 'antes das despesas fixas', 'R$ ' + fmtNum_(sobra),
-    'tot' + (sobra < 0 ? ' neg' : ''));
+  vi('Margem de contribuição', 'antes das despesas fixas',
+    preco ? 'R$ ' + fmtNum_(sobra) : '—',
+    'tot' + (preco && sobra < 0 ? ' neg' : ''));
 
   /* Rateio das despesas fixas: aluguel, salarios, energia. Vem da aba
      _Despesas_Fixas dividida pela receita media dos ultimos meses da DRE,
      entao acompanha o faturamento sozinho. Sem ele a ficha parava na
      margem de contribuicao e nao dava pra saber se a peca da lucro. */
   vi('Despesas fixas (' + fmtPctPlano_(dfx) + ')', 'rateio sobre o faturamento',
-    '− R$ ' + fmtNum_(fixasRs), 'sub');
-  vi('Lucro', preco ? fmtPctPlano_(lucro / preco) + ' do preço' : '',
-    'R$ ' + fmtNum_(lucro), 'tot destaque' + (lucro < 0 ? ' neg' : ''));
+    q(fixasRs), 'sub');
+  vi('Lucro',
+    preco ? fmtPctPlano_(lucro / preco) + ' do preço'
+          : 'sem preço não há lucro a calcular — o piso abaixo é a resposta útil',
+    preco ? 'R$ ' + fmtNum_(lucro) : '—',
+    'tot destaque' + (preco && lucro < 0 ? ' neg' : ''));
 
   vi('Piso para 15% de margem', 'só para queima — ignora as despesas fixas de propósito',
     p15 ? 'R$ ' + fmtNum_(p15) : '—');

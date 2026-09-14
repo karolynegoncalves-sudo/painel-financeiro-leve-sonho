@@ -142,9 +142,16 @@ function getDespesasFixasPct_(fallbackManual) {
   const totalDespesas = despesas.reduce((soma, r) => soma + num_(r[iValor]), 0);
   if (totalDespesas <= 0) return fallbackManual;
 
-  // so o regime realizado: somar os dois dobraria o faturamento e a
-  // despesa fixa sairia pela metade
-  const { rows: dreRows } = getDreRows_('realizado');
+  /* COMPETENCIA, nao realizado. Dois motivos, e o primeiro e conceitual:
+     custo fixo do mes se compara com a receita GANHA no mes, nao com o dinheiro
+     que entrou nele - senao a % oscila com o prazo de repasse do marketplace,
+     que nao tem nada a ver com o custo da peca.
+     O segundo e que o 'realizado' desta aba nunca foi caixa: ele data pelo
+     VENCIMENTO, nao pelo pagamento, e o proprio getDreRows_ documenta que
+     chegava a ficar MAIOR que a competencia, o que e impossivel.
+     Em 14/09/2026 ele estava, alem disso, DOBRADO por linha de regime vazio, e
+     esta funcao devolvia 19,4% onde o certo era ~38,8%. Ver getDreRows_. */
+  const { rows: dreRows } = getDreRows_('competencia');
   const receitaPorMes = {};
   dreRows.forEach(r => {
     const mes = mesTexto_(r[0]), grupo = r[1], valor = r[2];

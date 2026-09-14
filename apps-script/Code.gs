@@ -518,7 +518,32 @@ function getDreRows_(regime) {
   const { headers, rows } = sheetData_(ABA_DRE);
   const iReg = headers.indexOf('regime');
   if (iReg < 0) return { headers: headers, rows: rows };   // planilha antiga
-  return { headers: headers, rows: rows.filter(r => String(r[iReg] || 'realizado') === alvo) };
+
+  /* LINHA COM REGIME VAZIO E LIXO, NAO E "realizado".
+   *
+   * Este `|| 'realizado'` custou caro: linha gravada antes de 27/08/2026, quando
+   * a coluna regime nasceu, tem a celula vazia, e o default a jogava dentro do
+   * realizado. Onde existiam as duas versoes do mesmo mes, a receita DOBRAVA.
+   *
+   * O efeito nao apareceu na DRE (que le competencia e portanto ignorava as
+   * vazias) e sim na FICHA DE PRECO: getDespesasFixasPct_ divide o custo fixo
+   * pela receita media, leu receita dobrada, e aplicava 19,4% de custo fixo por
+   * peca em vez de ~38,8%. Metade. Toda peca parecia lucrar o dobro do que
+   * lucra - erro de precificacao, que e pior que erro de relatorio, porque vira
+   * decisao de preco. A Karolyne perguntou "aqui ta 19% pq?" e era isso.
+   *
+   * Agora vazio so conta se NENHUMA linha tiver regime (planilha de fato
+   * antiga). Havendo regime em qualquer linha, vazio e sobra de schema velho e
+   * fica fora. */
+  const temRegime = rows.some(r => String(r[iReg] || '').trim());
+  return {
+    headers: headers,
+    rows: rows.filter(function (r) {
+      const v = String(r[iReg] || '').trim();
+      if (!v) return !temRegime;
+      return v === alvo;
+    })
+  };
 }
 
 /** Lê o resumo de cada aba Precificação_<Canal> (espelhada via IMPORTRANGE). */
