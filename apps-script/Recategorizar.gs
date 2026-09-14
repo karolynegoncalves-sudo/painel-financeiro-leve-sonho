@@ -612,56 +612,124 @@ function conferirFaturasPorData() {
  */
 
 /**
- * Lista as linhas que caem em "(sem mapear)" num mes, para saber o que sao.
+ * Lista, conta por conta, o que compoe um grupo da DRE num mes.
  *
- * POR QUE: em setembro/2026 apareceu +R$ 17.563,96 em "(sem mapear)" na DRE.
- * Entrada, so no regime competencia (logo, conta em ABERTO), e fora do
- * resultado - nao inflava receita, o que e o certo. Mas "(sem mapear)" nao diz
- * o que e, e o risco nao e o valor: e alguem "consertar" isso para dentro da
- * Receita Bruta um dia e dobrar o faturamento, porque a receita da DRE ja vem
- * inteira da aba _Receita_Pedidos.
+ * POR QUE ISSO EXISTE: em 14/09/2026 eu tentei descobrir tres vezes, por
+ * inferencia, o que compunha a linha de Deducoes da Receita - e errei duas.
+ * Atribui ao socio cinco parcelas que nao eram dele; li uma provisao mensal
+ * recorrente de R$ 4.867,34 como se fosse o DAS de abril em aberto. Os dois
+ * erros tinham a mesma causa: adivinhar a natureza de um lancamento pelo valor
+ * e pela data, sem ler o historico.
  *
- * A unica categoria mapeada para "(sem mapear)" e a 14739989237, "A Classificar
- * (revisar)" - ou seja, por construcao e conta que ninguem classificou no
- * Bling. Esta funcao mostra quais, com contato e historico, para classificar.
+ * Deduzir por valor e barato e parece funcionar, o que e justamente o perigo.
+ * Esta funcao troca o palpite por leitura.
  *
- * @param {string} mes  'yyyy-MM' (padrao: 2026-09)
+ * @param {string} grupo    nome do grupo, sem precisar de acento nem caixa
+ *                          ("deducoes" acha "Deduções da Receita")
+ * @param {string} mes      'yyyy-MM'
+ * @param {string=} regime  'competencia' (padrao) ou 'realizado'
  */
-function listarSemMapear(mes) {
-  mes = mes || '2026-09';
+function listarGrupo(grupo, mes, regime) {
+  grupo = semAcento_(grupo || '');
+  mes = mes || '2026-08';
+  regime = regime || 'competencia';
+  if (!grupo) return 'informe o grupo, ex.: listarGrupo("deducoes", "2026-08")';
+
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_FLUXO_CAIXA);
   var ult = sheet.getLastRow();
   if (ult < 2) return 'Fluxo de Caixa vazio';
   var dados = sheet.getRange(2, 1, ult - 1, Math.max(sheet.getLastColumn(), 15)).getValues();
 
-  var achadas = [], total = 0, porCat = {};
+  var linhas = [], total = 0, porCat = {}, porSit = {};
   dados.forEach(function (l) {
-    var grupo = String(l[5] || '').trim();
-    if (grupo.indexOf('sem mapear') < 0) return;
-    // a competencia e a coluna 15, com fallback para a data
-    var quando = l[14] || l[0];
+    var g = semAcento_(l[5]);
+    if (g.indexOf(grupo) < 0) return;
+    var sit = String(l[2] || '').trim();
+    if (sit === '5') return;                      // cancelada
+    // no regime realizado so conta o que saiu de fato, e pela data do
+    // pagamento; em competencia conta tudo, pela competencia
+    var quando;
+    if (regime === 'realizado') {
+      if (sit !== '2' && sit !== '3') return;
+      quando = l[0];
+    } else {
+      quando = l[14] || l[0];
+    }
     var m = quando instanceof Date
       ? Utilities.formatDate(quando, 'America/Sao_Paulo', 'yyyy-MM')
       : String(quando || '').trim().slice(0, 7);
     if (m !== mes) return;
-    var v = Number(l[11] || 0) * (String(l[1]).trim() === 'entrada' ? 1 : -1);
+
+    var v = Math.abs(Number(l[11]) || 0) * (String(l[1]).trim() === 'entrada' ? 1 : -1);
     total += v;
-    var cat = String(l[3] || '(sem categoria)') + ' ' + String(l[4] || '');
+    var cat = String(l[3] || '0') + ' ' + String(l[4] || '(sem categoria)');
     porCat[cat] = (porCat[cat] || 0) + v;
-    if (achadas.length < 60) {
-      achadas.push([m, String(l[1]).trim(), 'sit' + l[2], 'R$ ' + Number(l[11] || 0).toFixed(2),
-                    cat, String(l[13] || '') + ':' + String(l[12] || '')].join('  '));
-    }
+    porSit[sit] = (porSit[sit] || 0) + v;
+    var desc = [l[8], l[9], l[10]].filter(function (x) { return x; }).join(' ');
+    linhas.push({
+      v: v,
+      txt: [(l[0] instanceof Date
+              ? Utilities.formatDate(l[0], 'America/Sao_Paulo', 'dd/MM')
+              : String(l[0]).slice(0, 10)),
+            'sit' + sit,
+            'R$ ' + v.toFixed(2),
+            String(l[13] || '') + ':' + String(l[12] || ''),
+            String(l[4] || ''),
+            String(desc).slice(0, 60)].join('  ')
+    });
   });
 
-  var out = ['(SEM MAPEAR) em ' + mes + ': R$ ' + total.toFixed(2)
-             + ' em ' + achadas.length + ' linha(s) mostradas', '', 'por categoria:'];
-  Object.keys(porCat).sort().forEach(function (k) {
-    out.push('  ' + k + '  ->  R$ ' + porCat[k].toFixed(2));
+  linhas.sort(function (a, b) { return Math.abs(b.v) - Math.abs(a.v); });
+  var out = ['GRUPO "' + grupo + '" em ' + mes + ' (' + regime + '): R$ ' + total.toFixed(2)
+             + ' em ' + linhas.length + ' linha(s)', '', 'por categoria:'];
+  Object.keys(porCat).sort(function (a, b) { return Math.abs(porCat[b]) - Math.abs(porCat[a]); })
+    .forEach(function (k) { out.push('  ' + k + '  ->  R$ ' + porCat[k].toFixed(2)); });
+  out.push('');
+  out.push('por situacao (1=aberta 2=baixada 3=parcial):');
+  Object.keys(porSit).sort().forEach(function (k) {
+    out.push('  sit' + k + '  ->  R$ ' + porSit[k].toFixed(2));
   });
   out.push('');
-  out.push('as linhas (ate 60):');
-  achadas.forEach(function (a) { out.push('  ' + a); });
+  out.push('as linhas, da maior para a menor:');
+  linhas.slice(0, 80).forEach(function (a) { out.push('  ' + a.txt); });
+  if (linhas.length > 80) out.push('  ... e mais ' + (linhas.length - 80) + ' linha(s)');
+
+  var msg = out.join('\n');
+  Logger.log(msg);
+  return msg;
+}
+
+/** Atalho: a linha de Deducoes da Receita de um mes, conta por conta. */
+function listarDeducoes(mes) {
+  return listarGrupo('deducoes', mes || '2026-08');
+}
+
+/**
+ * Atalho: o que caiu em "(sem mapear)". A unica categoria mapeada para esse
+ * grupo e a 14739989237 "A Classificar (revisar)", entao por construcao e
+ * conta que ninguem classificou no Bling.
+ *
+ * O risco ali nao e o valor, e o rotulo: a receita da DRE vem inteira da aba
+ * _Receita_Pedidos, entao se alguem "consertar" essas linhas para dentro da
+ * Receita Bruta o faturamento dobra.
+ */
+function listarSemMapear(mes) {
+  return listarGrupo('sem mapear', mes || '2026-09');
+}
+
+/**
+ * As Deducoes de TODOS os meses de um ano, so os totais e a contagem - para
+ * achar o mes que esta fora do padrao antes de abrir conta por conta.
+ */
+function resumoDeducoes(ano) {
+  ano = String(ano || 2026);
+  var out = ['DEDUCOES DA RECEITA por mes, ' + ano, '', 'mes        total       linhas'];
+  for (var i = 1; i <= 12; i++) {
+    var mes = ano + '-' + (i < 10 ? '0' + i : i);
+    var r = listarGrupo('deducoes', mes) || '';
+    var m = r.match(/R\$ (-?[\d.]+) em (\d+) linha/);
+    out.push('  ' + mes + '  ' + (m ? m[1] : '?') + '  ' + (m ? m[2] : '?'));
+  }
   var msg = out.join('\n');
   Logger.log(msg);
   return msg;
