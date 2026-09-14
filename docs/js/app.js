@@ -2228,7 +2228,7 @@ function renderDreCompetenciaVendas_(corpoPai) {
       </div>
     </div>
     <div class="panel"><h3>Receita por canal</h3>
-      <div style="overflow-x:auto;"><table class="simple" id="tblDre"></table></div></div>
+      <div style="overflow-x:auto;"><table class="simple" id="tblCanal"></table></div></div>
     <div class="panel"><h3>Caixa × Competência</h3>
       <div id="dreComparativo"></div></div>
   `;
@@ -2250,7 +2250,14 @@ function renderDreCompetenciaVendas_(corpoPai) {
   const totColuna = porCanalColuna.map(pc => Object.values(pc).reduce((a, b) => a + b, 0));
   html += '<tr><td><b>Total</b></td>' + totColuna.map(v => `<td><b>${fmtBRL(v, 2)}</b></td>`).join('')
         + `<td><b>${fmtBRL(totalBruto, 2)}</b></td></tr>`;
-  document.getElementById('tblDre').innerHTML = html;
+  /* ERA id="tblDre" AQUI, e era o mesmo id da tabela da DRE.
+     getElementById devolve o PRIMEIRO elemento do documento com aquele id,
+     que e a tabela da DRE - entao a tabela de canais era escrita EM CIMA da
+     DRE, e o painel "Receita por canal" ficava vazio. A aba DRE mostrava
+     receita por canal no lugar de Receita, Deducoes, CMV, Lucro Bruto, Margem
+     de Contribuicao, EBITDA e Resultado.
+     Id duplicado nao da erro nenhum: o navegador escolhe um e segue. */
+  document.getElementById('tblCanal').innerHTML = html;
 
   // comparativo com o regime de caixa, que e a duvida que gera essa tela
   const rowsCaixa = (FLUXO_ROWS || []).filter(r => r.date >= FILTER.start && r.date <= FILTER.end);
