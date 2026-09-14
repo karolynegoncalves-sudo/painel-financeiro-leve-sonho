@@ -54,8 +54,8 @@ function doGet(e) {
          culpava a coisa errada. Faltava saber ONDE o imposto se perde: a tabela
          nao existe no projeto implantado, ou existe e o valor nao chega.
          Carimbo que so diz o proprio nome nao responde isso. */
-      const fontes = getDreFontes_();
-      const diag = BACKEND_VERSAO_
+      const fontes = getDreFontesV2_();
+      const diag = BACKEND_VERSAO_ + ' fontesV2'
         + ' | das=' + (typeof DAS_POR_COMPETENCIA_ === 'undefined' ? 'UNDEF'
                        : Object.keys(DAS_POR_COMPETENCIA_).length)
         + ' imp=' + (fontes.imposto || []).length
@@ -66,7 +66,7 @@ function doGet(e) {
                              backend: diag });
     }
     case 'dre': return jsonResponse_({ email: email, rows: getDreRows_(e && e.parameter && e.parameter.regime) });
-    case 'dreFontes': return jsonResponse_(Object.assign({ email: email }, getDreFontes_()));
+    case 'dreFontes': return jsonResponse_(Object.assign({ email: email }, getDreFontesV2_()));
     case 'precificacao': return jsonResponse_({ email: email, produtos: getPrecificacaoCatalogo_() });
     case 'precificacaoConfig': return jsonResponse_({ email: email, config: getPrecificacaoConfig_() });
     case 'precificacaoMateriais': return jsonResponse_({ email: email, materiais: getPrecificacaoMateriaisCatalogo_() });
@@ -260,7 +260,25 @@ function getFluxoCaixaRows_() {
  * misturá-los ali contaminaria a DFC, que lê a mesma aba e passaria a contar
  * a venda duas vezes: uma no recebimento real e outra na linha sintética.
  */
-function getDreFontes_() {
+/* NOME NOVO, e o motivo e um bug de 14/09/2026 que custou meia hora.
+ *
+ * No Apps Script todos os .gs dividem o mesmo escopo global, e a ULTIMA
+ * declaracao de uma funcao vence. O projeto ao vivo tinha uma copia antiga de
+ * `getDreFontes_` num arquivo que nao foi substituido, e essa copia - sem a
+ * linha de imposto - era a que rodava. O sintoma era impossivel de ler: o
+ * carimbo do doGet media `das=11` (a tabela de guias estava la) e ao mesmo
+ * tempo `imp=0` (nenhuma linha de imposto saiu). Codigo certo no editor,
+ * comportamento de codigo velho na resposta, e a Karolyne republicando varias
+ * vezes sem que nada mudasse.
+ *
+ * Renomear resolve de raiz: copia velha do nome ANTIGO nao consegue sombrear
+ * um nome que existe uma vez so. A copia velha fica orfa e inofensiva - vale
+ * apagar quando aparecer, mas o painel nao depende mais disso.
+ *
+ * LICAO GERAL: quando o codigo do editor esta certo e o comportamento e de
+ * codigo velho, suspeitar de nome duplicado ANTES de suspeitar de implantacao.
+ */
+function getDreFontesV2_() {
   const ler = (aba, cols) => {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const sheet = ss.getSheetByName(aba);
