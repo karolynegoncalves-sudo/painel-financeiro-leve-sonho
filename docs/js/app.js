@@ -2368,7 +2368,7 @@ function renderDreCaixa_(corpo, rows, porCompetencia) {
   let html = '<tr><th>Grupo</th>' + serie.map(b => `<th>${b.label}</th>`).join('')
            + '<th>Total</th><th>% receita</th></tr>';
 
-  DRE_ESTRUTURA.forEach(item => {
+  DRE_ESTRUTURA.forEach((item, i) => {
     const vals = item.tipo === 'grupo' ? valoresDe(item.nome) : somaDe(item.soma);
     const total = totalDe(vals);
     // grupo que não existe no período não polui a tela; subtotal sempre aparece
@@ -2391,7 +2391,7 @@ function renderDreCaixa_(corpo, rows, porCompetencia) {
     const corMes = (v) => item.tipo === 'resultado'
       ? (v < 0 ? ' val-out' : v > 0 ? ' val-in' : '')
       : '';
-    html += `<tr class="${cls}">${nome}`
+    html += `<tr class="${cls} dre-abre" data-item="${i}" title="Clique para ver o que tem dentro">${nome}`
           + vals.map(v => `<td class="num${corMes(v)}">${fmtBRL(v, 2)}</td>`).join('')
           + celTotal
           + `<td class="num">${fmtPctSimples_(pct(total))}</td></tr>`;
@@ -2466,6 +2466,159 @@ function renderDreCaixa_(corpo, rows, porCompetencia) {
 
   document.getElementById('tblDre').innerHTML = html;
   if (htmlFora) document.getElementById('tblDreFora').innerHTML = htmlFora;
+
+  /* CONTEXTO DA GAVETA. Guardado num objeto de modulo e nao passado por
+     parametro porque o clique acontece depois do render, quando `rows`,
+     `serie` e `fontes` ja sairam de escopo. Redesenhar a DRE troca o contexto
+     inteiro, entao a gaveta nunca mostra numero de um periodo com rotulo de
+     outro - foi esse o acidente de 09/09/2026 com a corrida de renderizacao. */
+  /* Fecha antes de trocar o contexto: gaveta aberta de um render anterior
+     mostraria numero de um periodo com rotulo de outro. */
+  fecharGaveta_();
+  DRILL = { rows: rows, fontes: fontes, porCompetencia: !!porCompetencia,
+            porColuna: porColuna, serie: serie };
+  const tbl = document.getElementById('tblDre');
+  tbl.querySelectorAll('tr.dre-abre').forEach(function (tr) {
+    tr.addEventListener('click', function () {
+      abrirGaveta_(DRE_ESTRUTURA[Number(tr.dataset.item)]);
+    });
+  });
+}
+
+let DRILL = null;
+
+/*
+ * A GAVETA: clicar numa linha da DRE mostra o que tem dentro dela.
+ *
+ * POR QUE: a DRE responde "quanto" e nunca "o que". A Karolyne perguntou o que
+ * era o Resultado Financeiro de -R$ 6.256,15, e a unica resposta possivel era
+ * eu abrir a planilha e contar. Numero que nao se abre obriga a confiar, e
+ * confiar e o que este painel passou o dia perdendo o direito de pedir.
+ *
+ * TRES TIPOS DE LINHA, tres respostas diferentes:
+ *   grupo alimentado por LANCAMENTO -> as categorias dentro dele, e os maiores
+ *     lancamentos com data, quem e descricao.
+ *   grupo alimentado por FONTE EXTERNA (receita, CMV, imposto, provisao) ->
+ *     quebra por canal ou por competencia, porque nao existe lancamento.
+ *   subtotal e resultado -> a COMPOSICAO: quais linhas entram e com quanto.
+ *     Sem isso "EBITDA" e uma palavra; com isso e uma conta.
+ */
+function abrirGaveta_(item) {
+  if (!DRILL || !item) return;
+  const F = (v) => fmtBRL(v, 2);
+  const abs = (v) => fmtBRL(Math.abs(v), 2);
+  const soma = (lista) => (lista || []).reduce((s, r) => s + Math.abs(Number(r.valor) || 0), 0);
+
+  let corpo = '';
+  let total = 0;
+
+  if (item.tipo === 'grupo') {
+    total = DRILL.porColuna.reduce((s, pg) => s + (pg[item.nome] || 0), 0);
+
+    if (item.nome === GRUPO_DEPRECIACAO) {
+      corpo = `<p class="gv-nota">Não é lançamento: é cálculo. Nenhum dinheiro sai
+        do caixa por esta linha — a máquina foi paga quando foi comprada, e aqui
+        ela perde valor com o uso.</p>
+        <table class="simple gv-tab">
+          <tr><td>Máquinas e equipamentos<small>R$ 17.950 × 10% a.a.</small></td>
+              <td class="num">${F(-149.58 * DRILL.serie.length)}</td></tr>
+          <tr><td>Informática<small>R$ 10.400 × 20% a.a.</small></td>
+              <td class="num">${F(-173.33 * DRILL.serie.length)}</td></tr>
+        </table>
+        <p class="gv-nota">${DRILL.serie.length} mês(es) no período.</p>`;
+
+    } else if (DRILL.fontes && (item.nome === 'Receita Bruta' || item.nome === 'CMV'
+               || item.nome === GRUPO_IMPOSTO || item.nome === GRUPO_PROVISAO)) {
+      /* Fonte externa: nao ha lancamento para listar. A quebra util e por CANAL
+         na receita e no CMV, e por COMPETENCIA no imposto - que e o que a guia
+         tem. */
+      const lista = item.nome === 'Receita Bruta' ? DRILL.fontes.receita
+        : item.nome === 'CMV' ? DRILL.fontes.cmv
+          : item.nome === GRUPO_IMPOSTO ? DRILL.fontes.imposto : DRILL.fontes.provisao;
+      const meses = DRILL.serie.map(b => b.chave);
+      const dentro = (lista || []).filter(r => meses.indexOf(r.mes) >= 0);
+      const porChave = {};
+      dentro.forEach(function (r) {
+        const k = (item.nome === GRUPO_IMPOSTO) ? r.mes : (r.canal || '—');
+        porChave[k] = (porChave[k] || 0) + Math.abs(Number(r.valor) || 0);
+      });
+      const chaves = Object.keys(porChave).sort((x, y) => porChave[y] - porChave[x]);
+      corpo = `<p class="gv-nota">Vem da aba
+        <code>${item.nome === 'CMV' ? '_CMV_Consumo' : item.nome === 'Receita Bruta' ? '_Receita_Pedidos' : 'das guias do Simples'}</code>,
+        não de lançamento do caixa — por isso a quebra é
+        ${item.nome === GRUPO_IMPOSTO ? 'por competência' : 'por canal'} e não por conta.</p>
+        <table class="simple gv-tab">`
+        + chaves.map(k => `<tr><td>${escapeHtml_(k)}</td><td class="num">${abs(porChave[k])}</td>
+            <td class="num gv-pct">${fmtPctSimples_(porChave[k] / (soma(dentro) || 1))}</td></tr>`).join('')
+        + '</table>';
+
+    } else {
+      /* Grupo de lancamento: categorias primeiro (e ali que se decide), depois
+         as maiores linhas (e ali que se confere). */
+      const chave = chaveGrupo_(item.nome);
+      const linhas = DRILL.rows.filter(r => chaveGrupo_(canonizarGrupo_(r.grupoDRE)) === chave);
+      const porCat = {};
+      linhas.forEach(function (r) {
+        const v = (r.tipo === 'entrada' ? 1 : -1) * r.valor;
+        porCat[r.categoria] = (porCat[r.categoria] || 0) + v;
+      });
+      const cats = Object.keys(porCat).sort((x, y) => Math.abs(porCat[y]) - Math.abs(porCat[x]));
+      const maiores = linhas.slice().sort((x, y) => y.valor - x.valor).slice(0, 15);
+
+      corpo = `<h4>Por categoria <small>${cats.length} categoria(s)</small></h4>
+        <table class="simple gv-tab">`
+        + cats.map(c => `<tr><td>${escapeHtml_(c)}</td><td class="num">${F(porCat[c])}</td>
+            <td class="num gv-pct">${fmtPctSimples_(Math.abs(porCat[c]) / (Math.abs(total) || 1))}</td></tr>`).join('')
+        + `</table>
+        <h4>Os maiores lançamentos <small>${linhas.length} no período</small></h4>
+        <table class="simple gv-tab gv-lanc">`
+        + maiores.map(r => `<tr>
+            <td>${fmtDataBR(DRILL.porCompetencia ? r.dateComp : r.date)}</td>
+            <td>${escapeHtml_(r.contato || r.categoria)}
+              ${r.descricao ? '<small>' + escapeHtml_(String(r.descricao).slice(0, 70)) + '</small>' : ''}</td>
+            <td class="num">${F((r.tipo === 'entrada' ? 1 : -1) * r.valor)}</td></tr>`).join('')
+        + '</table>'
+        + (linhas.length > 15 ? `<p class="gv-nota">Mostrando os 15 maiores de
+            ${linhas.length}. A aba <b>Fluxo de Caixa</b> tem todos, com busca.</p>` : '')
+        + (!linhas.length ? '<p class="gv-nota">Nenhum lançamento neste grupo no período.</p>' : '');
+    }
+
+  } else {
+    /* Subtotal ou resultado: a conta que o forma. */
+    total = (item.soma || []).reduce((s, n) =>
+      s + DRILL.porColuna.reduce((t, pg) => t + (pg[n] || 0), 0), 0);
+    corpo = `<p class="gv-nota">Não é uma conta, é uma <b>soma</b>. Estas são as linhas
+      que entram nela — clique em qualquer uma delas na tabela para abrir por dentro.</p>
+      <table class="simple gv-tab">`
+      + (item.soma || []).map(function (n) {
+        const v = DRILL.porColuna.reduce((t, pg) => t + (pg[n] || 0), 0);
+        return `<tr><td>${escapeHtml_(n)}</td><td class="num">${F(v)}</td></tr>`;
+      }).join('')
+      + `</table><table class="simple gv-tab"><tr class="gv-total">
+        <td><b>${escapeHtml_(item.nome)}</b></td><td class="num"><b>${F(total)}</b></td></tr></table>`;
+  }
+
+  const receita = DRILL.porColuna.reduce((s, pg) => s + (pg['Receita Bruta'] || 0), 0);
+  const gv = document.getElementById('gaveta');
+  gv.innerHTML = `<div class="gv-head">
+      <div><div class="gv-tit">${escapeHtml_(item.nome)}</div>
+        <div class="gv-sub">${fmtDataBR(FILTER.start)} a ${fmtDataBR(FILTER.end)} ·
+          ${DRILL.porCompetencia ? 'competência' : 'caixa'}</div></div>
+      <button type="button" class="gv-x" id="gvFechar" aria-label="Fechar">✕</button>
+    </div>
+    <div class="gv-valor ${total < 0 ? 'val-out' : 'val-in'}">${F(total)}
+      <small>${receita ? fmtPctSimples_(Math.abs(total) / Math.abs(receita)) + ' da receita' : ''}</small></div>
+    <div class="gv-corpo">${corpo}</div>`;
+  gv.hidden = false;
+  document.getElementById('gvFundo').hidden = false;
+  document.getElementById('gvFechar').addEventListener('click', fecharGaveta_);
+}
+
+function fecharGaveta_() {
+  const gv = document.getElementById('gaveta');
+  if (gv) gv.hidden = true;
+  const f = document.getElementById('gvFundo');
+  if (f) f.hidden = true;
 }
 
 /*

@@ -452,3 +452,56 @@ table.pisos td.val-out small{color:var(--brick);}
 tr.desp-encerrada input{opacity:.55;}
 tr.desp-encerrada td:first-child .pill{margin-left:6px; vertical-align:middle;}
 #despesasTabela input[type=month]{font-family:inherit; font-size:12.5px; padding:5px 6px;}
+
+
+/* ================= GAVETA DE DETALHE DA DRE ================= */
+/* Linha da DRE que abre. O cursor e a unica pista de que da para clicar -
+   sublinhar ou colorir competiria com o significado das cores da tabela. */
+table.dre tr.dre-abre{cursor:pointer;}
+table.dre tr.dre-abre:hover td, table.dre tr.dre-abre:hover th{background:#EFF3F0;}
+table.dre tr.dre-resultado.dre-abre:hover td,
+table.dre tr.dre-resultado.dre-abre:hover th{background:#3A5E51;}
+table.dre tr.dre-subtotal.dre-abre:hover td,
+table.dre tr.dre-subtotal.dre-abre:hover th{background:#DDE7E1;}
+
+#gvFundo{position:fixed; inset:0; background:rgba(20,26,23,.35); z-index:40;}
+#gaveta{position:fixed; top:0; right:0; bottom:0; width:min(470px,94vw); z-index:41;
+  background:var(--panel,#fff); box-shadow:-10px 0 34px rgba(20,26,23,.22);
+  display:flex; flex-direction:column; overflow:hidden;}
+.gv-head{display:flex; align-items:flex-start; justify-content:space-between; gap:12px;
+  padding:16px 18px 12px; border-bottom:1px solid var(--linha,#E3DED7);}
+.gv-tit{font-family:'Fraunces',serif; font-size:19px; font-weight:600; line-height:1.15;}
+.gv-sub{font-size:11.5px; color:var(--muted); margin-top:3px;}
+.gv-x{border:0; background:transparent; font-size:17px; line-height:1; cursor:pointer;
+  color:var(--muted); padding:4px 6px; border-radius:6px;}
+.gv-x:hover{background:rgba(0,0,0,.06); color:var(--ink);}
+.gv-valor{font-family:'Fraunces',serif; font-size:30px; font-weight:600;
+  padding:14px 18px 4px; line-height:1;}
+.gv-valor small{display:block; font-family:inherit; font-size:11.5px; font-weight:400;
+  color:var(--muted); margin-top:5px;}
+.gv-corpo{flex:1; overflow-y:auto; padding:10px 18px 24px;}
+.gv-corpo h4{font-size:11px; text-transform:uppercase; letter-spacing:.06em;
+  color:var(--muted); margin:18px 0 6px; font-weight:600;}
+.gv-corpo h4 small{text-transform:none; letter-spacing:0; font-weight:400;}
+.gv-nota{font-size:12px; color:var(--muted); line-height:1.5; margin:8px 0;}
+table.gv-tab{width:100%; font-size:12.5px;}
+table.gv-tab td{padding:6px 4px; vertical-align:top;}
+table.gv-tab td small{display:block; color:var(--muted); font-size:11px; margin-top:1px;}
+table.gv-tab td.num{font-variant-numeric:tabular-nums; white-space:nowrap; font-weight:600;}
+table.gv-tab td.gv-pct{font-weight:400; color:var(--muted); width:52px;}
+table.gv-tab.gv-lanc td:first-child{white-space:nowrap; color:var(--muted); width:64px;}
+table.gv-tab tr.gv-total td{border-top:2px solid var(--ink);}
+
+/* ---- Cor do resultado, nas TRES situacoes ----
+   O branco herdado do fundo escuro sumia quando o valor era positivo em
+   algumas telas. Aqui as tres saidas estao escritas, e nenhuma depende de
+   heranca: lucro em verde claro, prejuizo em salmao, zero em cinza-claro
+   legivel. !important porque a regra de `td` da faixa vem depois no arquivo em
+   algumas telas e reganhava por ordem. */
+table.dre tr.dre-resultado td.val-in, table.dre tr.dre-resultado th.val-in,
+table.simple tr.dre-resultado td.val-in, table.simple tr.dre-resultado th.val-in{
+  color:#8FE3B0 !important;}
+table.dre tr.dre-resultado td.val-out, table.dre tr.dre-resultado th.val-out,
+table.simple tr.dre-resultado td.val-out, table.simple tr.dre-resultado th.val-out{
+  color:#FFB4A8 !important;}
+table.dre tr.dre-resultado td, table.dre tr.dre-resultado th{color:#EAF2EE;}
