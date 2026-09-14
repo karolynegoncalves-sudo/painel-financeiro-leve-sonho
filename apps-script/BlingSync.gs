@@ -55,8 +55,45 @@ const ABA_CMV_CONSUMO_ = '_CMV_Consumo';
  */
 var GRUPO_PROVISAO_IMPOSTO_ = 'Provisão de Imposto (venda sem nota)';
 
-/** Canais cuja venda nao gera nota fiscal. Conferir quando isso mudar. */
-var CANAIS_SEM_NOTA_ = { 'Nuvemshop': 1 };
+/**
+ * DESLIGADO em 14/09/2026, no mesmo dia em que foi criado. Deixo o mecanismo e
+ * o motivo, porque o erro e instrutivo.
+ *
+ * A HIPOTESE ERA: a receita declarada e 18% menor que a do painel (R$ 71.600 em
+ * jan-jun), o gap coincide com a venda da Nuvemshop no mesmo semestre
+ * (R$ 64.206, 90% de encaixe), logo o site vende sem nota e falta imposto.
+ *
+ * O QUE DERRUBOU: a sessao "Caixa" achou o consolidado de NFe que havia sido
+ * tirado do Bling para liberar espaco (BACKUP BLING / nfe /
+ * NFe_Consolidado_2023-2026.xlsx) e mediu. A NOTA EMITIDA BATE COM O DECLARADO,
+ * quase ao centavo:
+ *
+ *   mes      NF emitida   declarado   painel     NF-decl   painel-NF
+ *   jan/26    36.927,40    36.997     64.567        -70      +27.640
+ *   fev/26    55.576,44    53.008     68.080     +2.568      +12.504
+ *   mar/26    76.152,16    74.180     84.716     +1.972       +8.564
+ *   abr/26    68.081,76    62.433     74.159     +5.649       +6.077
+ *   mai/26    54.239,90    54.250     54.917        -10         +677
+ *   jun/26    39.350,24    39.182     45.212       +168      +5.862
+ *
+ * Ou seja: nao ha venda faturada que nao tenha sido declarada. Quem esta fora e
+ * O PAINEL - janeiro tem 75% mais receita que nota emitida.
+ *
+ * E a hipotese do site nao sobrevive ao teste de maio: o gap de maio foi de
+ * R$ 667 enquanto a Nuvemshop vendeu R$ 7.099. Se o site nao emitisse nota, o
+ * gap de maio teria que ser de 7 mil. Omissao fiscal nao desaparece num mes e
+ * volta no outro; o padrao errático (43%, 22%, 12%, 16%, 1%, 13%) e assinatura
+ * de DUPLICACAO, nao de omissao - e ha um problema conhecido de pedido-clone
+ * que inflou julho em 72% pelo mesmo mecanismo.
+ *
+ * Provisionar imposto sobre receita que talvez nao exista e pior que nao
+ * provisionar: cria despesa falsa sobre venda falsa. Fica vazio ate a
+ * _Receita_Pedidos ser reconciliada contra o consolidado de NFe.
+ *
+ * PARA RELIGAR: so depois de a receita do painel bater com a nota emitida. Se
+ * depois disso ainda sobrar venda sem nota, ela entra aqui.
+ */
+var CANAIS_SEM_NOTA_ = {};
 
 /**
  * Aliquota efetiva do Simples, medida nas seis guias de 2026 sobre a receita
