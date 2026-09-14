@@ -272,8 +272,8 @@ var GRUPO_CANONICO_ = {
   // materia prima", a maior categoria do cartao (71% do gasto do ano): a DRE do
   // mes corrente ficava errada calada. Fora do resultado ela fica incompleta e
   // VISIVEL, no quadro "Fora do resultado", cobrando o rateio.
-  // O id entra aqui quando a categoria for criada no Bling.
-  // '<id>': 'Cartão a ratear (ignorar na DRE)'
+  // Criada no Bling em 13/09/2026 pela sessao "Caixa" (raiz, tipo despesa).
+  , '14744752723': 'Cartão a ratear (ignorar na DRE)'
 
   // Antecipacao de recebiveis, criada em 12/09/2026 sob o pai financeiro. Os
   // 1.477 lancamentos do Acelera (R$ 12.200,44) foram movidos para ela. E
