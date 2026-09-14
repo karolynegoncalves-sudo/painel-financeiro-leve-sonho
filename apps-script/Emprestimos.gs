@@ -46,6 +46,38 @@ var GRUPO_AMORTIZACAO_ = 'Amortização de Dívida (ignorar na DRE)';
 /** Categorias do Bling que carregam parcela de emprestimo. */
 var CATEGORIAS_EMPRESTIMO_ = { '14674413185': 1, '14674413186': 1 };
 
+/**
+ * MUTUO DO SOCIO - as 6 parcelas de 2025 que nao sao de contrato bancario.
+ *
+ * A Karolyne explicou em 14/09/2026: o Vinicius adiantou dinheiro para a
+ * REFORMA (pagou o pedreiro e o resto direto) e a empresa devolveu depois.
+ * Nao e emprestimo de banco, e mutuo de socio.
+ *
+ * POR QUE ISSO MUDA TUDO NELAS: emprestimo de socio sem juros nao tem despesa
+ * nenhuma. A devolucao e BAIXA DE PASSIVO - sai dinheiro, cai a divida com o
+ * socio, e o resultado nao e tocado. Enquanto ficavam em Resultado Financeiro,
+ * os R$ 6.084,21 inteiros apareciam como despesa de 2025 sem serem despesa de
+ * nada.
+ *
+ * Por isso a fatia delas e 100% amortizacao e 0 de juros - e vao para o mesmo
+ * grupo fora da DRE, onde continuam visiveis como saida de caixa.
+ *
+ * Identificadas por (mes, valor) porque nao tenho o id das contas. Os quatro
+ * valores de ~1.159,2x em meses seguidos, parando em outubro, sao o padrao de
+ * devolucao parcelada que ela descreveu.
+ *
+ * A CONTRAPARTIDA AINDA FALTA NO BALANCO: se o dinheiro pagou reforma, a
+ * empresa ganhou uma BENFEITORIA em imovel, que e ativo imobilizado e deprecia
+ * - nao e despesa em momento nenhum. O valor total da reforma nao esta neste
+ * painel; enquanto nao estiver, o ativo esta subavaliado.
+ */
+var MUTUO_SOCIO_ = {
+  '2025-03': [1447.30, 2583.00],
+  '2025-08': [1159.22],
+  '2025-09': [1159.25],
+  '2025-10': [1159.22]
+};
+
 /** Contrato 4376284 (SAC): amortizacao constante. */
 var AMORTIZACAO_SAC_ = 1467.51;
 /** Contrato 3397194 (Price): parcela fixa. */
@@ -99,11 +131,22 @@ function fatiarEmprestimo_(categoriaId, vencimento, valor) {
   var v = Math.abs(Number(valor) || 0);
   if (!v) return null;
 
+  var mesRef = Utilities.formatDate(new Date(vencimento), 'America/Sao_Paulo', 'yyyy-MM');
+
+  // MUTUO DO SOCIO: 100% amortizacao, zero juros. Ver MUTUO_SOCIO_.
+  var lista = MUTUO_SOCIO_[mesRef];
+  if (lista) {
+    for (var i = 0; i < lista.length; i++) {
+      if (Math.abs(v - lista[i]) < 0.05) {
+        return { juros: 0, amortizacao: v, contrato: 'mutuo-vinicius' };
+      }
+    }
+  }
+
   // PRICE: parcela fixa de R$ 374,22. A tolerancia de R$ 1,00 cobre
   // arredondamento, nao confunde com nada - a outra parcela e 7x maior.
   if (Math.abs(v - PARCELA_PRICE_) < 1.00) {
-    var mes = Utilities.formatDate(new Date(vencimento), 'America/Sao_Paulo', 'yyyy-MM');
-    var j = JUROS_PRICE_[mes];
+    var j = JUROS_PRICE_[mesRef];
     if (j === undefined || j > v) return null;
     return { juros: j, amortizacao: v - j, contrato: '3397194' };
   }
@@ -119,9 +162,8 @@ function fatiarEmprestimo_(categoriaId, vencimento, valor) {
   // O piso de valor tambem fica, para as parcelas de R$ 1.159,22 e R$ 1.447,30
   // de 2025, que nao sao de nenhum dos dois contratos: ficam em "sem regra" de
   // proposito, ate sabermos de que operacao sao.
-  var mesSac = Utilities.formatDate(new Date(vencimento), 'America/Sao_Paulo', 'yyyy-MM');
   var SAC_PRIMEIRA = '2025-12', SAC_ULTIMA = '2030-07';
-  if (mesSac >= SAC_PRIMEIRA && mesSac <= SAC_ULTIMA &&
+  if (mesRef >= SAC_PRIMEIRA && mesRef <= SAC_ULTIMA &&
       v >= 2000 && v > AMORTIZACAO_SAC_) {
     return { juros: v - AMORTIZACAO_SAC_, amortizacao: AMORTIZACAO_SAC_,
              contrato: '4376284' };
