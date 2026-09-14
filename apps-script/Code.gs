@@ -48,9 +48,22 @@ function doGet(e) {
       // dreFontes vem no mesmo pacote pelo mesmo motivo de despesasFixas: cada
       // chamada ao Web App custa ~2s de pedágio fixo, e a DRE precisa das duas
       // logo na primeira tela.
+      /* O carimbo MEDE, nao so se nomeia. Em 14/09/2026 a Karolyne republicou
+         varias vezes e o imposto nao apareceu; o carimbo de versao chegou certo
+         na tela, o que provou que a implantacao estava boa e que meu aviso
+         culpava a coisa errada. Faltava saber ONDE o imposto se perde: a tabela
+         nao existe no projeto implantado, ou existe e o valor nao chega.
+         Carimbo que so diz o proprio nome nao responde isso. */
+      const fontes = getDreFontes_();
+      const diag = BACKEND_VERSAO_
+        + ' | das=' + (typeof DAS_POR_COMPETENCIA_ === 'undefined' ? 'UNDEF'
+                       : Object.keys(DAS_POR_COMPETENCIA_).length)
+        + ' imp=' + (fontes.imposto || []).length
+        + ' prov=' + (fontes.provisao || []).length
+        + ' rec=' + (fontes.receita || []).length;
       return jsonResponse_({ email: email, rows: r, despesas: getDespesasFixasList_(),
-                             dreFontes: getDreFontes_(),
-                             backend: BACKEND_VERSAO_ });
+                             dreFontes: fontes,
+                             backend: diag });
     }
     case 'dre': return jsonResponse_({ email: email, rows: getDreRows_(e && e.parameter && e.parameter.regime) });
     case 'dreFontes': return jsonResponse_(Object.assign({ email: email }, getDreFontes_()));

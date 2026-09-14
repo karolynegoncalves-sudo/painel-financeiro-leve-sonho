@@ -176,7 +176,13 @@ async function apiFetch_(view, token, tentativas) {
   let ultimoErro = '';
   for (let t = 1; t <= max; t++) {
     try {
-      const resp = await fetch(CFG.APPS_SCRIPT_URL + '?view=' + view + '&token=' + encodeURIComponent(token));
+      /* `_` quebra cache. O /exec do Apps Script redireciona para
+         googleusercontent.com, e essa resposta pode ser servida do cache do
+         navegador - o painel mostraria dado de antes da republicacao mesmo
+         depois de recarregar. Dashboard nunca deve ler dado de cache. */
+      const resp = await fetch(CFG.APPS_SCRIPT_URL + '?view=' + view
+        + '&token=' + encodeURIComponent(token) + '&_=' + Date.now(),
+        { cache: 'no-store' });
       const txt = await resp.text();
       try {
         return JSON.parse(txt);
@@ -2262,15 +2268,22 @@ function renderDreCaixa_(corpo, rows, porCompetencia) {
      campo chega vazio, a linha soma zero e a DRE ESCONDE o grupo - foi assim
      que o ano apareceu com -R$ 104,82 de imposto em vez de -R$ 24.933.
      Zero escondido parece tela certa; este aviso torna o defeito visivel. */
+  /* O aviso NAO chuta mais a causa. A primeira versao dizia "republique" e
+     estava errada: o carimbo chegou certo na tela, provando que a implantacao
+     estava boa. Acusar a causa errada custa mais tempo que nao acusar nenhuma -
+     a pessoa vai republicar de novo e voltar ao mesmo lugar. Agora o aviso diz
+     o FATO (o imposto nao chegou), mostra a medicao do backend e deixa a
+     interpretacao para quem sabe ler `das=` e `imp=`. */
   const semImposto = !(fontes && (fontes.imposto || []).length);
   const avisoBackend = semImposto
     ? `<p class="dre-nota" style="color:var(--brick);"><b>O imposto não está
-       chegando nesta tela.</b> O Apps Script implantado é a versão
-       <code>${escapeHtml_(BACKEND_VERSAO)}</code>, que não envia a linha de
-       imposto. Salvar o código não publica: Implantar &rarr; Gerenciar
-       implantações &rarr; lápis &rarr; Versão: <b>Nova versão</b> &rarr;
-       Implantar. Enquanto isso, o resultado abaixo está <b>melhor que o
-       real</b>.</p>`
+       chegando nesta tela</b> — o resultado abaixo está <b>melhor que o real</b>
+       em cerca de R$ 4,4 mil por mês. Medição do backend:
+       <code>${escapeHtml_(BACKEND_VERSAO)}</code>. Leia assim:
+       <code>das=UNDEF</code> a tabela de guias não existe no projeto implantado;
+       <code>das=13 imp=0</code> ela existe e o valor não sai do
+       <code>getDreFontes_</code>; <code>imp=13</code> o problema está nesta
+       tela, não no backend.</p>`
     : `<p class="dre-nota" style="font-size:11px;">backend
        <code>${escapeHtml_(BACKEND_VERSAO)}</code></p>`;
 
