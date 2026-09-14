@@ -556,12 +556,33 @@ function recalcularDre_() {
       if (situacao === '5') return;
       if (!grupoDRE || grupoDRE.indexOf('ignorar') >= 0) return;
       const sinal = tipo === 'entrada' ? 1 : -1;
-      const soma = (regime, quando) => {
+      const soma = (regime, quando, grupo, quanto) => {
         if (!quando) return;
         const mes = Utilities.formatDate(new Date(quando), 'America/Sao_Paulo', 'yyyy-MM');
-        const chave = regime + '|' + mes + '|' + grupoDRE;
-        totais[chave] = (totais[chave] || 0) + sinal * Math.abs(valor);
+        const chave = regime + '|' + mes + '|' + (grupo || grupoDRE);
+        totais[chave] = (totais[chave] || 0) +
+          sinal * Math.abs(quanto === undefined ? valor : quanto);
       };
+
+      // Parcela de emprestimo nao e toda despesa: a amortizacao abate divida.
+      // Ver Emprestimos.gs. Usamos o VENCIMENTO (linha[0]) de proposito - a
+      // competencia gravada nas parcelas do contrato grande esta errada
+      // (todas ficaram com a data do cadastro, em fev/mar de 2026).
+      const fatia = (typeof fatiarEmprestimo_ === 'function')
+        ? fatiarEmprestimo_(linha[3], data, valor) : null;
+      if (fatia) {
+        soma('competencia', data, 'Resultado Financeiro', fatia.juros);
+        if (situacao === '2' || situacao === '3') {
+          soma('realizado', data, 'Resultado Financeiro', fatia.juros);
+        }
+        // a amortizacao NAO entra na DRE; fica no grupo proprio, visivel
+        // em "Fora do resultado", para nunca sumir calada
+        soma('competencia', data, GRUPO_AMORTIZACAO_, fatia.amortizacao);
+        if (situacao === '2' || situacao === '3') {
+          soma('realizado', data, GRUPO_AMORTIZACAO_, fatia.amortizacao);
+        }
+        return;
+      }
       // competencia conta mesmo o que ainda nao foi pago: o fato ja
       // aconteceu. Realizado so conta o que saiu/entrou de fato (2 =
       // baixada, 3 = parcial).

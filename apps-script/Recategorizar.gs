@@ -301,6 +301,20 @@ var GRUPO_CANONICO_ = {
   // novo passar a lancar desconto ali, o desconto volta a ser contado duas
   // vezes e o mapeamento dela tem que mudar junto.
   , '14639321657': 'Desconto de vitrine (ignorar na DRE)'   // Descontos incondicionais
+
+  // "Participacao de parceiros", criada no Bling em 13/09/2026 (raiz, tipo 1).
+  // Primeiro lancamento: R$ 1.039,21 para o Joao, 50% do lucro da venda de 180
+  // fechos em 08/09 (conta 26861488477).
+  //
+  // Fica ABAIXO DO EBITDA de proposito. E divisao de lucro, nao custo de
+  // operar: se entrar em despesa operacional, a margem de contribuicao e o
+  // ponto de equilibrio pioram por causa de um pagamento que so existe PORQUE
+  // houve lucro - o PE passaria a exigir volume para cobrir uma conta que so
+  // nasce depois de o volume existir. Circular e errado.
+  //
+  // Consequencia pratica: quanto MAIS fecho vender, maior esta linha. Ela nao
+  // e uma despesa a cortar; e a metade do socio.
+  , '14744735213': 'Participacao de Parceiros'
 };
 
 /** Forca os grupos de GRUPO_CANONICO_ no _DRE_Mapa. Devolve o que mudou. */

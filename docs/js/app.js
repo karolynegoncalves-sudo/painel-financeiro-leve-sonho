@@ -1592,7 +1592,13 @@ const DFC_POR_GRUPO = {
   'Despesas Administrativas':               'admin',
   'Despesas Comerciais':                    'comercial',
   'Impostos sobre o Lucro':                 'impostos',
-  'Resultado Financeiro':                   'financeiro'
+  'Resultado Financeiro':                   'financeiro',
+  // divisao de lucro com o dono da marca dos fechos. No CAIXA e saida
+  // operacional como qualquer outra - o tratamento especial dela e so na DRE,
+  // onde fica abaixo do EBITDA.
+  'Participação de Parceiros':              'admin',
+  // amortização é saída de financiamento: paga dívida, não custeia a operação
+  'Amortização de Dívida (ignorar na DRE)': 'financeiro'
 };
 
 /* Grupos que sao dinheiro de VENDA entrando no caixa. Usado tambem pelo
@@ -1768,8 +1774,13 @@ const DRE_ESTRUTURA = [
   { tipo: 'subtotal', nome: 'EBITDA', soma: ATE_MC.concat(CUSTO_FIXO_GRUPOS) },
   { tipo: 'grupo',    nome: 'Resultado Financeiro' },
   { tipo: 'grupo',    nome: 'Impostos sobre o Lucro' },
+  // Abaixo do EBITDA de proposito: so existe porque houve lucro. Se subisse
+  // para o custo fixo, o ponto de equilibrio exigiria volume para cobrir uma
+  // conta que so nasce depois de o volume existir.
+  { tipo: 'grupo',    nome: 'Participação de Parceiros' },
   { tipo: 'resultado', nome: 'Resultado Líquido',
-    soma: ATE_MC.concat(CUSTO_FIXO_GRUPOS, ['Resultado Financeiro', 'Impostos sobre o Lucro']) }
+    soma: ATE_MC.concat(CUSTO_FIXO_GRUPOS,
+      ['Resultado Financeiro', 'Impostos sobre o Lucro', 'Participação de Parceiros']) }
 ];
 
 /* Ficam FORA do resultado, mostrados à parte para não sumirem calados. */
@@ -1797,7 +1808,14 @@ const DRE_ESTRUTURA = [
 const DRE_FORA = ['Não Operacional (ignorar na DRE)', 'Estoque (ignorar na DRE)',
                   'Receita pelo pedido (ignorar na DRE)',
                   'Desconto de vitrine (ignorar na DRE)',
-                  'Cartão a ratear (ignorar na DRE)', '(sem mapear)'];
+                  'Cartão a ratear (ignorar na DRE)',
+                  /* A parte da parcela do Sicoob que abate a dívida. Sai do
+                     resultado porque não é despesa (é troca de patrimônio),
+                     mas aparece aqui porque É saída de caixa: em agosto/2026
+                     foram R$ 1.734,24, mais da metade da parcela. Quem olha só
+                     a DRE não vê esse dinheiro sair. Ver Emprestimos.gs. */
+                  'Amortização de Dívida (ignorar na DRE)',
+                  '(sem mapear)'];
 
 /*
  * A tabela da DRE. `porCompetencia` só muda a data usada para distribuir nas

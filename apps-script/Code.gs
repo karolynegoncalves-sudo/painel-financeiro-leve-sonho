@@ -305,12 +305,18 @@ function getKpis_() {
     const fixas = (g['Despesas Comerciais'] || 0) + (g['Despesas Administrativas'] || 0) + (g['Despesas com Pessoal'] || 0);
     const resultadoFinanceiro = g['Resultado Financeiro'] || 0;
     const impostosLucro = g['Impostos sobre o Lucro'] || 0;
+    // grupo novo (13/09/2026): divisão de lucro com o dono da marca dos fechos
+    // (50/50). Entra DEPOIS do EBITDA de propósito — só existe porque houve
+    // lucro, então não pode entrar no custo fixo nem na MC: o ponto de
+    // equilíbrio passaria a exigir volume para cobrir uma conta que só nasce
+    // depois de o volume existir.
+    const parceiros = g['Participação de Parceiros'] || 0;
 
     const receitaLiquida = receitaBruta + deducoes;
     const lucroBruto = receitaLiquida + cmv;
     const margemContribuicao = lucroBruto + variaveis;
     const ebitda = margemContribuicao + fixas;
-    const resultadoLiquido = ebitda + resultadoFinanceiro + impostosLucro;
+    const resultadoLiquido = ebitda + resultadoFinanceiro + impostosLucro + parceiros;
     const pct = (v) => receitaBruta ? (v / receitaBruta) : 0;
     return {
       mes: mes,
