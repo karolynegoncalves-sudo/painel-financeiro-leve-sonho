@@ -290,10 +290,15 @@ var GRUPO_CANONICO_ = {
   // A receita da DRE vem da aba _Receita_Pedidos, pela data do pedido e pelo
   // valor PRATICADO (o campo `total`, ja liquido de desconto). Entao a conta a
   // receber que a integracao cria para a mesma venda NAO pode entrar como
-  // receita outra vez - vai para "Receita pelo pedido (ignorar na DRE)", que
+  // receita outra vez - vai para "Venda já contada pelo pedido (ignorar na DRE)", que
   // existe so para isso. Em 12/09/2026 foram 247 contas, R$ 17.563,96, que sem
   // este mapeamento apareceriam como receita nova.
-  , '14639321643': 'Receita pelo pedido (ignorar na DRE)'   // Vendas de produtos
+  , '14639321643': 'Venda já contada pelo pedido (ignorar na DRE)'   // Vendas de produtos
+  // As irmas da 643. Estavam so no corrigirDreMapa_ do Code.gs, que e rotina
+  // avulsa - entao o manutencaoDre nao as corrigia e elas ficariam com o nome
+  // antigo no mapa depois do rename de 14/09/2026.
+  , '14639321644': 'Venda já contada pelo pedido (ignorar na DRE)'   // Vendas de mercadorias
+  , '14639321645': 'Venda já contada pelo pedido (ignorar na DRE)'   // Vendas de servicos
   //
   // Mesma logica para o desconto: se a receita ja entra liquida, deduzir o
   // desconto DE NOVO conta duas vezes. "Descontos incondicionais" fica fora do
@@ -753,8 +758,8 @@ function listarSemMapear(mes) {
  *
  * ARMADILHA ao mapear: a receita da DRE vem inteira da aba _Receita_Pedidos,
  * pelo pedido. Se uma conta a receber for "arrumada" para dentro de Receita
- * Bruta, o faturamento dobra. Venda vai para "Receita pelo pedido (ignorar na
- * DRE)", nunca para Receita Bruta.
+ * Bruta, o faturamento dobra. Venda vai para "Venda ja contada pelo pedido
+ * (ignorar na DRE)", nunca para Receita Bruta.
  */
 function semMapearAno(ano) {
   ano = String(ano || 2026);
@@ -814,7 +819,7 @@ function semMapearAno(ano) {
     if (b.linhas.length > 25) out.push('     ... e mais ' + (b.linhas.length - 25) + ' linha(s)');
     out.push('');
   });
-  out.push('Venda -> "Receita pelo pedido (ignorar na DRE)". NUNCA Receita Bruta.');
+  out.push('Venda -> "Venda já contada pelo pedido (ignorar na DRE)". NUNCA Receita Bruta.');
 
   var msg = out.join('\n');
   Logger.log(msg);

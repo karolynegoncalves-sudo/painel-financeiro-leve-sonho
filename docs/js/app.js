@@ -537,6 +537,16 @@ async function safeRenderTab(view) {
  * Comparar sem acento e sem caixa resolve na leitura, sem exigir que ninguém
  * digite certo na planilha.
  */
+/* Nome antigo -> nome atual. Renomear grupo e barato no codigo e caro na
+   planilha, e os dois nao mudam juntos. Entrada aqui pode ser removida depois
+   que manutencaoDre rodar e nenhuma linha carregar mais o nome velho - mas
+   custa nada deixar, e protege planilha restaurada de backup. */
+const ALIAS_GRUPO_ = {
+  /* 14/09/2026: o nome antigo lia como "receita ignorada" e e o oposto - e a
+     copia da venda que NAO conta, porque a que conta vem do pedido. */
+  'Receita pelo pedido (ignorar na DRE)': 'Venda já contada pelo pedido (ignorar na DRE)'
+};
+
 let GRUPOS_CANONICOS = null;
 
 function chaveGrupo_(s) {
@@ -554,6 +564,14 @@ function canonizarGrupo_(nome) {
     DRE_ESTRUTURA.filter(i => i.tipo === 'grupo').map(i => i.nome)
       .concat(DRE_FORA)
       .forEach(n => { GRUPOS_CANONICOS[chaveGrupo_(n)] = n; });
+    /* NOMES ANTIGOS. O painel e a planilha nao viram a mesma hora: o JS chega
+       pelo GitHub Pages na hora, e as ~19 mil linhas do Fluxo de Caixa so
+       recebem o nome novo quando alguem roda manutencaoDre. Sem esta tabela, a
+       DRE nessa janela mostraria o grupo DUAS vezes - o nome novo zerado e o
+       antigo como grupo desconhecido, em vermelho, como se fosse problema. */
+    Object.keys(ALIAS_GRUPO_).forEach(function (antigo) {
+      GRUPOS_CANONICOS[chaveGrupo_(antigo)] = ALIAS_GRUPO_[antigo];
+    });
   }
   return GRUPOS_CANONICOS[chaveGrupo_(nome)] || nome;
 }
@@ -1718,8 +1736,8 @@ function renderDre(el, rows) {
  * para dizer o que mexeu no caixa.
  *
  * Sem este mapa, tres coisas grandes caiam caladas em "Outros" ou sumiam:
- *   - a receita recebida (o grupo virou "Receita pelo pedido (ignorar na
- *     DRE)"), que fez "Recebi no periodo (caixa)" mostrar R$ 0 num mes com
+ *   - a receita recebida (o grupo virou "Venda ja contada pelo pedido
+ *     (ignorar na DRE)"), que fez "Recebi no periodo (caixa)" mostrar R$ 0 num mes com
  *     R$ 56.860 de venda, e deixou a DFC sem linha de recebimento;
  *   - "Despesas Variaveis de Venda", que nem estava previsto aqui - R$ 14.676
  *     de taxa de marketplace e frete em agosto/2026;
@@ -1730,7 +1748,7 @@ function renderDre(el, rows) {
  */
 const DFC_POR_GRUPO = {
   'Receita Bruta':                          'receb',
-  'Receita pelo pedido (ignorar na DRE)':   'receb',
+  'Venda já contada pelo pedido (ignorar na DRE)':   'receb',
   'Deduções da Receita':                    'deducoes',
   'Desconto de vitrine (ignorar na DRE)':   'desconto',
   'CMV':                                    'fornec',
@@ -1753,7 +1771,7 @@ const DFC_POR_GRUPO = {
 
 /* Grupos que sao dinheiro de VENDA entrando no caixa. Usado tambem pelo
    comparativo Caixa x Competencia, que sem isso responde sempre R$ 0. */
-const GRUPOS_RECEBIMENTO_ = ['Receita Bruta', 'Receita pelo pedido (ignorar na DRE)'];
+const GRUPOS_RECEBIMENTO_ = ['Receita Bruta', 'Venda já contada pelo pedido (ignorar na DRE)'];
 
 let DFC_POR_GRUPO_CANON = null;   // lazy: comparacao sem acento e sem caixa
 function dfcChaveDoGrupo_(g) {
@@ -1955,8 +1973,8 @@ const DRE_ESTRUTURA = [
  * diferentes, e cada um vale ser visto:
  *   Estoque              compra de tecido e facção. Não é custo do mês; é ativo
  *                        até a peça sair. O custo entra pelo CMV por consumo.
- *   Receita pelo pedido  a conta a receber deixou de ser fonte de receita; a
- *                        receita vem da aba _Receita_Pedidos.
+ *   Venda ja contada     a conta a receber deixou de ser fonte de receita; a
+ *   pelo pedido          receita vem da aba _Receita_Pedidos, pelo pedido.
  *   Desconto de vitrine  o preço de lista da Shopee é inflado para a plataforma
  *                        exibir o "de/por" (37,3% contra 0,1% no ML). Como a
  *                        receita já entra a preço praticado, o desconto não é
@@ -1971,7 +1989,7 @@ const DRE_ESTRUTURA = [
    categoria propria, fora do resultado, ela fica INCOMPLETA e visivel: o valor
    aparece aqui cobrando o rateio. */
 const DRE_FORA = ['Não Operacional (ignorar na DRE)', 'Estoque (ignorar na DRE)',
-                  'Receita pelo pedido (ignorar na DRE)',
+                  'Venda já contada pelo pedido (ignorar na DRE)',
                   'Desconto de vitrine (ignorar na DRE)',
                   'Cartão a ratear (ignorar na DRE)',
                   /* A parte da parcela do Sicoob que abate a dívida. Sai do
@@ -1991,8 +2009,8 @@ const DRE_FORA = ['Não Operacional (ignorar na DRE)', 'Estoque (ignorar na DRE)
  * POR QUE CADA GRUPO FICA FORA DO RESULTADO.
  *
  * A tela mostrava "Fora do resultado" com oito linhas e uma explicacao unica no
- * topo. Quem olha nao tem como saber por que "Receita pelo pedido" esta fora, e
- * se isso e ou nao receita escondida. Cada linha passa a carregar o proprio
+ * topo. Quem olha nao tem como saber por que a VENDA aparece fora do resultado,
+ * e se isso e ou nao receita escondida. Cada linha passa a carregar o proprio
  * motivo, escrito para quem nao montou a planilha.
  *
  * A chave e o nome do grupo sem acento e em minuscula (chaveGrupo_), porque o
@@ -2002,7 +2020,7 @@ const DRE_FORA = ['Não Operacional (ignorar na DRE)', 'Estoque (ignorar na DRE)
  */
 const MOTIVO_FORA = {};
 [
-  ['Receita pelo pedido (ignorar na DRE)',
+  ['Venda já contada pelo pedido (ignorar na DRE)',
    'A receita da DRE vem da aba <code>_Receita_Pedidos</code>, pela data do pedido e pelo preço '
    + 'praticado. A conta a receber que a integração cria para a MESMA venda fica aqui para a '
    + 'venda não ser contada duas vezes.'],
@@ -2212,8 +2230,8 @@ function renderVendas(el, rowsPagas) {
 
   // recebido no período, pela DRE em caixa — a outra ponta da ponte.
   // Mesmo motivo do comparativo da DRE: comparar com 'Receita Bruta' cru parou
-  // de casar quando a receita do Fluxo de Caixa virou "Receita pelo pedido
-  // (ignorar na DRE)", e esta ponta da ponte passou a responder zero.
+  // de casar quando a receita do Fluxo de Caixa virou "Venda ja contada pelo
+  // pedido (ignorar na DRE)", e esta ponta da ponte passou a responder zero.
   const recebido = rowsPagas
     .filter(r => GRUPOS_RECEBIMENTO_.some(g => chaveGrupo_(g) === chaveGrupo_(r.grupoDRE)))
     .reduce((s, r) => s + (r.tipo === 'entrada' ? r.valor : -r.valor), 0);
@@ -2345,7 +2363,7 @@ function renderDreCompetenciaVendas_(corpoPai) {
   // comparativo com o regime de caixa, que e a duvida que gera essa tela
   const rowsCaixa = (FLUXO_ROWS || []).filter(r => r.date >= FILTER.start && r.date <= FILTER.end);
   /* Antes era indexOf('Receita Bruta'), que parou de casar quando a receita do
-     Fluxo de Caixa foi remapeada para "Receita pelo pedido (ignorar na DRE)" -
+     Fluxo de Caixa foi remapeada para "Venda já contada pelo pedido (ignorar na DRE)" -
      e a linha passou a responder R$ 0 em todo mes, dizendo que nada tinha sido
      recebido. Ver GRUPOS_RECEBIMENTO_. */
   const receitaCaixa = rowsCaixa

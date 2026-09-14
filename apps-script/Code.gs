@@ -449,9 +449,9 @@ function corrigirDreMapa_() {
     // integração do Bling lançando por cima. Em agosto as contas somavam
     // R$ 64.929 para uma venda real de R$ 56.860. Agora vem de
     // _Receita_Pedidos, pela data do pedido e a preço praticado.
-    '14639321643': 'Receita pelo pedido (ignorar na DRE)', // Vendas de produtos
-    '14639321644': 'Receita pelo pedido (ignorar na DRE)', // Vendas de mercadorias
-    '14639321645': 'Receita pelo pedido (ignorar na DRE)', // Vendas de serviços
+    '14639321643': 'Venda já contada pelo pedido (ignorar na DRE)', // Vendas de produtos
+    '14639321644': 'Venda já contada pelo pedido (ignorar na DRE)', // Vendas de mercadorias
+    '14639321645': 'Venda já contada pelo pedido (ignorar na DRE)', // Vendas de serviços
 
     // DESCONTO DE VITRINE NÃO É DEDUÇÃO. O espelho gravava receita a preço
     // de lista e o desconto como dedução; em agosto isso injetou R$ 19.600
