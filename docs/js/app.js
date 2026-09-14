@@ -17,7 +17,7 @@ const fmtDataBR = (d) => d.toLocaleDateString('pt-BR');
  *
  * TROCAR JUNTO com o ?v= do index.html. Sao os dois lados da mesma versao.
  */
-const PAINEL_VERSAO = '20260914u';
+const PAINEL_VERSAO = '20260914v';
 
 const escapeHtml_ = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const monthLabel = (p) => {
@@ -2625,17 +2625,40 @@ function abrirGaveta_(item) {
     <div class="gv-valor ${total < 0 ? 'val-out' : 'val-in'}">${F(total)}
       <small>${receita ? fmtPctSimples_(Math.abs(total) / Math.abs(receita)) + ' da receita' : ''}</small></div>
     <div class="gv-corpo">${corpo}</div>`;
+  /* Mexe no display INLINE alem do atributo. O atributo sozinho nao venceu o
+     `display:flex` do CSS (regra de autor ganha da do navegador), e o painel
+     ficou visivel para sempre. Inline ganha dos dois. */
   gv.hidden = false;
-  document.getElementById('gvFundo').hidden = false;
+  gv.style.display = 'flex';
+  const fundo = document.getElementById('gvFundo');
+  fundo.hidden = false;
+  fundo.style.display = 'block';
   document.getElementById('gvFechar').addEventListener('click', fecharGaveta_);
+  /* Esc fecha. Painel que cobre a tela precisa de uma saida que nao dependa de
+     acertar um botao pequeno. */
+  document.addEventListener('keydown', escFechaGaveta_);
+}
+
+function escFechaGaveta_(e) {
+  if (e.key === 'Escape') fecharGaveta_();
 }
 
 function fecharGaveta_() {
-  const gv = document.getElementById('gaveta');
-  if (gv) gv.hidden = true;
-  const f = document.getElementById('gvFundo');
-  if (f) f.hidden = true;
+  document.removeEventListener('keydown', escFechaGaveta_);
+  ['gaveta', 'gvFundo'].forEach(function (id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.hidden = true;
+    el.style.display = 'none';
+  });
 }
+
+/* Fecha ao clicar fora, no fundo escuro. Ligado uma vez, no carregamento: o
+   fundo nao e recriado a cada abertura, entao nao acumula handler. */
+document.addEventListener('DOMContentLoaded', function () {
+  const f = document.getElementById('gvFundo');
+  if (f) f.addEventListener('click', fecharGaveta_);
+});
 
 /*
  * ABA VENDAS — o relatório de vendas do Bling, dentro do painel.
