@@ -8,6 +8,23 @@
    redeclarar aqui: no Apps Script todos os .gs dividem o mesmo escopo global, e
    um `const` repetido e SyntaxError que derruba o projeto inteiro. */
 
+/**
+ * QUAL VERSAO DO BACKEND ESTA IMPLANTADA.
+ *
+ * O Web App serve a VERSAO IMPLANTADA, nao o codigo do editor. Salvar nao
+ * publica. Isso ja custou tempo tres vezes neste projeto: em 15/08/2026 a
+ * implantacao estava presa na Versao 7 e o botao "Competencia" nao acendia; em
+ * 14/09/2026 o imposto nao apareceu na DRE depois de republicar e passamos a
+ * conversa sem saber se era codigo, dado ou implantacao.
+ *
+ * O sintoma e sempre o mesmo e sempre ambiguo: "nao atualizou". Sem carimbo, a
+ * unica saida e adivinhar. Com carimbo, a tela responde.
+ *
+ * TROQUE ESTA STRING quando mexer no que o doGet devolve. O painel mostra o
+ * valor e avisa em vermelho quando nao encontra a marca que ele espera.
+ */
+const BACKEND_VERSAO_ = '2026-09-14 imposto+provisao';
+
 function doGet(e) {
   const params = (e && e.parameter) || {};
 
@@ -32,7 +49,8 @@ function doGet(e) {
       // chamada ao Web App custa ~2s de pedágio fixo, e a DRE precisa das duas
       // logo na primeira tela.
       return jsonResponse_({ email: email, rows: r, despesas: getDespesasFixasList_(),
-                             dreFontes: getDreFontes_() });
+                             dreFontes: getDreFontes_(),
+                             backend: BACKEND_VERSAO_ });
     }
     case 'dre': return jsonResponse_({ email: email, rows: getDreRows_(e && e.parameter && e.parameter.regime) });
     case 'dreFontes': return jsonResponse_(Object.assign({ email: email }, getDreFontes_()));

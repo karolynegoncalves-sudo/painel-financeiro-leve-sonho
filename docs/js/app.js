@@ -23,6 +23,9 @@ let FLUXO_ROWS = null; // [{date, tipo, grupoDRE, categoria, contato, banco, val
    injetar receita reconstruída ali faria a DFC contar a venda duas vezes,
    uma no recebimento real e outra na linha sintética. */
 let DRE_FONTES = { receita: [], cmv: [] };
+/* Carimbo da versao implantada do Apps Script, mostrado na DRE. Ver
+   BACKEND_VERSAO_ no Code.gs para o motivo. */
+let BACKEND_VERSAO = '(nao informado)';
 let VENDAS_ROWS = null; // [{date, canal, cliente, numero, situacao, contaReceita, total}]
 /* A DRE e SEMPRE por competencia desde 09/09/2026. Receita e CMV passaram a
    vir de fontes mensais por data do pedido (_Receita_Pedidos e _CMV_Consumo),
@@ -143,6 +146,10 @@ async function verificarESeguir_(token) {
   precifDespesasFixas = data.despesas || [];
   DRE_FONTES = (data.dreFontes && data.dreFontes.receita)
     ? data.dreFontes : { receita: [], cmv: [] };
+  /* Que versao do Apps Script respondeu. Salvar o codigo nao publica: o Web App
+     serve a versao IMPLANTADA. Sem este carimbo, "nao atualizou" e uma pergunta
+     sem resposta - pode ser codigo, dado ou implantacao. */
+  BACKEND_VERSAO = data.backend || '(sem carimbo)';
   document.getElementById('userEmail').textContent = data.email || '';
   document.getElementById('loginGate').style.display = 'none';
   document.getElementById('app').style.display = 'block';
@@ -1939,6 +1946,38 @@ const GRUPO_PROVISAO = 'Provisão de Imposto (venda sem nota)';
 const GRUPO_IMPOSTO = 'Imposto do Simples (competência)';
 const DEDUZ = ['Deduções da Receita', GRUPO_IMPOSTO, GRUPO_PROVISAO];
 const ATE_MC = ['Receita Bruta'].concat(DEDUZ, ['CMV', 'Despesas Variáveis de Venda']);
+/*
+ * DEPRECIACAO DO IMOBILIZADO.
+ *
+ * POR QUE A LINHA EXISTE: a DRE ia do EBITDA direto para o Resultado
+ * Financeiro, e a ultima linha se chamava "Resultado Liquido" sem ser - ela
+ * pulava o desgaste de R$ 36.850 de maquina e computador. EBITDA exclui
+ * depreciacao por definicao e esta certo; o RESULTADO nao pode.
+ *
+ * DE ONDE VEM O NUMERO, e o que ele tem de frouxo: as taxas sao as da Receita
+ * (maquinas e moveis 10 anos, informatica e veiculos 5 anos) sobre o CUSTO:
+ *
+ *     maquinas e equipamentos   R$ 26.450 x 10% a.a. / 12  =  R$ 220,42
+ *     informatica               R$ 10.400 x 20% a.a. / 12  =  R$ 173,33
+ *                                                             ----------
+ *                                                             R$ 393,75
+ *
+ * Isso e um TETO, nao o valor exato: item que ja completou a vida util nao
+ * deprecia mais, e varios sao de 2018-2020 (a Cameo de 2020, informatica, ja
+ * fechou os 5 anos em 2025). O exato exige a tabela item por item, e faltam
+ * tres datas de compra (Epson L805, Elgin L42Pro e o filtro Electrolux).
+ *
+ * Deixei o teto de proposito: erra por R$ 50-90 no mes (0,1% da receita) e erra
+ * para o lado conservador - piora o resultado em vez de melhorar. Inventar as
+ * tres datas para dar um numero "exato" seria pior: numero falso com cara de
+ * preciso e o defeito que este painel passou o dia consertando.
+ *
+ * Nao vem do Fluxo de Caixa porque nao E lancamento - depreciacao nao move
+ * dinheiro. Por isso tambem nao aparece na DFC.
+ */
+const DEPRECIACAO_MENSAL_ = 220.42 + 173.33;
+const GRUPO_DEPRECIACAO = 'Depreciação';
+
 const DRE_ESTRUTURA = [
   { tipo: 'grupo',    nome: 'Receita Bruta' },
   { tipo: 'grupo',    nome: 'Deduções da Receita' },
@@ -1955,6 +1994,9 @@ const DRE_ESTRUTURA = [
   { tipo: 'grupo',    nome: 'Despesas Administrativas' },
   { tipo: 'grupo',    nome: 'Despesas com Pessoal' },
   { tipo: 'subtotal', nome: 'EBITDA', soma: ATE_MC.concat(CUSTO_FIXO_GRUPOS) },
+  // ABAIXO do EBITDA porque o "DA" do EBITDA e exatamente isto. Acima dele a
+  // sigla deixaria de significar o que significa.
+  { tipo: 'grupo',    nome: GRUPO_DEPRECIACAO },
   { tipo: 'grupo',    nome: 'Resultado Financeiro' },
   { tipo: 'grupo',    nome: 'Impostos sobre o Lucro' },
   // Abaixo do EBITDA de proposito: so existe porque houve lucro. Se subisse
@@ -1963,7 +2005,8 @@ const DRE_ESTRUTURA = [
   { tipo: 'grupo',    nome: 'Participação de Parceiros' },
   { tipo: 'resultado', nome: 'Resultado Líquido',
     soma: ATE_MC.concat(CUSTO_FIXO_GRUPOS,
-      ['Resultado Financeiro', 'Impostos sobre o Lucro', 'Participação de Parceiros']) }
+      [GRUPO_DEPRECIACAO, 'Resultado Financeiro', 'Impostos sobre o Lucro',
+       'Participação de Parceiros']) }
 ];
 
 /* Ficam FORA do resultado, mostrados à parte para não sumirem calados. */
@@ -2102,6 +2145,14 @@ function renderDreCaixa_(corpo, rows, porCompetencia) {
       porColuna[i][GRUPO_PROVISAO] = -soma(fontes.provisao, b.chave);
     });
   }
+  /* DEPRECIACAO fora do `if (fontes)`: ela nao depende de aba nem do Web App,
+     e por isso NAO desaparece quando a implantacao esta velha. Foi de proposito
+     - a linha que dependia do backend e a que sumiu calada hoje.
+     So entra em coluna MENSAL: numa coluna de um dia, um mes de depreciacao
+     daria um resultado diario absurdo. */
+  if (serie.length && /^\d{4}-\d{2}$/.test(String(serie[0].chave))) {
+    serie.forEach((b, i) => { porColuna[i][GRUPO_DEPRECIACAO] = -DEPRECIACAO_MENSAL_; });
+  }
   const nCols = serie.length;
 
   const valoresDe = (nome) => porColuna.map(pg => pg[nome] || 0);
@@ -2177,7 +2228,25 @@ function renderDreCaixa_(corpo, rows, porCompetencia) {
     ? `Sobrou <b>${fmtBRL(resultado, 2)}</b> no período — ${fmtPctSimples_(pct(resultado))} do faturamento.`
     : `Faltou <b>${fmtBRL(Math.abs(resultado), 2)}</b> no período — as saídas passaram as entradas.`;
 
+  /* AVISO DE IMPLANTACAO VELHA. O imposto da DRE nao e lancamento: vem do
+     getDreFontes_, pelo Web App. Se a implantacao for anterior a 14/09/2026 o
+     campo chega vazio, a linha soma zero e a DRE ESCONDE o grupo - foi assim
+     que o ano apareceu com -R$ 104,82 de imposto em vez de -R$ 24.933.
+     Zero escondido parece tela certa; este aviso torna o defeito visivel. */
+  const semImposto = !(fontes && (fontes.imposto || []).length);
+  const avisoBackend = semImposto
+    ? `<p class="dre-nota" style="color:var(--brick);"><b>O imposto não está
+       chegando nesta tela.</b> O Apps Script implantado é a versão
+       <code>${escapeHtml_(BACKEND_VERSAO)}</code>, que não envia a linha de
+       imposto. Salvar o código não publica: Implantar &rarr; Gerenciar
+       implantações &rarr; lápis &rarr; Versão: <b>Nova versão</b> &rarr;
+       Implantar. Enquanto isso, o resultado abaixo está <b>melhor que o
+       real</b>.</p>`
+    : `<p class="dre-nota" style="font-size:11px;">backend
+       <code>${escapeHtml_(BACKEND_VERSAO)}</code></p>`;
+
   corpo.innerHTML = `<div class="panel"><h3>DRE do período</h3>
+    ${avisoBackend}
     <div style="overflow-x:auto;"><table class="simple dre" id="tblDre"></table></div>
     <div class="sub" style="margin-top:.6rem;">${veredito}</div></div>`
     + (htmlFora ? `<div class="panel"><h3>Fora do resultado</h3>
