@@ -23,7 +23,7 @@
  * TROQUE ESTA STRING quando mexer no que o doGet devolve. O painel mostra o
  * valor e avisa em vermelho quando nao encontra a marca que ele espera.
  */
-const BACKEND_VERSAO_ = '2026-09-14 imposto+provisao+janela';
+const BACKEND_VERSAO_ = '2026-09-14 imposto+provisao+janela+colunas';
 
 function doGet(e) {
   const params = (e && e.parameter) || {};
@@ -65,7 +65,8 @@ function doGet(e) {
                              dreFontes: fontes,
                              backend: diag + ' | janela=' + r.desde
                                       + ' ' + (r.rows || []).length + '/' + r.total
-                                      + ' (li ' + (r.lidas || 0) + ')',
+                                      + ' (li ' + (r.lidas || 0) + ', '
+                                      + (r.cols || 0) + ' cols)',
                              janelaDesde: r.desde, linhasNaAba: r.total });
     }
     case 'dre': return jsonResponse_({ email: email, rows: getDreRows_(e && e.parameter && e.parameter.regime) });
@@ -366,12 +367,58 @@ function getFluxoCaixaRows_() {
   // FASE 2: as 15 colunas, so da faixa que interessa
   const bloco = sheet.getRange(primeira + 2, 1, ultimaLinha - primeira + 1, COLS_FLUXO_)
                      .getValues();
+
+  /* SO AS COLUNAS QUE A TELA USA, e o motivo veio de uma medicao.
+   *
+   * Em 14/09/2026 o testarRotas mostrou fluxoCaixa em 19 SEGUNDOS no servidor
+   * devolvendo 19.405 linhas, enquanto o login da Karolyne levava 3 MINUTOS.
+   * Ou seja: o servidor nao era o gargalo - os outros ~2,5 min estavam em
+   * trafegar e reinterpretar o JSON no navegador. A janela de 13 meses nao
+   * ajudou porque nao havia o que cortar: os espelhos da Shopee e do Mercado
+   * Pago sao todos de 2026, e as parcelas provisionadas ate 2030 tem data
+   * FUTURA, entao tambem passam por um filtro de "desde".
+   *
+   * Se o corte nao pode ser em LINHA, tem de ser em COLUNA e em BYTE:
+   *
+   *   1. O parseFluxoRows_ do painel usa 10 colunas com nome. categoriaId,
+   *      portadorId, origemId, origemTipo e numeroDocumento NUNCA sao lidos -
+   *      e tres deles sao ids de 11 digitos, ou seja, caros por linha.
+   *   2. Data serializada por JSON.stringify vira ISO completo de 24 caracteres
+   *      ("2026-08-14T03:00:00.000Z"). O painel usa os 10 primeiros. Mandar
+   *      'yyyy-MM-dd' economiza 14 caracteres por data, em duas colunas, em
+   *      19 mil linhas.
+   *
+   * O painel continua resolvendo coluna por NOME (headers.indexOf), entao esta
+   * projecao nao exige nenhuma mudanca do lado dele - e coluna que eu remover
+   * por engano daria -1 no indexOf, que o parse ja trata, em vez de quebrar.
+   */
+  const USADAS_ = ['data', 'tipo', 'situacao', 'grupoDRE', 'categoriaNome',
+                   'contatoNome', 'contaBancariaNome', 'valor', 'competencia',
+                   'descricao'];
+  const proj = [];
+  const hOut = [];
+  USADAS_.forEach(function (nome) {
+    const j = headers.indexOf(nome);
+    if (j >= 0) { proj.push(j); hOut.push(nome); }
+  });
+  const ymd = function (v) {
+    if (v instanceof Date) return Utilities.formatDate(v, 'America/Sao_Paulo', 'yyyy-MM-dd');
+    return v;
+  };
+  const iDataOut = hOut.indexOf('data'), iCompOut = hOut.indexOf('competencia');
+
   const rows = [];
   for (let i = 0; i < bloco.length; i++) {
-    if (dentro[primeira + i]) rows.push(bloco[i]);
+    if (!dentro[primeira + i]) continue;
+    const orig = bloco[i];
+    const linha = new Array(proj.length);
+    for (let k = 0; k < proj.length; k++) linha[k] = orig[proj[k]];
+    if (iDataOut >= 0) linha[iDataOut] = ymd(linha[iDataOut]);
+    if (iCompOut >= 0) linha[iCompOut] = ymd(linha[iCompOut]);
+    rows.push(linha);
   }
-  return { headers: headers, rows: rows, desde: desde, total: n,
-           lidas: bloco.length };
+  return { headers: hOut, rows: rows, desde: desde, total: n,
+           lidas: bloco.length, cols: hOut.length };
 }
 
 /**
