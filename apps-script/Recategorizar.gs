@@ -731,6 +731,75 @@ function listarSemMapear(mes) {
   return listarGrupo('sem mapear', mes || '2026-09');
 }
 
+/**
+ * TODO o "(sem mapear)" do ano, de uma vez, agrupado por CATEGORIA - que e o
+ * que precisa ser resolvido, nao a linha.
+ *
+ * listarSemMapear pede o mes e o dropdown do editor nao passa argumento, entao
+ * na pratica so dava para ver setembro. Mapear uma categoria conserta todos os
+ * meses de uma vez, e por isso a saida aqui e por categoria: cada linha de
+ * "POR CATEGORIA" e uma decisao a tomar no _DRE_Mapa.
+ *
+ * ANTES DE MAPEAR, uma armadilha: a receita da DRE vem inteira da aba
+ * _Receita_Pedidos, pelo pedido. Se uma dessas contas a receber for "arrumada"
+ * para dentro de Receita Bruta, o faturamento dobra. Venda vai para
+ * "Receita pelo pedido (ignorar na DRE)", nunca para Receita Bruta.
+ */
+function semMapearAno(ano) {
+  ano = String(ano || 2026);
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_FLUXO_CAIXA);
+  var ult = sheet.getLastRow();
+  if (ult < 2) return 'Fluxo de Caixa vazio';
+  var dados = sheet.getRange(2, 1, ult - 1, Math.max(sheet.getLastColumn(), 15)).getValues();
+
+  var porCat = {}, porMes = {}, exemplo = {}, total = 0, n = 0;
+  dados.forEach(function (l) {
+    if (semAcento_(l[5]).indexOf('sem mapear') < 0) return;
+    var sit = String(l[2] || '').trim();
+    if (sit === '5') return;                                  // cancelada
+    var quando = l[14] || l[0];
+    var m = quando instanceof Date
+      ? Utilities.formatDate(quando, 'America/Sao_Paulo', 'yyyy-MM')
+      : String(quando || '').trim().slice(0, 7);
+    if (m.slice(0, 4) !== ano) return;
+
+    var v = Math.abs(Number(l[11]) || 0) * (String(l[1]).trim() === 'entrada' ? 1 : -1);
+    var cat = String(l[3] || '0') + '  ' + String(l[4] || '(sem categoria)');
+    porCat[cat] = (porCat[cat] || 0) + v;
+    porMes[m] = (porMes[m] || 0) + v;
+    total += v;
+    n++;
+    if (!exemplo[cat]) {
+      exemplo[cat] = [l[8], l[9], l[10]].filter(function (x) { return x; })
+                       .join(' ').slice(0, 70);
+    }
+  });
+
+  var out = ['(SEM MAPEAR) em ' + ano + ': R$ ' + total.toFixed(2) + ' em ' + n + ' linha(s)',
+             '',
+             'POR CATEGORIA - cada linha e uma decisao a tomar no _DRE_Mapa:'];
+  Object.keys(porCat).sort(function (a, b) { return Math.abs(porCat[b]) - Math.abs(porCat[a]); })
+    .forEach(function (k) {
+      out.push('  R$ ' + porCat[k].toFixed(2) + '   ' + k);
+      if (exemplo[k]) out.push('        ex.: ' + exemplo[k]);
+    });
+  out.push('');
+  out.push('por mes:');
+  Object.keys(porMes).sort().forEach(function (m) {
+    out.push('  ' + m + '  ->  R$ ' + porMes[m].toFixed(2));
+  });
+  out.push('');
+  out.push('COMO MAPEAR: abra a aba _DRE_Mapa, ache a categoria pelo id da');
+  out.push('esquerda e escreva o grupo na coluna grupoDRE. Depois rode');
+  out.push('manutencaoDre - ele reescreve a coluna de grupo de TODAS as linhas');
+  out.push('antigas tambem (fixarGrupoCanonico_), nao so das novas.');
+  out.push('Venda -> "Receita pelo pedido (ignorar na DRE)". NUNCA Receita Bruta.');
+
+  var msg = out.join('\n');
+  Logger.log(msg);
+  return msg;
+}
+
 /* ------------------------------------------------------------------------
  * ATALHOS SEM ARGUMENTO.
  *

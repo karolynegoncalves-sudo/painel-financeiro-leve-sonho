@@ -571,8 +571,16 @@ function agregarPorGrupo_(rows) {
 function totais_(rows) {
   const porGrupo = agregarPorGrupo_(rows);
   const receitaBruta = porGrupo['Receita Bruta'] || 0;
+  /* "(sem mapear)" nao entra no resultado, pelo mesmo motivo dos "(ignorar na
+     DRE)": a tabela da DRE ja o deixa fora (DRE_FORA), e com ele aqui o KPI e
+     a tabela discordavam em R$ 1.065,90 sem nada na tela explicando a
+     diferenca. Ele nao desaparece - fica listado em "Fora do resultado", com o
+     motivo em vermelho, porque e pendencia de classificacao e nao decisao. */
   let resultadoLiquido = 0;
-  Object.keys(porGrupo).forEach(g => { if (g.indexOf('ignorar') < 0) resultadoLiquido += porGrupo[g]; });
+  Object.keys(porGrupo).forEach(g => {
+    if (g.indexOf('ignorar') >= 0 || g === '(sem mapear)') return;
+    resultadoLiquido += porGrupo[g];
+  });
   return { porGrupo, receitaBruta, resultadoLiquido };
 }
 
@@ -1980,6 +1988,55 @@ const DRE_FORA = ['Não Operacional (ignorar na DRE)', 'Estoque (ignorar na DRE)
                   '(sem mapear)'];
 
 /*
+ * POR QUE CADA GRUPO FICA FORA DO RESULTADO.
+ *
+ * A tela mostrava "Fora do resultado" com oito linhas e uma explicacao unica no
+ * topo. Quem olha nao tem como saber por que "Receita pelo pedido" esta fora, e
+ * se isso e ou nao receita escondida. Cada linha passa a carregar o proprio
+ * motivo, escrito para quem nao montou a planilha.
+ *
+ * A chave e o nome do grupo sem acento e em minuscula (chaveGrupo_), porque o
+ * nome e digitado a mao na aba _DRE_Mapa e ja apareceu escrito das duas formas.
+ * Grupo que chegar aqui sem motivo aparece em vermelho na tela: e pendencia de
+ * mapeamento, nao decisao contabil, e tem de incomodar.
+ */
+const MOTIVO_FORA = {};
+[
+  ['Receita pelo pedido (ignorar na DRE)',
+   'A receita da DRE vem da aba <code>_Receita_Pedidos</code>, pela data do pedido e pelo preço '
+   + 'praticado. A conta a receber que a integração cria para a MESMA venda fica aqui para a '
+   + 'venda não ser contada duas vezes.'],
+  ['Desconto de vitrine (ignorar na DRE)',
+   'A receita já entra líquida de desconto. Deduzir o desconto outra vez seria contar o mesmo '
+   + 'abatimento duas vezes.'],
+  ['Estoque (ignorar na DRE)',
+   'Compra de tecido e de aviamento é ESTOQUE: vira ativo e só se torna custo quando a peça é '
+   + 'vendida — aí entra como CMV, pela ficha técnica. Enquanto isto ficava no resultado, julho '
+   + 'fechou com R$ 186 de CMV e agosto com R$ 16.815, sem nada mudar no negócio.'],
+  ['Imposto pago (ignorar na DRE)',
+   'O DAS e as parcelas do parcelamento efetivamente PAGOS. O imposto do resultado vem da GUIA, '
+   + 'na competência da apuração — contar os dois seria contar duas vezes. Fica listado aqui '
+   + 'porque É saída de caixa.'],
+  ['Amortização de Dívida (ignorar na DRE)',
+   'A parte da parcela do Sicoob que abate a dívida. Não é despesa, é troca de patrimônio: sai '
+   + 'dinheiro e cai o passivo — só o juro é despesa. Em agosto/2026 foram R$ 1.734,24 de '
+   + 'amortização. Fica listado aqui porque É saída de caixa.'],
+  ['Cartão a ratear (ignorar na DRE)',
+   'Fatura de cartão que entrou no Bling como um lançamento só e ainda não foi rateada por '
+   + 'categoria. Antes desta categoria ela caía inteira em insumos e a DRE do mês ficava errada '
+   + 'calada. O valor aqui está COBRANDO o rateio — feito o rateio, sai desta linha.'],
+  ['Não Operacional (ignorar na DRE)',
+   'Transferência entre contas próprias, aporte e retirada de sócio, empréstimo e compra de '
+   + 'máquina. Mexe no caixa e no balanço, não no resultado da operação. Se as transferências '
+   + 'não somarem perto de zero, alguma está lançada com uma perna só.'],
+  ['(sem mapear)',
+   'Categoria sem grupo na aba <code>_DRE_Mapa</code> — a que aponta para cá é '
+   + '"A Classificar (revisar)". NÃO é decisão, é PENDÊNCIA: rode <code>listarSemMapear</code> '
+   + 'no Apps Script para ver quais lançamentos são e classifique-os no Bling. Enquanto '
+   + 'estiverem aqui, esse dinheiro não aparece em nenhuma linha da DRE.']
+].forEach(function (par) { MOTIVO_FORA[chaveGrupo_(par[0])] = par[1]; });
+
+/*
  * A tabela da DRE. `porCompetencia` só muda a data usada para distribuir nas
  * colunas — a estrutura contábil é a mesma nos dois regimes.
  */
@@ -2002,6 +2059,9 @@ function renderDreCaixa_(corpo, rows, porCompetencia) {
      receita vem da fonte nova e o CMV é sobrescrito por ZERO — lucro bruto
      inflado, pior do que a versão antiga. Aconteceu em 09/09/2026, quando o
      script de carga falhou no meio e escreveu só a primeira aba. */
+  /* Receita e CMV continuam sendo os dois obrigatórios: sem eles a fonte
+     externa não vale. Imposto e provisão podem vir vazios sem invalidar nada -
+     um mês sem guia lançada simplesmente não tem imposto ainda. */
   const fontes = (DRE_FONTES && (DRE_FONTES.receita || []).length
                               && (DRE_FONTES.cmv || []).length) ? DRE_FONTES : null;
   const serie = serieTemporal_(rows, FILTER.start, FILTER.end,
@@ -2014,6 +2074,14 @@ function renderDreCaixa_(corpo, rows, porCompetencia) {
     serie.forEach((b, i) => {
       porColuna[i]['Receita Bruta'] = soma(fontes.receita, b.chave);
       porColuna[i]['CMV'] = -soma(fontes.cmv, b.chave);
+      /* Imposto e provisão também vêm de fora, pelo mesmo motivo da receita:
+         a categoria "Impostos sobre vendas" saiu da DRE (ver GRUPO_CANONICO_)
+         porque misturava DAS de outro mês, parcela de parcelamento e uma
+         provisão sem guia. O imposto certo vem da GUIA, por competência.
+         Sem estas duas linhas a tela mostra Deduções só com devolução e
+         esquece o imposto inteiro. */
+      porColuna[i][GRUPO_IMPOSTO] = -soma(fontes.imposto, b.chave);
+      porColuna[i][GRUPO_PROVISAO] = -soma(fontes.provisao, b.chave);
     });
   }
   const nCols = serie.length;
@@ -2044,8 +2112,17 @@ function renderDreCaixa_(corpo, rows, porCompetencia) {
       : `<th class="num ${sinal}">${fmtBRL(total, 2)}</th>`;
     const nome = item.tipo === 'grupo' ? `<td>${item.nome}</td>` : `<th>${item.nome}</th>`;
 
+    /* Na linha do RESULTADO cada mês ganha cor própria: prejuízo em vermelho,
+       lucro em verde. Antes só a célula do total era colorida, e a pergunta "que
+       mês deu prejuízo?" obrigava a ler oito números procurando o sinal de menos.
+       Só na linha do resultado: colorir subtotal e grupo também tiraria o
+       significado da cor. O CSS já existe (table.dre tr.dre-resultado .val-out,
+       em style.css) - o que faltava era a classe chegar na célula do mês. */
+    const corMes = (v) => item.tipo === 'resultado'
+      ? (v < 0 ? ' val-out' : v > 0 ? ' val-in' : '')
+      : '';
     html += `<tr class="${cls}">${nome}`
-          + vals.map(v => `<td class="num">${fmtBRL(v, 2)}</td>`).join('')
+          + vals.map(v => `<td class="num${corMes(v)}">${fmtBRL(v, 2)}</td>`).join('')
           + celTotal
           + `<td class="num">${fmtPctSimples_(pct(total))}</td></tr>`;
   });
@@ -2063,12 +2140,17 @@ function renderDreCaixa_(corpo, rows, porCompetencia) {
   let htmlFora = '';
   if (fora.length) {
     htmlFora = '<tr><th>Fora do resultado</th>' + serie.map(b => `<th>${b.label}</th>`).join('')
-             + '<th>Total</th><th></th></tr>';
+             + '<th>Total</th><th>por que não entra</th></tr>';
     fora.forEach(g => {
       const vals = valoresDe(g);
+      const motivo = MOTIVO_FORA[chaveGrupo_(g)];
       htmlFora += `<tr><td>${g}</td>`
                + vals.map(v => `<td class="num">${fmtBRL(v, 2)}</td>`).join('')
-               + `<td class="num"><b>${fmtBRL(totalDe(vals), 2)}</b></td><td></td></tr>`;
+               + `<td class="num"><b>${fmtBRL(totalDe(vals), 2)}</b></td>`
+               + `<td class="fora-motivo${motivo ? '' : ' fora-semmotivo'}">`
+               + (motivo || 'Grupo novo, sem motivo cadastrado — decida se entra na DRE_ESTRUTURA '
+                          + 'ou cadastre o motivo em MOTIVO_FORA.')
+               + '</td></tr>';
     });
   }
 
@@ -2081,9 +2163,10 @@ function renderDreCaixa_(corpo, rows, porCompetencia) {
     <div style="overflow-x:auto;"><table class="simple dre" id="tblDre"></table></div>
     <div class="sub" style="margin-top:.6rem;">${veredito}</div></div>`
     + (htmlFora ? `<div class="panel"><h3>Fora do resultado</h3>
-    <div class="sub">Não entram no lucro. <b>(sem mapear)</b> é categoria sem grupo
-    na aba <code>_DRE_Mapa</code> — enquanto estiver aqui, esse dinheiro não aparece
-    em nenhuma linha da DRE.</div>
+    <div class="sub">Mexem no caixa mas não no resultado, e cada linha diz por quê.
+    Quase todas estão fora <b>de propósito</b> — evitam contar a mesma coisa duas vezes
+    ou separam caixa de resultado. A exceção é <b>(sem mapear)</b>, que é pendência e
+    não decisão: o que estiver ali não aparece em nenhuma linha da DRE.</div>
     <div style="overflow-x:auto;"><table class="simple" id="tblDreFora"></table></div></div>` : '');
 
   document.getElementById('tblDre').innerHTML = html;

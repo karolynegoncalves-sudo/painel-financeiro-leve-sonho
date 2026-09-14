@@ -229,9 +229,47 @@ function getDreFontes_() {
                    qtd: Number(l[3]) || 0, alerta: Number(l[4]) || 0 }))
       .filter(r => r.mes && r.valor);
   };
+  /* IMPOSTO E PROVISAO VEM JUNTO, e o motivo e um bug que custou caro em
+     14/09/2026: a tela da DRE nao le a aba _DRE - ela REMONTA a DRE a partir
+     do Fluxo de Caixa, e so recebe de fora o que vier por aqui.
+
+     Quando a categoria "Impostos sobre vendas" saiu das Deducoes para
+     "Imposto pago (ignorar na DRE)", o imposto desapareceu da tela: a linha
+     substituta existia na aba _DRE, que a tela nao le. O resultado do ano
+     apareceu em -R$ 104,82 em vez de -R$ 24.933 - erro de vinte e cinco mil
+     reais numa tela que parecia certa.
+
+     Regra que fica: TUDO que recalcularDre_ inventa e nao e lancamento tem de
+     passar por getDreFontes_, senao existe na planilha e nao na tela. */
+  const impostoPorMes = [];
+  if (typeof DAS_POR_COMPETENCIA_ !== 'undefined') {
+    Object.keys(DAS_POR_COMPETENCIA_).forEach(function (mes) {
+      const v = Number(DAS_POR_COMPETENCIA_[mes]) || 0;
+      if (v) impostoPorMes.push({ mes: mes, canal: 'DAS', valor: v });
+    });
+  }
+
+  /* A provisao e calculada aqui e nao lida de aba: ela e derivada da receita
+     dos canais que nao emitem nota (CANAIS_SEM_NOTA_) pela aliquota medida nas
+     guias. Recalcular e mais seguro que guardar - se a receita mudar, a
+     provisao acompanha sozinha. */
+  const provisaoPorMes = [];
+  if (typeof CANAIS_SEM_NOTA_ !== 'undefined' && typeof ALIQUOTA_SIMPLES_ !== 'undefined') {
+    const acc = {};
+    ler(ABA_RECEITA_PEDIDOS_, 4).forEach(function (r) {
+      if (!CANAIS_SEM_NOTA_[String(r.canal || '').trim()]) return;
+      acc[r.mes] = (acc[r.mes] || 0) + Math.abs(r.valor) * ALIQUOTA_SIMPLES_;
+    });
+    Object.keys(acc).forEach(function (mes) {
+      provisaoPorMes.push({ mes: mes, canal: 'provisao', valor: acc[mes] });
+    });
+  }
+
   return {
     receita: ler(ABA_RECEITA_PEDIDOS_, 4),
-    cmv: ler(ABA_CMV_CONSUMO_, 5)
+    cmv: ler(ABA_CMV_CONSUMO_, 5),
+    imposto: impostoPorMes,
+    provisao: provisaoPorMes
   };
 }
 

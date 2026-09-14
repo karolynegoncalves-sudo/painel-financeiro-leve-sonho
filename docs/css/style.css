@@ -405,3 +405,12 @@ table.dre tr.dre-resultado td.bal-fonte{color:#D8E6DE; font-size:12px;}
 .bal-leitura p{margin:0 0 9px; font-size:14px; line-height:1.6; color:var(--ink);}
 .bal-leitura p:last-child{margin-bottom:0;}
 .bal-leitura p.bal-falta{color:var(--muted); font-size:13px;}
+
+
+/* ---- Fora do resultado: o motivo de cada linha ----
+   Sem o motivo escrito, ninguem consegue saber se o que esta fora do resultado
+   esta fora por decisao contabil ou por pendencia de mapeamento. */
+#tblDreFora td.fora-motivo{font-size:11.5px; line-height:1.45; color:var(--muted);
+  text-align:left; white-space:normal; max-width:56ch; min-width:26ch;}
+#tblDreFora td.fora-motivo code{font-size:11px;}
+#tblDreFora td.fora-semmotivo{color:var(--brick); font-weight:600;}
