@@ -64,7 +64,8 @@ function doGet(e) {
       return jsonResponse_({ email: email, rows: r, despesas: getDespesasFixasList_(),
                              dreFontes: fontes,
                              backend: diag + ' | janela=' + r.desde
-                                      + ' ' + (r.rows || []).length + '/' + r.total,
+                                      + ' ' + (r.rows || []).length + '/' + r.total
+                                      + ' (li ' + (r.lidas || 0) + ')',
                              janelaDesde: r.desde, linhasNaAba: r.total });
     }
     case 'dre': return jsonResponse_({ email: email, rows: getDreRows_(e && e.parameter && e.parameter.regime) });
@@ -292,32 +293,85 @@ function janelaPainelDesde_() {
  * fora da janela pode ter competencia dentro dela - cortar so pela data sumiria
  * com ela da DRE.
  */
+const COLS_FLUXO_ = 15;   // data..competencia; o painel nao usa nada alem disso
+
+/**
+ * O Fluxo de Caixa recortado pela janela, LIDO EM DUAS FASES.
+ *
+ * POR QUE DUAS FASES, e nao um getDataRange().getValues():
+ *
+ * Ler a aba inteira dessa planilha leva ~2,5 MINUTOS - medido em 07/09/2026,
+ * quando esse mesmo custo dentro do getChavesExistentes_ comia o teto de tempo
+ * do syncBling e travava o sync de abril. Em 14/09/2026 o efeito reapareceu do
+ * lado do painel, e pior: o login levava 3 minutos, e enquanto essa execucao
+ * ocupava o slot, clicar em Precificacao batia no limite de execucoes
+ * simultaneas do Google e a tela dizia "nao consegui falar com a planilha".
+ * Um problema so, com tres sintomas que pareciam tres bugs.
+ *
+ * Dois desperdicios foram cortados:
+ *
+ *   1. getDataRange() devolve TODA coluna que tenha qualquer coisa - inclusive
+ *      resto de formatacao a direita da coluna 15. O painel usa 15 colunas, e
+ *      agora le exatamente 15.
+ *
+ *   2. Ler as 15 colunas de 19 mil linhas para jogar fora a maioria e absurdo.
+ *      A fase 1 le SO as duas colunas de data (1 cel/linha cada) e descobre em
+ *      que faixa de linhas a janela mora; a fase 2 le as 15 colunas apenas
+ *      dessa faixa. Como a aba e append-only, os lancamentos recentes ficam no
+ *      fim - na pratica a fase 2 le uma fracao da aba.
+ *
+ * PIOR CASO E EMPATE, nao regressao: se houver linha da janela na linha 2 e
+ * outra na ultima, a faixa e a aba inteira e o custo volta ao de antes. Nunca
+ * fica mais lento, porque a fase 1 custa 2 colunas.
+ *
+ * NAO USEI "ler as ultimas N linhas": a aba nao esta ordenada por data. As
+ * parcelas provisionadas ate 2030 foram gravadas quando o contrato foi lancado,
+ * entao data futura convive com linha antiga. Cortar pelo fim da aba pareceria
+ * funcionar e perderia lancamento sem avisar.
+ */
 function getFluxoCaixaRows_() {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_FLUXO_CAIXA);
-  if (!sheet || sheet.getLastRow() < 2) {
-    return { headers: [], rows: [], desde: null, total: 0 };
-  }
-  const valores = sheet.getDataRange().getValues();
+  const ultima = sheet ? sheet.getLastRow() : 0;
+  if (!sheet || ultima < 2) return { headers: [], rows: [], desde: null, total: 0 };
+
+  const headers = sheet.getRange(1, 1, 1, COLS_FLUXO_).getValues()[0];
   const desde = janelaPainelDesde_();
+  const n = ultima - 1;
+
   /* A coluna da competencia vem do CABECALHO, nao fixa no indice 14. O resto do
      projeto usa l[14] direto, e aqui isso seria perigoso de um jeito novo: este
      filtro decide o que o painel inteiro ve, e um indice errado descartaria
      linha sem dizer nada - o mesmo tipo de falha silenciosa que fez o imposto
      sumir da DRE. Se a coluna nao existir, cai no 14 conhecido. */
-  const iComp = valores[0].indexOf('competencia') >= 0
-    ? valores[0].indexOf('competencia') : 14;
+  const iComp = headers.indexOf('competencia') >= 0 ? headers.indexOf('competencia') : 14;
+
   const texto = function (v) {
     if (v instanceof Date) return Utilities.formatDate(v, 'America/Sao_Paulo', 'yyyy-MM-dd');
     return String(v || '').trim().slice(0, 10);
   };
-  const rows = [];
-  for (let i = 1; i < valores.length; i++) {
-    const l = valores[i];
-    const d = texto(l[0]);
-    const c = texto(l[iComp]);
-    if ((d && d >= desde) || (c && c >= desde)) rows.push(l);
+
+  // FASE 1: so as duas colunas de data, para achar a faixa de linhas
+  const datas = sheet.getRange(2, 1, n, 1).getValues();
+  const comps = sheet.getRange(2, iComp + 1, n, 1).getValues();
+  let primeira = -1, ultimaLinha = -1;
+  const dentro = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const d = texto(datas[i][0]);
+    const c = texto(comps[i][0]);
+    dentro[i] = (d && d >= desde) || (c && c >= desde);
+    if (dentro[i]) { if (primeira < 0) primeira = i; ultimaLinha = i; }
   }
-  return { headers: valores[0], rows: rows, desde: desde, total: valores.length - 1 };
+  if (primeira < 0) return { headers: headers, rows: [], desde: desde, total: n };
+
+  // FASE 2: as 15 colunas, so da faixa que interessa
+  const bloco = sheet.getRange(primeira + 2, 1, ultimaLinha - primeira + 1, COLS_FLUXO_)
+                     .getValues();
+  const rows = [];
+  for (let i = 0; i < bloco.length; i++) {
+    if (dentro[primeira + i]) rows.push(bloco[i]);
+  }
+  return { headers: headers, rows: rows, desde: desde, total: n,
+           lidas: bloco.length };
 }
 
 /**

@@ -194,7 +194,13 @@ async function apiFetch_(view, token, tentativas) {
     } catch (e) {
       ultimoErro = String(e);
     }
-    if (t < max) await new Promise(r => setTimeout(r, 700 * t));
+    /* ESPERA LONGA de proposito. O erro que cai aqui e quase sempre "limite de
+       execucoes simultaneas" do Google, e nao um soluco de rede: alguma outra
+       rota ainda esta rodando e ocupando o slot. Repetir em 700ms empilha mais
+       uma chamada no mesmo limite e garante o fracasso das tres tentativas -
+       foi assim que a aba Precificacao passou o dia dizendo "nao consegui falar
+       com a planilha". 3s, 6s, 9s da tempo de o slot liberar. */
+    if (t < max) await new Promise(r => setTimeout(r, 3000 * t));
   }
   return { error: ultimoErro, _falhou: true, _view: view };
 }
