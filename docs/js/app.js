@@ -1982,32 +1982,44 @@ const GRUPO_IMPOSTO = 'Imposto do Simples (competência)';
 const DEDUZ = ['Deduções da Receita', GRUPO_IMPOSTO, GRUPO_PROVISAO];
 const ATE_MC = ['Receita Bruta'].concat(DEDUZ, ['CMV', 'Despesas Variáveis de Venda']);
 /*
- * DEPRECIACAO DO IMOBILIZADO.
+ * DEPRECIACAO DO IMOBILIZADO: R$ 393,75/mes.
  *
  * POR QUE A LINHA EXISTE: a DRE ia do EBITDA direto para o Resultado
  * Financeiro, e a ultima linha se chamava "Resultado Liquido" sem ser - ela
  * pulava o desgaste de R$ 36.850 de maquina e computador. EBITDA exclui
  * depreciacao por definicao e esta certo; o RESULTADO nao pode.
  *
- * DE ONDE VEM O NUMERO, e o que ele tem de frouxo: as taxas sao as da Receita
- * (maquinas e moveis 10 anos, informatica e veiculos 5 anos) sobre o CUSTO:
- *
  *     maquinas e equipamentos   R$ 26.450 x 10% a.a. / 12  =  R$ 220,42
  *     informatica               R$ 10.400 x 20% a.a. / 12  =  R$ 173,33
  *                                                             ----------
  *                                                             R$ 393,75
  *
- * Isso e um TETO, nao o valor exato: item que ja completou a vida util nao
- * deprecia mais, e varios sao de 2018-2020 (a Cameo de 2020, informatica, ja
- * fechou os 5 anos em 2025). O exato exige a tabela item por item, e faltam
- * tres datas de compra (Epson L805, Elgin L42Pro e o filtro Electrolux).
+ * Taxas da Receita: maquinas e moveis 10 anos, informatica e veiculos 5 anos.
  *
- * Deixei o teto de proposito: erra por R$ 50-90 no mes (0,1% da receita) e erra
- * para o lado conservador - piora o resultado em vez de melhorar. Inventar as
- * tres datas para dar um numero "exato" seria pior: numero falso com cara de
- * preciso e o defeito que este painel passou o dia consertando.
+ * NAO E UM TETO - e o valor exato, e isso foi CONFERIDO item por item em
+ * 14/09/2026. A duvida era se algum bem ja tinha completado a vida util (bem
+ * quitado nao deprecia mais), e a resposta e que nenhum completou:
  *
- * Nao vem do Fluxo de Caixa porque nao E lancamento - depreciacao nao move
+ *   maquinas, 10 anos: a mais velha e a bordadeira Brother de fev/2018, que
+ *     termina em fev/2028. Todas as outras sao de 2020 ou depois.
+ *   informatica, 5 anos: Lenovo IdeaPad 2022 (termina 2027), Epson L805 2023,
+ *     Elgin L42Pro 2024, Acer Aspire 5 2025. A mais velha ainda tem prazo.
+ *
+ * VALIDACAO: reconstruindo item por item, a depreciacao acumulada da
+ * R$ 25.625,00 contra os R$ 25.514,58 do balanco - diferenca de R$ 110 (0,4%),
+ * explicada por eu ter assumido janeiro nos itens em que so se sabe o ano. Duas
+ * fontes independentes chegando no mesmo lugar e o que autoriza tirar a
+ * ressalva de "estimativa".
+ *
+ * NAO ENTRAM, e os dois motivos sao diferentes: maquina GANHADA (reta Singer,
+ * overlock, Cameo 1, impressora Brother, notebook LG, filtro Electrolux) tem
+ * custo zero e nao ha o que depreciar; e o Lenovo mais antigo e da casa da
+ * Karolyne, nao da empresa - bem de socio nao entra no imobilizado da PJ.
+ *
+ * QUANDO REVISAR: fev/2028, quando a Brother termina e o valor cai para
+ * R$ 323 - e a cada compra de maquina ou computador.
+ *
+ * Nao vem do Fluxo de Caixa porque nao E lancamento: depreciacao nao move
  * dinheiro. Por isso tambem nao aparece na DFC.
  */
 const DEPRECIACAO_MENSAL_ = 220.42 + 173.33;
