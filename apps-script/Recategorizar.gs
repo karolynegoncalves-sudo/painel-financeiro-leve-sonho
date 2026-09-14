@@ -825,6 +825,101 @@ function _rodarLimparDeducoesFantasma() {
   return limparDeducoesFantasma('2026-08', '2026-09');
 }
 
+/**
+ * A DRE DE UM MES ABERTA POR CATEGORIA, em texto.
+ *
+ * POR QUE EXISTE, tendo a gaveta na tela: a gaveta e melhor para olhar, mas
+ * depende de o JS novo ter chegado ao navegador - e em 14/09/2026 ela nao abria
+ * na maquina da Karolyne (cache do index.html) justamente quando ela precisava
+ * saber o que compunha Administrativas e Pessoal em abril. Isto roda na
+ * planilha, nao depende de cache, de implantacao nem de navegador, e devolve
+ * texto que se cola em qualquer lugar.
+ *
+ * E o mesmo recorte da DRE da tela: COMPETENCIA (coluna 15, caindo na data do
+ * caixa quando nao ha competencia), cancelada de fora, sinal pelo tipo.
+ *
+ * Grupo "(ignorar na DRE)" aparece no fim, separado, porque nao entra no
+ * resultado - mas esconder da uma resposta incompleta a "onde foi o dinheiro".
+ *
+ * @param {string=} mes 'yyyy-MM'. Padrao: mes anterior fechado.
+ */
+function detalharMes(mes) {
+  if (!mes) {
+    var d = new Date();
+    d.setDate(1);
+    d.setMonth(d.getMonth() - 1);
+    mes = Utilities.formatDate(d, 'America/Sao_Paulo', 'yyyy-MM');
+  }
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_FLUXO_CAIXA);
+  var ult = sheet.getLastRow();
+  if (ult < 2) return 'Fluxo de Caixa vazio';
+  var dados = sheet.getRange(2, 1, ult - 1, 15).getValues();
+
+  var grupos = {};      // grupo -> { total, cats: {cat: valor}, n }
+  dados.forEach(function (l) {
+    if (String(l[2] || '').trim() === '5') return;            // cancelada
+    var quando = l[14] || l[0];
+    var m = quando instanceof Date
+      ? Utilities.formatDate(quando, 'America/Sao_Paulo', 'yyyy-MM')
+      : String(quando || '').trim().slice(0, 7);
+    if (m !== mes) return;
+
+    var g = String(l[5] || '(sem grupo)').trim();
+    var cat = String(l[4] || '(sem categoria)').trim();
+    var v = Math.abs(Number(l[11]) || 0) * (String(l[1]).trim() === 'entrada' ? 1 : -1);
+    if (!grupos[g]) grupos[g] = { total: 0, cats: {}, n: 0 };
+    grupos[g].total += v;
+    grupos[g].cats[cat] = (grupos[g].cats[cat] || 0) + v;
+    grupos[g].n++;
+  });
+
+  var nomes = Object.keys(grupos);
+  var naDre = nomes.filter(function (g) { return g.indexOf('ignorar') < 0; })
+    .sort(function (a, b) { return Math.abs(grupos[b].total) - Math.abs(grupos[a].total); });
+  var fora = nomes.filter(function (g) { return g.indexOf('ignorar') >= 0; })
+    .sort(function (a, b) { return Math.abs(grupos[b].total) - Math.abs(grupos[a].total); });
+
+  var reais = function (v) {
+    var t = Math.abs(v).toFixed(2).replace('.', ',');
+    return (v < 0 ? '-' : ' ') + 'R$ ' + t;
+  };
+  var pad = function (t, n) { return (t + '                                        ').slice(0, n); };
+
+  var out = ['DRE DE ' + mes + ' POR CATEGORIA (competencia)', ''];
+  var soma = 0;
+  var bloco = function (lista, titulo) {
+    out.push('=== ' + titulo);
+    lista.forEach(function (g) {
+      var b = grupos[g];
+      out.push('');
+      out.push(pad(g, 44) + reais(b.total) + '   (' + b.n + ' lanc.)');
+      Object.keys(b.cats)
+        .sort(function (x, y) { return Math.abs(b.cats[y]) - Math.abs(b.cats[x]); })
+        .forEach(function (c) {
+          out.push('    ' + pad(c, 40) + reais(b.cats[c]));
+        });
+    });
+    out.push('');
+  };
+  bloco(naDre, 'ENTRA NO RESULTADO');
+  naDre.forEach(function (g) { soma += grupos[g].total; });
+  out.push('SOMA DOS GRUPOS DA DRE: ' + reais(soma));
+  out.push('  (nao e o resultado da tela: receita, CMV e imposto vem das abas');
+  out.push('   _Receita_Pedidos, _CMV_Consumo e das guias, nao destes lancamentos)');
+  out.push('');
+  if (fora.length) bloco(fora, 'FORA DO RESULTADO (mexe no caixa, nao no lucro)');
+
+  var msg = out.join('\n');
+  Logger.log(msg);
+  try { SpreadsheetApp.getUi().alert(msg.slice(0, 6000)); } catch (e) {}
+  return msg;
+}
+
+/** Atalhos sem argumento - o seletor do editor nao passa parametro. */
+function detalharAbril()    { return detalharMes('2026-04'); }
+function detalharJaneiro()  { return detalharMes('2026-01'); }
+function detalharAgosto()   { return detalharMes('2026-08'); }
+
 /** Atalho: a linha de Deducoes da Receita de um mes, conta por conta. */
 function listarDeducoes(mes) {
   return listarGrupo('deducoes', mes || '2026-08');

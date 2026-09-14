@@ -222,6 +222,11 @@ function onOpen() {
        ele so reconfere conta EM ABERTO, e devolucao entra baixada. */
     .addItem('Limpar devolucoes apagadas no Bling (ago-set)',
              '_rodarLimparDeducoesFantasma')
+    /* A DRE de um mes aberta por categoria, em texto. E a gaveta da tela sem
+       depender de cache, de implantacao nem de navegador. */
+    .addItem('Abrir abril/2026 por categoria', 'detalharAbril')
+    .addItem('Abrir janeiro/2026 por categoria', 'detalharJaneiro')
+    .addItem('Abrir agosto/2026 por categoria', 'detalharAgosto')
     .addSeparator()
     .addItem('1) Configurar setup da planilha', 'setupWorkbook')
     .addItem('2) Importar produtos do NuvemShop (uma vez)', 'importarProdutosNuvemShop_')
