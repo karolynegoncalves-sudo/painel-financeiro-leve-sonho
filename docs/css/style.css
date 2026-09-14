@@ -464,6 +464,18 @@ table.dre tr.dre-resultado.dre-abre:hover th{background:#3A5E51;}
 table.dre tr.dre-subtotal.dre-abre:hover td,
 table.dre tr.dre-subtotal.dre-abre:hover th{background:#DDE7E1;}
 
+/* [hidden] TEM DE GANHAR DE QUALQUER display DE AUTOR.
+ *
+ * O atributo `hidden` esconde por `display:none` da folha do NAVEGADOR, e
+ * qualquer `display` escrito por mim ganha dele - regra de autor vence regra de
+ * user-agent. Em 14/09/2026 eu dei `display:flex` a #gaveta e ela nunca ficou
+ * escondida: virou uma faixa branca fixa cobrindo 470px da direita, em todas as
+ * abas, e a Karolyne nao conseguia mais ver o painel.
+ *
+ * A regra vale para a pagina inteira de proposito, nao so para a gaveta: todo
+ * elemento que usa `hidden` daqui pra frente fica protegido do mesmo erro. */
+[hidden]{display:none !important;}
+
 #gvFundo{position:fixed; inset:0; background:rgba(20,26,23,.35); z-index:40;}
 #gaveta{position:fixed; top:0; right:0; bottom:0; width:min(470px,94vw); z-index:41;
   background:var(--panel,#fff); box-shadow:-10px 0 34px rgba(20,26,23,.22);
