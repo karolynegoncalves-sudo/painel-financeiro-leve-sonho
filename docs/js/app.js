@@ -1547,9 +1547,9 @@ const BALANCO_ = {
       ['Fechos Carmóvel',        645.86, '80 unidades da NF 3986']
     ],
     'Imobilizado': [
-      ['Máquinas e equipamentos', 7331.42, 'bordadeiras, costura, corte, prensas — custo 26.450, já depreciado'],
+      ['Máquinas e equipamentos', 6113.09, 'costura, corte, prensas — custo 17.950, já depreciado. NÃO inclui a bordadeira Brother, a reta Singer, a overlock, a Cameo 1 nem o filtro: foram ganhadas, custo zero'],
       ['Informática',             4004.00, 'notebooks e impressoras — custo 10.400, já depreciado'],
-      ['(depreciação acumulada)',     0.0, 'custo total 36.850, sendo 25.515 já depreciados']
+      ['(depreciação acumulada)',     0.0, 'custo total 28.350, sendo 18.233 já depreciados — os valores acima já são líquidos']
     ],
     /* PISO, nao saldo exato - e a diferenca importa. O Bling guarda a situacao
        de HOJE: conta que estava aberta em 31/08 e foi recebida em setembro
@@ -1665,6 +1665,12 @@ function renderBalanco(el) {
       <p>Por isso a estratégia começa aqui e não na DRE: <b>prazo e taxa da dívida</b>,
         e decidir o que fazer com os ${F(BALANCO_.ativo['Estoque'].reduce((s, x) => s + x[1], 0))}
         de estoque, que é o maior ativo da empresa e não paga parcela.</p>
+      <p><b>E não conte com o maquinário.</b> São
+        ${F(BALANCO_.ativo['Imobilizado'].reduce((s, x) => s + x[1], 0))} de valor
+        contábil, e a empresa produz com <b>sete equipamentos que valem zero aqui</b>
+        porque foram ganhados — a bordadeira Brother inclusive. O parque de máquinas
+        é maior do que esta linha, mas o que se poderia vender é menor do que a
+        operação sugere.</p>
       <p class="bal-falta"><b>As duas linhas que faltavam não se cancelaram — e essa
         é a notícia.</b> Eu esperava que contas a receber e contas a pagar tivessem
         tamanho parecido e o patrimônio líquido ficasse onde estava. Medido em
@@ -1989,10 +1995,10 @@ const ATE_MC = ['Receita Bruta'].concat(DEDUZ, ['CMV', 'Despesas Variáveis de V
  * pulava o desgaste de R$ 36.850 de maquina e computador. EBITDA exclui
  * depreciacao por definicao e esta certo; o RESULTADO nao pode.
  *
- *     maquinas e equipamentos   R$ 26.450 x 10% a.a. / 12  =  R$ 220,42
+ *     maquinas e equipamentos   R$ 17.950 x 10% a.a. / 12  =  R$ 149,58
  *     informatica               R$ 10.400 x 20% a.a. / 12  =  R$ 173,33
  *                                                             ----------
- *                                                             R$ 393,75
+ *                                                             R$ 322,92
  *
  * Taxas da Receita: maquinas e moveis 10 anos, informatica e veiculos 5 anos.
  *
@@ -2000,29 +2006,43 @@ const ATE_MC = ['Receita Bruta'].concat(DEDUZ, ['CMV', 'Despesas Variáveis de V
  * 14/09/2026. A duvida era se algum bem ja tinha completado a vida util (bem
  * quitado nao deprecia mais), e a resposta e que nenhum completou:
  *
- *   maquinas, 10 anos: a mais velha e a bordadeira Brother de fev/2018, que
- *     termina em fev/2028. Todas as outras sao de 2020 ou depois.
+ *   maquinas, 10 anos: as mais velhas sao de 2020 (Janome, Cameo 4 e as duas
+ *     prensas) e terminam em 2030.
  *   informatica, 5 anos: Lenovo IdeaPad 2022 (termina 2027), Epson L805 2023,
  *     Elgin L42Pro 2024, Acer Aspire 5 2025. A mais velha ainda tem prazo.
  *
- * VALIDACAO: reconstruindo item por item, a depreciacao acumulada da
- * R$ 25.625,00 contra os R$ 25.514,58 do balanco - diferenca de R$ 110 (0,4%),
- * explicada por eu ter assumido janeiro nos itens em que so se sabe o ano. Duas
- * fontes independentes chegando no mesmo lugar e o que autoriza tirar a
- * ressalva de "estimativa".
+ * VALIDACAO: reconstruindo item por item, a depreciacao acumulada fechou com a
+ * do balanco por 0,4% de diferenca (R$ 25.625 contra R$ 25.514,58), explicada
+ * por eu ter assumido janeiro nos itens em que so se sabe o ano. Duas fontes
+ * independentes chegando no mesmo lugar e o que autorizou tirar a ressalva de
+ * "estimativa". Os dois numeros mudaram depois que a bordadeira saiu (abaixo),
+ * mas a conferencia foi feita antes e vale para o metodo.
  *
- * NAO ENTRAM, e os dois motivos sao diferentes: maquina GANHADA (reta Singer,
- * overlock, Cameo 1, impressora Brother, notebook LG, filtro Electrolux) tem
- * custo zero e nao ha o que depreciar; e o Lenovo mais antigo e da casa da
- * Karolyne, nao da empresa - bem de socio nao entra no imobilizado da PJ.
+ * NAO ENTRAM, e os motivos sao diferentes:
+ *   GANHADA - custo zero, nao ha o que depreciar: bordadeira Brother BP2150L,
+ *     reta industrial Singer, overlock, Cameo 1, impressora Brother, notebook
+ *     LG, filtro Electrolux. A bordadeira saiu em 14/09/2026, quando a Karolyne
+ *     esclareceu que foi ganhada USADA - os R$ 8.500 que ela havia citado eram
+ *     quanto a maquina VALE, nao quanto custou. Bem doado nao gera despesa
+ *     porque nao houve desembolso: o que se desgasta ali nunca foi dinheiro da
+ *     empresa. Era o maior item do imobilizado, 32% do custo das maquinas.
+ *   BEM DE SOCIO, nao da PJ: o Lenovo mais antigo e da casa da Karolyne.
  *
- * QUANDO REVISAR: fev/2028, quando a Brother termina e o valor cai para
- * R$ 323 - e a cada compra de maquina ou computador.
+ * Consumivel tambem nao entra: da impressora Brother a empresa so compra toner,
+ * que e despesa do mes e nao imobilizado.
+ *
+ * CUIDADO AO LER ESTA LINHA EM DECISAO: a empresa OPERA com mais maquina do que
+ * tem no balanco - sete equipamentos produzem e valem zero aqui. Esta certo em
+ * contabilidade e e armadilha em conversa de divida: nao da para contar com
+ * "vender o imobilizado" olhando este numero.
+ *
+ * QUANDO REVISAR: 2027, quando o Lenovo IdeaPad termina - e a cada compra de
+ * maquina ou computador.
  *
  * Nao vem do Fluxo de Caixa porque nao E lancamento: depreciacao nao move
  * dinheiro. Por isso tambem nao aparece na DFC.
  */
-const DEPRECIACAO_MENSAL_ = 220.42 + 173.33;
+const DEPRECIACAO_MENSAL_ = 149.58 + 173.33;
 const GRUPO_DEPRECIACAO = 'Depreciação';
 
 const DRE_ESTRUTURA = [
