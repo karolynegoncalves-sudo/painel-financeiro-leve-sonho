@@ -387,7 +387,14 @@ var PENDENCIAS_ = {
   '23481675484': 14744766135,   // 29/08/2025    897,10
   '23481675486': 14744766135,   // 29/09/2025    897,10
   '23481675488': 14744766135,   // 20/10/2025    897,10
-  '23481675490': 14744766135    // 28/11/2025    897,10
+  '23481675490': 14744766135,   // 28/11/2025    897,10
+  // As 3 faturas de cartao de setembro/2026, movidas no Bling pela sessao
+  // "Caixa" em 14/09/2026 para "Cartao a ratear" (14744752723). Antes caiam em
+  // "Compra de insumos e materia prima" e a DRE de setembro ficava errada
+  // calada; agora ficam fora do resultado e VISIVEIS, cobrando o rateio.
+  '23969868934': 14744752723,   // venc 11/09  1.409,25
+  '23969868964': 14744752723,   // venc 17/09  4.953,38
+  '23969868959': 14744752723    // venc 10/09  3.853,47
 };
 
 /**
