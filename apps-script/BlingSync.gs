@@ -105,19 +105,36 @@ var DAS_POR_COMPETENCIA_ = {
   '2025-10': 3886.75, '2025-11': 3164.91, '2025-12': 3874.66,
   '2026-01': 2813.74, '2026-02': 4036.83, '2026-03': 5704.90,
   '2026-04': 4867.34, '2026-05': 4236.31, '2026-06': 3060.45,
-  // julho: a guia ainda nao foi gerada. R$ 4.580,21 e a conta que existe no
-  // Bling com vencimento 31/08, e bate com a aliquota de 7,72% sobre uma
-  // receita declarada de R$ 59.301 - coerente com o painel (R$ 61.464) na
-  // mesma razao de maio e junho. TROCAR pelo valor da guia quando sair.
-  '2026-07': 4580.21,
+  // julho: guia 07.20.26239.9819789-5, lida em 14/09/2026. O TOTAL e R$ 4.580,21
+  // mas so R$ 4.419,77 e imposto - os outros R$ 160,44 sao JUROS DE MORA,
+  // porque a guia foi gerada em 27/08, depois do vencimento de 20/08. Juros de
+  // mora e despesa financeira, nao imposto sobre venda: entra em
+  // JUROS_MORA_IMPOSTO_ e vai para Resultado Financeiro.
+  //
+  // (minha estimativa anterior era 4.580,21 e acertou o total por acidente -
+  //  eu tinha pego o valor da CONTA no Bling, que traz o total da guia.)
+  '2026-07': 4419.77,
   // agosto: ESTIMADO. Aliquota de 7,72% sobre a receita do painel menos a
   // venda do site (que nao entra na base declarada): 56.860 - 6.999 = 49.861.
   // TROCAR pelo valor da guia quando sair.
   '2026-08': 3849.28
 };
 
+/**
+ * Juros de mora e multa das guias pagas em atraso, por competencia da
+ * APURACAO. Nao e imposto sobre venda: e o preco de ter pago depois do
+ * vencimento, e por isso vai para Resultado Financeiro.
+ *
+ * Nao confundir com os encargos dos PARCELAMENTOS (R$ 5.529,29 do Simples e
+ * ~R$ 847 do ICMS), que foram capitalizados na adesao e pertencem ao mes da
+ * adesao - nao a competencia de cada debito.
+ */
+var JUROS_MORA_IMPOSTO_ = {
+  '2026-07': 160.44   // guia gerada em 27/08, venc era 20/08
+};
+
 /** Meses cujo valor acima e estimativa, nao guia. Aparecem no log. */
-var DAS_ESTIMADO_ = { '2026-07': 1, '2026-08': 1 };
+var DAS_ESTIMADO_ = { '2026-08': 1 };
 
 const JANELA_SYNC_DESDE = '2025-01-01';
 
@@ -145,6 +162,24 @@ function syncBling() {
     // categoria nova criada no Bling entra no mapa sozinha (ver funcao)
     const categoriasNovas = sincronizarCategorias_(token);
 
+    // E O MAPA SE CONSERTA SOZINHO. Ate 14/09/2026 os grupos canonicos so eram
+    // aplicados por manutencaoCompleta, rodada a mao no editor - e toda vez que
+    // uma categoria mudava de grupo aqui no codigo, a DRE ficava errada ate
+    // alguem lembrar de rodar. Foi o que aconteceu com "Cartao a ratear", com
+    // "Participacao de parceiros" e com "Impostos sobre vendas".
+    //
+    // Com a chamada aqui, o sync de duas em duas horas aplica sozinho. A funcao
+    // e idempotente: quando nao ha nada para corrigir, devolve zero e nao
+    // escreve nada.
+    let gruposFixados = 0;
+    try {
+      gruposFixados = (fixarGrupoCanonico_() || {}).mudou || 0;
+    } catch (e) {
+      // nao derruba o sync por causa disso: sem o fixar, a DRE sai com o grupo
+      // antigo, o que e ruim mas nao e fatal. O log denuncia.
+      logSync_('syncBling', 'erro', 'fixarGrupoCanonico_ falhou: ' + e);
+    }
+
     const existentes = getChavesExistentes_(sheet);
     const contasBancarias = getContasBancarias_(token);
     const mapaCategoria = getMapaCategoria_();
@@ -163,6 +198,7 @@ function syncBling() {
     logSync_('syncBling', 'ok',
       novos + ' nova(s), ' + atualizadas + ' atualizada(s), ' + remapeadas + ' remapeada(s)'
       + (categoriasNovas ? ', ' + categoriasNovas + ' categoria(s) nova(s)' : '')
+      + (gruposFixados ? ', ' + gruposFixados + ' grupo(s) fixado(s)' : '')
       + ' [' + Math.round(tempoGasto_() / 1000) + 's]');
   } catch (err) {
     logSync_('syncBling', 'erro', String(err));
@@ -762,11 +798,23 @@ function recalcularDre_() {
         totais[chave] = (totais[chave] || 0) - v;
       });
     });
-    return { meses: n, total: soma, estimados: estimados };
+    // juros de mora da guia paga em atraso: e custo financeiro, nao imposto
+    let mora = 0;
+    Object.keys(JUROS_MORA_IMPOSTO_).forEach(mes => {
+      const j = Number(JUROS_MORA_IMPOSTO_[mes]) || 0;
+      if (!j) return;
+      mora += j;
+      ['competencia', 'realizado'].forEach(regime => {
+        const chave = regime + '|' + mes + '|Resultado Financeiro';
+        totais[chave] = (totais[chave] || 0) - j;
+      });
+    });
+    return { meses: n, total: soma, estimados: estimados, mora: mora };
   };
   const imp = lancarImpostoSimples();
   logSync_('recalcularDre', 'ok', 'imposto do Simples por competencia: R$ '
     + imp.total.toFixed(2) + ' em ' + imp.meses + ' mes(es)'
+    + (imp.mora ? ' | juros de mora para o financeiro: R$ ' + imp.mora.toFixed(2) : '')
     + (imp.estimados.length ? ' | ESTIMADO (sem guia ainda): ' + imp.estimados.join(', ') : ''));
 
   const prov = provisionarImpostoSemNota();
