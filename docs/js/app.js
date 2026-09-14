@@ -1757,15 +1757,24 @@ function renderDfc_(el, rows) {
  * venda para pagar a estrutura?".
  */
 const CUSTO_FIXO_GRUPOS = ['Despesas Comerciais', 'Despesas Administrativas', 'Despesas com Pessoal'];
-const ATE_MC = ['Receita Bruta', 'Deduções da Receita', 'CMV', 'Despesas Variáveis de Venda'];
+/* A provisão de imposto sobre venda sem nota entra em LINHA PRÓPRIA, logo
+   abaixo das Deduções, e não somada dentro delas: ela é estimativa, e
+   estimativa misturada com número de guia deixa de ser auditável. Em linha
+   separada dá para ver as duas e discordar de uma. A medição do gap entre a
+   receita do painel e a declarada está em GRUPO_PROVISAO_IMPOSTO_, no
+   BlingSync.gs. */
+const GRUPO_PROVISAO = 'Provisão de Imposto (venda sem nota)';
+const ATE_MC = ['Receita Bruta', 'Deduções da Receita', GRUPO_PROVISAO, 'CMV',
+                'Despesas Variáveis de Venda'];
 const DRE_ESTRUTURA = [
   { tipo: 'grupo',    nome: 'Receita Bruta' },
   { tipo: 'grupo',    nome: 'Deduções da Receita' },
+  { tipo: 'grupo',    nome: GRUPO_PROVISAO },
   { tipo: 'subtotal', nome: 'Receita Líquida',
-    soma: ['Receita Bruta', 'Deduções da Receita'] },
+    soma: ['Receita Bruta', 'Deduções da Receita', GRUPO_PROVISAO] },
   { tipo: 'grupo',    nome: 'CMV' },
   { tipo: 'subtotal', nome: 'Lucro Bruto',
-    soma: ['Receita Bruta', 'Deduções da Receita', 'CMV'] },
+    soma: ['Receita Bruta', 'Deduções da Receita', GRUPO_PROVISAO, 'CMV'] },
   { tipo: 'grupo',    nome: 'Despesas Variáveis de Venda' },
   { tipo: 'subtotal', nome: 'Margem de Contribuição', soma: ATE_MC },
   { tipo: 'grupo',    nome: 'Despesas Comerciais' },

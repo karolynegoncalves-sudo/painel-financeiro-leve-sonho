@@ -21,6 +21,54 @@
 const ABA_RECEITA_PEDIDOS_ = '_Receita_Pedidos';
 const ABA_CMV_CONSUMO_ = '_CMV_Consumo';
 
+/**
+ * PROVISAO DE SIMPLES SOBRE A VENDA QUE NAO VAI PARA NOTA.
+ *
+ * Medido em 14/09/2026 contra o extrato do PGDAS-D e as guias do Simples: a
+ * receita DECLARADA a Receita Federal e 18% menor que a do painel. Sao
+ * R$ 71.600 em seis meses (jan a jun/2026). Mes a mes:
+ *
+ *   mes   painel    declarado   gap
+ *   jan   64.567    36.997      27.570
+ *   fev   68.080    53.008      15.072
+ *   mar   84.716    74.180      10.537
+ *   abr   74.159    62.433      11.726
+ *   mai   54.917    54.250         667
+ *   jun   45.212    39.182       6.030
+ *
+ * O gap E A VENDA DO SITE: a Nuvemshop somou R$ 64.206 no mesmo semestre, ou
+ * seja 90% do gap. Mes a mes oscila porque o painel conta pela data do PEDIDO
+ * e o DAS pela NOTA; no semestre fecha, e e o semestre que vale.
+ *
+ * POR QUE PROVISIONAR: o imposto e devido sobre a venda, nao sobre a nota. Se
+ * o dinheiro entrou, a obrigacao existe. Uma DRE que mostra o site com 2% de
+ * taxa contra 21,8% da Shopee esta dizendo que o site e o canal mais rentavel
+ * - e parte dessa vantagem e imposto nao recolhido, nao eficiencia. Precificar
+ * em cima disso e precificar em cima de uma margem que nao existe.
+ *
+ * A provisao entra em GRUPO PROPRIO, nao somada dentro das Deducoes. Ela e uma
+ * estimativa, e estimativa misturada com numero de guia deixa de ser
+ * auditavel. Em linha separada da para ver os dois e discordar de um.
+ *
+ * NAO ENTRA NA DFC de proposito: provisao nao move caixa. E como nao e conta,
+ * nem chega la - a DFC e montada a partir das contas, nao desta aba.
+ */
+var GRUPO_PROVISAO_IMPOSTO_ = 'Provisão de Imposto (venda sem nota)';
+
+/** Canais cuja venda nao gera nota fiscal. Conferir quando isso mudar. */
+var CANAIS_SEM_NOTA_ = { 'Nuvemshop': 1 };
+
+/**
+ * Aliquota efetiva do Simples, medida nas seis guias de 2026 sobre a receita
+ * DECLARADA (nao sobre a do painel - foi esse o meu erro inicial):
+ *   jan 7,61% | fev 7,62% | mar 7,69% | abr 7,80% | mai 7,81% | jun 7,81%
+ * Estavel. A media ponderada da 7,72%.
+ *
+ * Ela sobe conforme o RBT12 sobe, entao revisar quando o faturamento mudar de
+ * faixa. RBT12 declarado em 06/2026: R$ 633.110,36.
+ */
+var ALIQUOTA_SIMPLES_ = 0.0772;
+
 const JANELA_SYNC_DESDE = '2025-01-01';
 
 /**
@@ -626,6 +674,35 @@ function recalcularDre_() {
   };
   const nRec = somaExterna(ABA_RECEITA_PEDIDOS_, 'Receita Bruta');
   const nCmv = somaExterna(ABA_CMV_CONSUMO_, 'CMV');
+
+  // Provisao de imposto sobre a venda que nao vira nota. Ver o comentario
+  // grande em GRUPO_PROVISAO_IMPOSTO_, no topo deste arquivo.
+  const provisionarImpostoSemNota = () => {
+    const s = ss.getSheetByName(ABA_RECEITA_PEDIDOS_);
+    if (!s || s.getLastRow() < 2) return { linhas: 0, total: 0 };
+    const dados = s.getRange(2, 1, s.getLastRow() - 1, 3).getValues();
+    let n = 0, soma = 0;
+    dados.forEach(([mesBruto, canal, valor]) => {
+      const mes = mesTexto_(mesBruto);
+      const v = Math.abs(Number(valor) || 0);
+      if (!mes || !v) return;
+      if (!CANAIS_SEM_NOTA_[String(canal || '').trim()]) return;
+      const imposto = v * ALIQUOTA_SIMPLES_;
+      soma += imposto;
+      n++;
+      ['competencia', 'realizado'].forEach(regime => {
+        const chave = regime + '|' + mes + '|' + GRUPO_PROVISAO_IMPOSTO_;
+        totais[chave] = (totais[chave] || 0) - imposto;
+      });
+    });
+    return { linhas: n, total: soma };
+  };
+  const prov = provisionarImpostoSemNota();
+  if (prov.linhas) {
+    logSync_('recalcularDre', 'ok', 'provisao de imposto sobre venda sem nota: R$ '
+      + prov.total.toFixed(2) + ' em ' + prov.linhas + ' mes(es)/canal, a '
+      + (ALIQUOTA_SIMPLES_ * 100).toFixed(2) + '%');
+  }
   if (!nRec) {
     logSync_('recalcularDre', 'erro', 'a aba ' + ABA_RECEITA_PEDIDOS_ + ' esta vazia:'
       + ' a DRE vai sair SEM RECEITA. Rode o alimentador antes.');
