@@ -47,35 +47,26 @@ var GRUPO_AMORTIZACAO_ = 'Amortização de Dívida (ignorar na DRE)';
 var CATEGORIAS_EMPRESTIMO_ = { '14674413185': 1, '14674413186': 1 };
 
 /**
- * MUTUO DO SOCIO - as 6 parcelas de 2025 que nao sao de contrato bancario.
+ * MUTUO DO SOCIO - a UNICA parcela de 2025 que e emprestimo do Vinicius.
  *
- * A Karolyne explicou em 14/09/2026: o Vinicius adiantou dinheiro para a
- * REFORMA (pagou o pedreiro e o resto direto) e a empresa devolveu depois.
- * Nao e emprestimo de banco, e mutuo de socio.
+ * HISTORIA DESTE BLOCO, porque ele ja esteve errado: em 14/09/2026 eu inferi
+ * que as SEIS parcelas que sobravam em "sem regra" eram devolucao de um
+ * emprestimo do socio para a reforma, e montei a tabela com as seis. Ao puxar
+ * TODAS as contas do contato "Vinicius Negrao de Oliveira" (16095855208), cinco
+ * delas nao existem na lista dele - nao sao do Vinicius. A inferencia estava
+ * errada; so a de R$ 2.583,00 de 21/03/2025 e dele, e o historico dela diz
+ * "Emprestimo Pijamas": capital de giro para comprar mercadoria, nao obra.
  *
- * POR QUE ISSO MUDA TUDO NELAS: emprestimo de socio sem juros nao tem despesa
- * nenhuma. A devolucao e BAIXA DE PASSIVO - sai dinheiro, cai a divida com o
- * socio, e o resultado nao e tocado. Enquanto ficavam em Resultado Financeiro,
- * os R$ 6.084,21 inteiros apareciam como despesa de 2025 sem serem despesa de
- * nada.
+ * O TRATAMENTO, porem, e o mesmo e continua certo: emprestimo de socio sem
+ * juros nao tem despesa. Devolver e BAIXA DE PASSIVO - sai dinheiro, cai a
+ * divida com o socio, o resultado nao e tocado. Por isso 100% amortizacao.
  *
- * Por isso a fatia delas e 100% amortizacao e 0 de juros - e vao para o mesmo
- * grupo fora da DRE, onde continuam visiveis como saida de caixa.
- *
- * Identificadas por (mes, valor) porque nao tenho o id das contas. Os quatro
- * valores de ~1.159,2x em meses seguidos, parando em outubro, sao o padrao de
- * devolucao parcelada que ela descreveu.
- *
- * A CONTRAPARTIDA AINDA FALTA NO BALANCO: se o dinheiro pagou reforma, a
- * empresa ganhou uma BENFEITORIA em imovel, que e ativo imobilizado e deprecia
- * - nao e despesa em momento nenhum. O valor total da reforma nao esta neste
- * painel; enquanto nao estiver, o ativo esta subavaliado.
+ * A REFORMA NAO ENTRA AQUI e nao precisa de lancamento: ela ja esta nos livros
+ * como R$ 5.100,00 em quatro parcelas de jan a abr/2026 (R$ 1.200 x3 + R$ 1.500),
+ * na categoria propria 14639321675 "Reforma". Lancar de novo dobraria o custo.
  */
 var MUTUO_SOCIO_ = {
-  '2025-03': [1447.30, 2583.00],
-  '2025-08': [1159.22],
-  '2025-09': [1159.25],
-  '2025-10': [1159.22]
+  '2025-03': [2583.00]
 };
 
 /** Contrato 4376284 (SAC): amortizacao constante. */
@@ -191,7 +182,16 @@ function conferirEmprestimos() {
     var valor = Number(l[11]) || 0;
     var mes = venc ? Utilities.formatDate(new Date(venc), 'America/Sao_Paulo', 'yyyy-MM') : '?';
     var f = fatiarEmprestimo_(catId, venc, valor);
-    if (!f) { semRegra.push(mes + '  R$ ' + Math.abs(valor).toFixed(2)); return; }
+    if (!f) {
+      // mostra o historico e o id da conta: foi inferindo sem isso que eu
+      // errei em 14/09/2026, atribuindo ao socio cinco parcelas que nao eram
+      // dele. Adivinhar pela data e pelo valor nao serve.
+      var desc = [l[8], l[9], l[10]].filter(function (x) { return x; }).join(' ');
+      semRegra.push(mes + '  R$ ' + Math.abs(valor).toFixed(2)
+                    + '  ' + String(l[13] || '') + ':' + String(l[12] || '')
+                    + '  ' + String(desc).slice(0, 70));
+      return;
+    }
     porMes[mes] = porMes[mes] || { parcela: 0, juros: 0, amort: 0, quais: {} };
     porMes[mes].parcela += Math.abs(valor);
     porMes[mes].juros += f.juros;
