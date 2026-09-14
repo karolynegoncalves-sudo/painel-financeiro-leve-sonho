@@ -809,6 +809,14 @@ function limparDeducoesFantasma(desde, ate) {
   logSync_('limparDeducoesFantasma', 'ok',
            achadas + ' conferidas, ' + fantasmas + ' fantasma(s), ' + falhou + ' falha(s)');
   Logger.log(msg);
+  /* MOSTRA NA TELA quando rodada pela planilha. Logger.log so aparece em
+     Execucoes, no editor - a Karolyne rodou pelo menu, olhou a planilha e nao
+     tinha nada para ver. Rotina disparada por menu tem de responder onde foi
+     disparada; mandar a pessoa procurar o log em outra aba e defeito de quem
+     escreveu o menu. try/catch porque getUi() nao existe quando a funcao roda
+     por acionador ou pelo editor, e ai o alert derrubaria a execucao INTEIRA
+     depois de o trabalho ja estar feito. */
+  try { SpreadsheetApp.getUi().alert(msg); } catch (e) {}
   return msg;
 }
 
