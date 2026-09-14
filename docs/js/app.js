@@ -134,6 +134,8 @@ async function verificarESeguir_(token) {
     document.getElementById('loginGate').innerHTML = '<p>Erro ao conectar com o painel: ' + data.error + '</p>';
     return;
   }
+  if (data && data.janelaDesde) JANELA_DESDE = data.janelaDesde;
+  LINHAS_NA_ABA = (data && data.linhasNaAba) || 0;
   FLUXO_ROWS = parseFluxoRows_(data);
   /* Vendas NAO entra no login. Sao 8.824 pedidos e 7,6 segundos - o
      login inteiro esperava por eles mesmo quando a pessoa ia direto pra
@@ -304,6 +306,13 @@ const FILTER = { preset: 'mes', start: null, end: null, monthStr: '' };
  * Cada chamada agora pega um numero. Depois de cada await, quem nao e a
  * renderizacao mais recente para em silencio - a nova ja esta desenhando.
  */
+/* Ate onde o painel baixou lancamento, vindo do Apps Script
+   (JANELA_PAINEL_MESES). Serve para AVISAR quando o filtro pede periodo mais
+   antigo do que o que foi carregado: sem o aviso a tela mostraria zero, e zero
+   parece numero, nao parece falta. */
+let JANELA_DESDE = null;
+let LINHAS_NA_ABA = 0;
+
 let RENDER_GEN = 0;
 function renderObsoleta_(gen) { return gen !== RENDER_GEN; }
 
@@ -365,6 +374,32 @@ const FILTER_LABELS = {
   hoje: 'Hoje', ontem: 'Ontem', semana: 'Esta semana', semana_passada: 'Semana passada',
   mes: 'Este mês', mes_passado: 'Mês passado', mes_selecionado: 'Mês selecionado', personalizado: 'Período personalizado'
 };
+
+/**
+ * Aviso de periodo fora da janela baixada.
+ *
+ * O painel le apenas os ultimos JANELA_PAINEL_MESES meses de lancamento (ver
+ * getFluxoCaixaRows_ no Code.gs). Escolher um periodo anterior a isso mostraria
+ * R$ 0,00 em tudo - e zero parece resposta, nao parece ausencia. Este aviso e a
+ * unica coisa que separa "nao teve movimento" de "nao foi carregado".
+ */
+function avisoJanela_() {
+  if (!JANELA_DESDE || !FILTER.start) return '';
+  const ini = ymdLocal_(FILTER.start);
+  if (ini >= JANELA_DESDE) return '';
+  const [y, m, d] = JANELA_DESDE.split('-');
+  return '<p class="dre-nota" style="color:var(--brick);"><b>Período fora do que foi '
+    + 'carregado.</b> O painel lê lançamento a partir de <b>' + d + '/' + m + '/' + y
+    + '</b> para carregar rápido. O período escolhido começa antes disso, então o que '
+    + 'aparece abaixo está <b>incompleto — não é zero, é dado que não foi baixado</b>. '
+    + 'Para ver mais atrás, aumente <code>JANELA_PAINEL_MESES</code> no Apps Script.</p>';
+}
+
+/** Data em 'yyyy-MM-dd' no fuso local, para comparar com JANELA_DESDE. */
+function ymdLocal_(dt) {
+  const p = (n) => String(n).padStart(2, '0');
+  return dt.getFullYear() + '-' + p(dt.getMonth() + 1) + '-' + p(dt.getDate());
+}
 
 function renderFiltroBar_() {
   const presets = ['hoje', 'ontem', 'semana', 'semana_passada', 'mes', 'mes_passado'];
@@ -1164,6 +1199,7 @@ function renderKpis(el, rows) {
       <div class="section-desc">Faturamento e distribuição por canal saem da aba Vendas (pela data da venda). O resto vem dos lançamentos do Bling — contas a pagar/receber já baixadas, por categoria.</div>
     </div>
     ${renderFiltroBar_()}
+    ${avisoJanela_()}
     <div class="kpi-grid k5">
       <div class="kpi ${fat.total > 0 ? 'ok' : ''}">
         <div class="kpi-label">Faturamento — vendas</div>
@@ -1351,6 +1387,7 @@ function renderFluxoCaixa(el, rows) {
       <div class="section-desc">Contas a pagar e a receber do Bling no período. Mostra o que já foi pago <b>e</b> o que ainda está em aberto — use o filtro Situação pra separar.</div>
     </div>
     ${renderFiltroBar_()}
+    ${avisoJanela_()}
     ${!rows.length ? '<div class="state-msg">Sem lançamentos nesse período.</div>' : `
     <div class="grid-2">
       <div class="panel">
@@ -1717,6 +1754,7 @@ function renderDre(el, rows) {
       <div class="section-desc">Tudo pela <b>data do fato</b> — receita e despesa entram no mês em que aconteceram, mesmo que o dinheiro tenha andado em outro. É o regime que responde <b>quanto o mês rendeu</b>.</div>
     </div>
     ${renderFiltroBar_()}
+    ${avisoJanela_()}
     <p class="dre-nota">Sempre por <b>competência</b>: cada valor entra no mês em
       que o fato aconteceu, não no mês em que o dinheiro andou. Quanto o caixa
       mexeu está na <b>DFC</b>, logo abaixo.</p>

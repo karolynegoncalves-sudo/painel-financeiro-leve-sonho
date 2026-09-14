@@ -23,7 +23,7 @@
  * TROQUE ESTA STRING quando mexer no que o doGet devolve. O painel mostra o
  * valor e avisa em vermelho quando nao encontra a marca que ele espera.
  */
-const BACKEND_VERSAO_ = '2026-09-14 imposto+provisao';
+const BACKEND_VERSAO_ = '2026-09-14 imposto+provisao+janela';
 
 function doGet(e) {
   const params = (e && e.parameter) || {};
@@ -63,7 +63,9 @@ function doGet(e) {
         + ' rec=' + (fontes.receita || []).length;
       return jsonResponse_({ email: email, rows: r, despesas: getDespesasFixasList_(),
                              dreFontes: fontes,
-                             backend: diag });
+                             backend: diag + ' | janela=' + r.desde
+                                      + ' ' + (r.rows || []).length + '/' + r.total,
+                             janelaDesde: r.desde, linhasNaAba: r.total });
     }
     case 'dre': return jsonResponse_({ email: email, rows: getDreRows_(e && e.parameter && e.parameter.regime) });
     case 'dreFontes': return jsonResponse_(Object.assign({ email: email }, getDreFontesV2_()));
@@ -251,8 +253,71 @@ function sheetData_(nomeAba) {
   return { headers: valores[0], rows: valores.slice(1) };
 }
 
+/**
+ * Quantos meses de Fluxo de Caixa o painel baixa, contados para tras a partir
+ * do mes corrente, inclusive.
+ *
+ * POR QUE EXISTE ESTE LIMITE: getFluxoCaixaRows_ devolvia a ABA INTEIRA, sem
+ * recorte de data nem de coluna, e essa aba nao para de crescer - o espelho da
+ * Shopee sozinho lancou 8.376 linhas, mais o Mercado Pago, mais as parcelas
+ * provisionadas ate 2030. Em 14/09/2026 a Karolyne reclamou que o painel
+ * demorava para carregar, e era isso: megabytes de JSON montados no Apps
+ * Script, transferidos e reinterpretados no navegador a cada login, para
+ * desenhar uma tela que mostra um mes.
+ *
+ * TREZE meses e nao doze: com treze, comparar o mes com o mesmo mes do ano
+ * anterior ainda funciona. Com doze, o mes mais antigo cai fora justamente
+ * quando se quer compara-lo.
+ *
+ * O CORTE E VISIVEL, nao silencioso: a resposta leva `desde` e o painel avisa
+ * em vermelho quando o periodo escolhido comeca antes disso. Dado que falta sem
+ * avisar e o pior defeito que este projeto teve - foi assim que o imposto
+ * sumiu da DRE por um dia inteiro sem a tela dizer nada.
+ *
+ * NAO AFETA a aba _DRE nem o balanco: recalcularDre_ le a planilha direto, do
+ * lado do servidor, e continua com o historico completo.
+ */
+const JANELA_PAINEL_MESES = 13;
+
+/** Primeiro dia do mes a partir do qual o painel le lancamento ('yyyy-MM-dd'). */
+function janelaPainelDesde_() {
+  const hoje = new Date();
+  const d = new Date(hoje.getFullYear(), hoje.getMonth() - (JANELA_PAINEL_MESES - 1), 1);
+  return Utilities.formatDate(d, 'America/Sao_Paulo', 'yyyy-MM-dd');
+}
+
+/**
+ * O Fluxo de Caixa recortado pela janela. Filtra pela DATA (coluna 1) OU pela
+ * COMPETENCIA (coluna 15): a DRE por competencia le a segunda, e uma conta paga
+ * fora da janela pode ter competencia dentro dela - cortar so pela data sumiria
+ * com ela da DRE.
+ */
 function getFluxoCaixaRows_() {
-  return sheetData_(ABA_FLUXO_CAIXA);
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_FLUXO_CAIXA);
+  if (!sheet || sheet.getLastRow() < 2) {
+    return { headers: [], rows: [], desde: null, total: 0 };
+  }
+  const valores = sheet.getDataRange().getValues();
+  const desde = janelaPainelDesde_();
+  /* A coluna da competencia vem do CABECALHO, nao fixa no indice 14. O resto do
+     projeto usa l[14] direto, e aqui isso seria perigoso de um jeito novo: este
+     filtro decide o que o painel inteiro ve, e um indice errado descartaria
+     linha sem dizer nada - o mesmo tipo de falha silenciosa que fez o imposto
+     sumir da DRE. Se a coluna nao existir, cai no 14 conhecido. */
+  const iComp = valores[0].indexOf('competencia') >= 0
+    ? valores[0].indexOf('competencia') : 14;
+  const texto = function (v) {
+    if (v instanceof Date) return Utilities.formatDate(v, 'America/Sao_Paulo', 'yyyy-MM-dd');
+    return String(v || '').trim().slice(0, 10);
+  };
+  const rows = [];
+  for (let i = 1; i < valores.length; i++) {
+    const l = valores[i];
+    const d = texto(l[0]);
+    const c = texto(l[iComp]);
+    if ((d && d >= desde) || (c && c >= desde)) rows.push(l);
+  }
+  return { headers: valores[0], rows: rows, desde: desde, total: valores.length - 1 };
 }
 
 /**
