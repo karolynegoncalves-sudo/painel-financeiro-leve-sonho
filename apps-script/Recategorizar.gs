@@ -89,8 +89,8 @@ function recategorizarIPTU() {
   // conferirFaturas entra aqui porque o dropdown do editor fica preso nesta
   // funcao (ver manutencaoCompleta) - e a unica que consigo executar.
   const depois = conferirIPTU() + '\n\n' + conferirFaturas()
-    + '\n\n' + conferirFaturasPorData()
-    + '\n\n' + conferirFaturasPorPortador();
+    + '\n\n' + conferirFaturasPorData()  // conferirFaturasPorPortador saiu: ver o comentario dela
+    ;
   logSync_('recategorizarIPTU', 'ok', msg);
   Logger.log(msg + '\n\n' + depois);
   try { SpreadsheetApp.getUi().alert('Recategorizar', msg, SpreadsheetApp.getUi().ButtonSet.OK); } catch (e) {}
@@ -543,69 +543,36 @@ function conferirFaturasPorData() {
   return msg;
 }
 
-/**
- * As faturas conferidas por PORTADOR e mes, sem depender da data.
+/*
+ * conferirFaturasPorPortador FOI REMOVIDA em 14/09/2026, e o porque vale mais
+ * que a funcao.
  *
- * conferirFaturasPorData tem um ponto cego: se a fatura foi lancada com outra
- * data que nao a do vencimento, a soma do dia nao a encontra e o resultado
- * parece "faltando" sem estar. Toda linha da fatura de um cartao carrega o
- * mesmo portador, em qualquer data - entao somar por (portador, mes) responde
- * sem adivinhar o dia.
+ * A ideia era boa: conferirFaturasPorData tem um ponto cego (se a fatura foi
+ * paga depois do vencimento, somar o dia do vencimento nao a encontra e o
+ * resultado diz "FALTA" sem faltar), e o portador seria o eixo imune a data.
  *
- * Imprime os dois lados: o total das faturas do mes (dos extratos, em
- * FATURAS_2026) e o que cada portador tem na planilha naquele mes.
+ * SO QUE O PORTADOR NAO EXISTE NO DADO. Rodada em 14/09/2026, a funcao devolveu
+ * TUDO em "(sem portador)" - R$ 74 mil a R$ 144 mil por mes, ou seja, todas as
+ * saidas. Duas razoes, e as duas sao definitivas:
+ *
+ *   1. a aba Fluxo de Caixa nao tem coluna de portador; o sync nunca a trouxe.
+ *   2. e trazer nao resolveria: no export da API, 1.640 das 1.716 contas tem
+ *      portadorId = 0. No Bling o portador mora no BORDERO, nao na conta
+ *      (ver a memoria bling-exportar-extrato-em-vez-de-varrer-api).
+ *
+ * Ou seja: o eixo portador e um caminho morto para esta pergunta. Nao vale
+ * reescrever.
+ *
+ * QUEM RESPONDE A PERGUNTA, ENTAO:
+ *   conferirFaturas()  - agrupa as linhas da fatura e mostra em quantas
+ *                        categorias ela foi rateada. Foi assim que agosto/2026
+ *                        foi auditado ao centavo nos tres cartoes.
+ *
+ * E um teste feito em 14/09/2026 que confirma que a fatura ESTA nos livros:
+ * procurei, para cada uma das 6 faturas de jul e ago, uma conta de valor
+ * exatamente igual ao total, com 20 dias de folga. NENHUMA existe - e isso e a
+ * boa noticia, nao a ma. Significa que a fatura entra RATEADA em varias linhas
+ * por categoria, que e exatamente o que se quer: nenhuma linha isolada vale o
+ * total porque o total foi distribuido. Se existisse uma linha igual ao total,
+ * ai sim haveria fatura entrando sem rateio.
  */
-function conferirFaturasPorPortador() {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_FLUXO_CAIXA);
-  var ult = sheet.getLastRow();
-  var COL_DATA = 1, COL_TIPO = 2, COL_PORT_NOME = 8, COL_VALOR = 12;
-  var dados = sheet.getRange(2, 1, ult - 1, 15).getValues();
-
-  var porta = {};      // portador -> mes -> {total, linhas}
-  dados.forEach(function (l) {
-    if (String(l[COL_TIPO - 1]).trim() !== 'saida') return;
-    var d = l[COL_DATA - 1];
-    var mes = (d instanceof Date
-      ? Utilities.formatDate(d, 'America/Sao_Paulo', 'yyyy-MM')
-      : String(d || '').trim().slice(0, 7));
-    if (mes < '2026-01' || mes > '2026-08') return;
-    var p = String(l[COL_PORT_NOME - 1] || '(sem portador)').trim();
-    var a = porta[p] || (porta[p] = {});
-    var b = a[mes] || (a[mes] = { total: 0, linhas: 0 });
-    b.total += Number(l[COL_VALOR - 1] || 0);
-    b.linhas++;
-  });
-
-  // o que os extratos dizem, por banco e mes
-  var extrato = {};
-  FATURAS_2026.forEach(function (f) {
-    var mes = f.venc.slice(0, 7);
-    (extrato[f.banco] || (extrato[f.banco] = {}))[mes] = f.total;
-  });
-
-  var meses = [];
-  for (var m = 1; m <= 8; m++) meses.push('2026-0' + m);
-
-  var out = ['FATURAS x PORTADOR (saidas de 2026, jan a ago)', '',
-             'EXTRATOS - total de cada fatura:'];
-  Object.keys(extrato).sort().forEach(function (b) {
-    out.push(('  ' + b + '              ').slice(0, 16)
-      + meses.map(function (m) {
-        return ('         ' + (extrato[b][m] ? extrato[b][m].toFixed(2) : '-')).slice(-10);
-      }).join(''));
-  });
-  out.push('');
-  out.push('PLANILHA - saidas por portador:');
-  out.push(('  portador        ') + meses.map(function (m) {
-    return ('       ' + m.slice(5)).slice(-10); }).join(''));
-  Object.keys(porta).sort().forEach(function (p) {
-    out.push(('  ' + p + '                    ').slice(0, 18)
-      + meses.map(function (m) {
-        var b = porta[p][m];
-        return ('         ' + (b ? b.total.toFixed(2) : '-')).slice(-10);
-      }).join(''));
-  });
-  var msg = out.join('\n');
-  Logger.log(msg);
-  return msg;
-}
