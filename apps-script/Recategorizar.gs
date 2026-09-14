@@ -379,6 +379,17 @@ var PENDENCIAS_ = {
  * onde se perde tempo e se roda a coisa errada sem perceber.
  */
 function manutencaoDre() {
+  // O SYNC VEM PRIMEIRO, e a ordem importa. `fixarGrupoCanonico_` so corrige
+  // linhas que JA existem no _DRE_Mapa - ele nao cria. Uma categoria criada
+  // agora no Bling ainda nao esta no mapa, entao o fixar a reporta como "NAO
+  // ACHADA" e o grupo dela nao entra na DRE.
+  //
+  // Foi exatamente o que aconteceu em 14/09/2026 com a 14744752723 ("Cartao a
+  // ratear"): o sync rodava DEPOIS, dentro de recategorizarContas_, e por isso
+  // so na segunda execucao a categoria pegava. Uma rotina que precisa ser
+  // rodada duas vezes para funcionar e uma rotina quebrada.
+  sincronizarCategorias_(getBlingAccessToken_());
+
   var fix = fixarGrupoCanonico_();
   var r = recategorizarContas_(PENDENCIAS_);
   var msg = '_DRE_Mapa: ' + fix.mudou + ' grupo(s) corrigido(s)'
