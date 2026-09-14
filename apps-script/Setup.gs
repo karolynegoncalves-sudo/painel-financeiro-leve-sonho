@@ -1128,7 +1128,11 @@ function _rodarConsertarConfigTaxas() {
 
 function setupDespesasFixas_(ss) {
   const sheet = getOrCreateSheet_(ss, ABA_DESPESAS_FIXAS);
-  ensureHeader_(sheet, ['id', 'descricao', 'valorMensal']);
+  /* 'inicio' e 'fim' em 'yyyy-MM', vazio = aberto. O custo fixo mudou durante
+     2026 (o PJ do Eduardo saiu em junho) e valor unico por despesa nao tem como
+     estar certo nos dois lados da mudanca. Ver as funcoes de vigencia no
+     Precificacao.gs. */
+  ensureHeader_(sheet, ['id', 'descricao', 'valorMensal', 'inicio', 'fim']);
 }
 
 /**

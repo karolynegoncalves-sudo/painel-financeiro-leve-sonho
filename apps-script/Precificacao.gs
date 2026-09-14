@@ -136,11 +136,61 @@ function mesTexto_(v) {
   return String(v || '').trim().slice(0, 7);
 }
 
+/* ------------------------------------------------------------------------
+ * VIGENCIA DA DESPESA FIXA.
+ *
+ * O cadastro tinha valor UNICO por despesa, e o custo fixo da Leve Sonho mudou
+ * durante o ano: o PJ do Eduardo saiu em junho/2026. Com valor unico, ou a
+ * media dos meses antigos fica baixa ou a dos novos fica alta - nao existe um
+ * numero certo. Em 14/09/2026 isso dava R$ 21.116,59 de cadastro contra
+ * R$ 18.282 de custo fixo real na DRE de agosto: 5 pontos percentuais de
+ * diferenca em cima do preco de CADA peca.
+ *
+ * O conserto nao e trocar o numero por outro numero unico - seria trocar de
+ * erro. E dizer DE QUANDO ATE QUANDO cada despesa vale.
+ *
+ * 'inicio' e 'fim' sao 'yyyy-MM'. Vazio significa aberto: sem inicio vale desde
+ * sempre, sem fim vale ate hoje. A despesa normal, que nao mudou, fica com os
+ * dois vazios e se comporta exatamente como antes - por isso nao ha migracao a
+ * fazer, e planilha sem as colunas continua funcionando.
+ * ---------------------------------------------------------------------- */
+
+/** 'yyyy-MM' de um valor que pode vir como texto ou como Date da planilha. */
+function mes7_(v) {
+  if (v instanceof Date) return Utilities.formatDate(v, 'America/Sao_Paulo', 'yyyy-MM');
+  return String(v || '').trim().slice(0, 7);
+}
+
+/** A despesa estava valendo no mes 'yyyy-MM'? */
+function vigenteNoMes_(inicio, fim, mes) {
+  if (inicio && mes < inicio) return false;
+  if (fim && mes > fim) return false;
+  return true;
+}
+
+/**
+ * Soma das despesas fixas vigentes num mes 'yyyy-MM'.
+ * Coluna de vigencia ausente = tudo vigente, que e o comportamento antigo.
+ */
+function custoFixoNoMes_(mes) {
+  const { headers, rows } = sheetData_(ABA_DESPESAS_FIXAS);
+  const iValor = headers.indexOf('valorMensal');
+  const iIni = headers.indexOf('inicio');
+  const iFim = headers.indexOf('fim');
+  if (iValor < 0) return 0;
+  return rows.reduce(function (soma, r) {
+    const ini = iIni >= 0 ? mes7_(r[iIni]) : '';
+    const fim = iFim >= 0 ? mes7_(r[iFim]) : '';
+    if (!vigenteNoMes_(ini, fim, mes)) return soma;
+    return soma + num_(r[iValor]);
+  }, 0);
+}
+
 function getDespesasFixasPct_(fallbackManual) {
   const { headers, rows: despesas } = sheetData_(ABA_DESPESAS_FIXAS);
   const iValor = headers.indexOf('valorMensal');
-  const totalDespesas = despesas.reduce((soma, r) => soma + num_(r[iValor]), 0);
-  if (totalDespesas <= 0) return fallbackManual;
+  const totalCadastrado = despesas.reduce((soma, r) => soma + num_(r[iValor]), 0);
+  if (totalCadastrado <= 0) return fallbackManual;
 
   /* COMPETENCIA, nao realizado. Dois motivos, e o primeiro e conceitual:
      custo fixo do mes se compara com a receita GANHA no mes, nao com o dinheiro
@@ -167,28 +217,84 @@ function getDespesasFixasPct_(fallbackManual) {
   const mesAtual = Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'yyyy-MM');
   const meses = Object.keys(receitaPorMes).filter(m => m < mesAtual).sort().slice(-3);
   if (!meses.length) return fallbackManual;
-  const mediaReceita = meses.reduce((soma, m) => soma + receitaPorMes[m], 0) / meses.length;
-  if (!mediaReceita) return fallbackManual;
-  return totalDespesas / mediaReceita;
+  /* CUSTO VIGENTE DE CADA MES, nao o total do cadastro.
+     Somar custo e receita dos mesmos meses e dividir no fim da a media
+     PONDERADA - mes de faturamento maior pesa mais, que e o certo, porque e
+     nele que mais peca foi vendida e mais rateio foi aplicado. Dividir mes a
+     mes e tirar a media das razoes daria peso igual a um mes fraco. */
+  const somaReceita = meses.reduce((soma, m) => soma + receitaPorMes[m], 0);
+  const somaCusto = meses.reduce((soma, m) => soma + custoFixoNoMes_(m), 0);
+  if (!somaReceita || !somaCusto) return fallbackManual;
+  return somaCusto / somaReceita;
 }
 
 function getDespesasFixasList_() {
   const { headers, rows } = sheetData_(ABA_DESPESAS_FIXAS);
   const idx = (n) => headers.indexOf(n);
   const iId = idx('id'), iDescricao = idx('descricao'), iValor = idx('valorMensal');
-  return rows.filter(r => r[iDescricao]).map(r => ({ id: r[iId], descricao: r[iDescricao], valorMensal: num_(r[iValor]) }));
+  const iIni = idx('inicio'), iFim = idx('fim');
+  const mesAtual = Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'yyyy-MM');
+  return rows.filter(r => r[iDescricao]).map(function (r) {
+    const inicio = iIni >= 0 ? mes7_(r[iIni]) : '';
+    const fim = iFim >= 0 ? mes7_(r[iFim]) : '';
+    return {
+      id: r[iId], descricao: r[iDescricao], valorMensal: num_(r[iValor]),
+      inicio: inicio, fim: fim,
+      /* Calculado aqui e nao na tela: quem sabe que mes e hoje no fuso de
+         Sao Paulo e o servidor. O navegador da pessoa pode estar em outro. */
+      vigente: vigenteNoMes_(inicio, fim, mesAtual)
+    };
+  });
 }
 
 /** Grava (cria ou atualiza) uma despesa fixa. */
+/**
+ * Garante as colunas de vigencia na aba, criando-as se faltarem.
+ *
+ * Fica aqui e nao so no setupWorkbook de proposito: a Karolyne nao precisa
+ * rodar migracao para usar a vigencia. A leitura ja tolera a ausencia das
+ * colunas (trata como "sempre vigente"), e o primeiro salvamento as cria.
+ */
+function garantirColunasVigencia_(sheet) {
+  const ultima = Math.max(sheet.getLastColumn(), 1);
+  const atuais = sheet.getRange(1, 1, 1, ultima).getValues()[0]
+    .map(function (h) { return String(h).trim(); });
+  const faltam = ['inicio', 'fim'].filter(function (n) { return atuais.indexOf(n) < 0; });
+  if (!faltam.length) return atuais;
+  const maxCols = sheet.getMaxColumns();
+  if (maxCols < ultima + faltam.length) {
+    sheet.insertColumnsAfter(maxCols, ultima + faltam.length - maxCols);
+  }
+  sheet.getRange(1, ultima + 1, 1, faltam.length).setValues([faltam])
+    .setFontWeight('bold').setBackground('#8E2A44').setFontColor('#FFFFFF');
+  return atuais.concat(faltam);
+}
+
+/** Aceita 'yyyy-MM' ou vazio. Data solta viraria vigencia silenciosamente errada. */
+function validarMes7_(v, campo) {
+  const t = String(v || '').trim();
+  if (!t) return '';
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(t)) {
+    throw new Error('O campo "' + campo + '" precisa ser no formato AAAA-MM (ex.: 2026-06) ou ficar vazio.');
+  }
+  return t;
+}
+
 function salvarDespesaFixa_(despesa, email) {
   if (!despesa || !despesa.descricao || !(Number(despesa.valorMensal) >= 0)) {
     throw new Error('Despesa inválida: descrição e valor mensal são obrigatórios.');
+  }
+  const inicio = validarMes7_(despesa.inicio, 'início');
+  const fim = validarMes7_(despesa.fim, 'fim');
+  if (inicio && fim && fim < inicio) {
+    throw new Error('O fim (' + fim + ') é antes do início (' + inicio + ').');
   }
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
     const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_DESPESAS_FIXAS);
-    const { headers, rows } = sheetData_(ABA_DESPESAS_FIXAS);
+    const headers = garantirColunasVigencia_(sheet);
+    const { rows } = sheetData_(ABA_DESPESAS_FIXAS);
     const idx = (n) => headers.indexOf(n);
     const iId = idx('id');
 
@@ -201,11 +307,21 @@ function salvarDespesaFixa_(despesa, email) {
     }
     if (!id || linhaExistente === -1) { id = Utilities.getUuid(); linhaExistente = -1; }
 
-    const linha = [id, despesa.descricao, num_(despesa.valorMensal)];
+    /* Grava POR NOME DE COLUNA, nao por posicao. A aba tinha 3 colunas e passou
+       a ter 5; escrever um array fixo quebraria em qualquer reordenacao futura,
+       e do pior jeito - valor caindo na coluna errada, sem erro. */
+    const linha = new Array(headers.length).fill('');
+    const pos = { id: id, descricao: despesa.descricao,
+                  valorMensal: num_(despesa.valorMensal), inicio: inicio, fim: fim };
+    Object.keys(pos).forEach(function (k) {
+      const j = headers.indexOf(k);
+      if (j >= 0) linha[j] = pos[k];
+    });
     if (linhaExistente === -1) sheet.appendRow(linha);
     else sheet.getRange(linhaExistente, 1, 1, linha.length).setValues([linha]);
 
-    return { id: id, descricao: despesa.descricao, valorMensal: num_(despesa.valorMensal) };
+    return { id: id, descricao: despesa.descricao, valorMensal: num_(despesa.valorMensal),
+             inicio: inicio, fim: fim };
   } finally {
     lock.releaseLock();
   }

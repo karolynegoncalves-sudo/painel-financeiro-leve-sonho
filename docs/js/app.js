@@ -909,8 +909,12 @@ function margemPorCanal_(rows) {
  *    proporcional aos dias selecionados.
  */
 function pontoEquilibrio_(rows) {
+  /* Custo fixo VIGENTE. O filtro antigo era `d.ativo !== false`, e o campo
+     `ativo` nunca existiu no cadastro - entao ele nao filtrava nada e somava
+     inclusive despesa ja encerrada. Agora usa `vigente`, que o backend calcula
+     com a vigencia de cada linha e o mes de hoje no fuso de Sao Paulo. */
   const fixasMes = (precifDespesasFixas || [])
-    .filter(d => d.ativo !== false)
+    .filter(d => d.vigente !== false)
     .reduce((s, d) => s + (Number(d.valorMensal || d.valor || 0)), 0);
 
   const somaGrupo = (frag, tipo) => rows
@@ -3852,19 +3856,30 @@ async function salvarProdutoUi_(subrow) {
 
 function renderConfiguracoes(el) {
   const despesas = precifDespesasFixas || [];
-  const total = despesas.reduce((s, d) => s + d.valorMensal, 0);
+  /* VIGENTE e o numero que importa, nao o total do cadastro. Despesa encerrada
+     continua na lista de proposito - e historico, e a % de meses passados
+     depende dela - mas somar tudo dava R$ 21.116,59 num mes em que o custo real
+     era R$ 18.282, e essa diferenca ia inteira para o preco de cada peca. */
+  const vigentes = despesas.filter(d => d.vigente !== false);
+  const total = vigentes.reduce((s, d) => s + d.valorMensal, 0);
+  const totalCadastro = despesas.reduce((s, d) => s + d.valorMensal, 0);
+  const encerradas = despesas.length - vigentes.length;
   const pctAtual = (precifConfig && precifConfig.despesasFixasPctPadrao) || 0;
 
   el.innerHTML = `
     <div class="section-head">
       <h2 class="section-title">Custo Fixo</h2>
-      <div class="section-desc">O que sai todo mês independente de vender: aluguel, salários fixos, pró-labore, energia, softwares. A % aplicada em cada peça na Ficha de Preço sai daqui ÷ a receita média dos últimos meses — ela se ajusta sozinha conforme o faturamento.</div>
+      <div class="section-desc">O que sai todo mês independente de vender: aluguel, salários fixos, pró-labore, energia, softwares. A % aplicada em cada peça na Ficha de Preço sai daqui ÷ a receita dos últimos meses fechados — ela se ajusta sozinha conforme o faturamento.</div>
     </div>
     <div class="precif-summary">
-      <div class="tile"><div class="l">Custo fixo por mês</div><div class="v">${fmtBRL(total, 2)}</div></div>
+      <div class="tile"><div class="l">Custo fixo vigente</div><div class="v">${fmtBRL(total, 2)}</div></div>
       <div class="tile"><div class="l">% aplicada em cada peça</div><div class="v">${fmtPctSimples_(pctAtual)}</div></div>
-      <div class="tile"><div class="l">Itens cadastrados</div><div class="v">${despesas.length}</div></div>
+      <div class="tile"><div class="l">Itens vigentes</div><div class="v">${vigentes.length}${encerradas ? ' <small style="font-size:13px;color:var(--muted);">+' + encerradas + ' encerrada(s)</small>' : ''}</div></div>
     </div>
+    ${encerradas ? `<p class="dre-nota">O cadastro soma <b>${fmtBRL(totalCadastro, 2)}</b> no
+      total, mas ${encerradas} despesa(s) já foi(ram) encerrada(s) — o vigente é
+      <b>${fmtBRL(total, 2)}</b>. As encerradas ficam na lista de propósito: a % de um
+      mês passado tem de ser calculada com o custo que existia naquele mês.</p>` : ''}
     <div class="panel">
       <h3>Custo fixo mensal <small class="sub">Uma linha por item. Salário e pró-labore entram aqui — mas só de quem você paga todo mês. Quem é pago por peça (costureira, caseado) já está na ficha da peça; repetir aqui conta duas vezes.</small></h3>
       <div style="overflow-x:auto;"><table class="simple" id="despesasTabela"></table></div>
@@ -3877,11 +3892,23 @@ function renderDespesasTabela_() {
   const tbl = document.getElementById('despesasTabela');
   if (!tbl) return;
   const despesas = precifDespesasFixas || [];
-  let html = '<tr><th>Descrição</th><th>Valor mensal (R$)</th><th></th></tr>';
+  /* VIGENCIA: de quando ate quando a despesa vale. Vazio significa aberto - sem
+     inicio vale desde sempre, sem fim ainda esta valendo. Despesa que nao mudou
+     fica com os dois vazios e se comporta como antes.
+     `type="month"` de proposito: ele entrega exatamente 'yyyy-MM', que e o que o
+     backend valida. Campo de texto livre aqui deixaria a pessoa escrever
+     "junho" e a vigencia sumiria calada. */
+  let html = '<tr><th>Descrição</th><th>Valor mensal (R$)</th>'
+           + '<th>Vale a partir de</th><th>Até</th><th></th></tr>';
   despesas.forEach(d => {
-    html += `<tr data-id="${d.id}">
-      <td><input type="text" class="d-descricao" value="${escapeHtml_(d.descricao)}"></td>
+    const fim = d.fim || '';
+    const encerrada = d.vigente === false;
+    html += `<tr data-id="${d.id}" class="${encerrada ? 'desp-encerrada' : ''}">
+      <td><input type="text" class="d-descricao" value="${escapeHtml_(d.descricao)}">
+        ${encerrada ? '<span class="pill md">encerrada</span>' : ''}</td>
       <td><input type="number" step="0.01" class="d-valor" value="${d.valorMensal}"></td>
+      <td><input type="month" class="d-inicio" value="${escapeHtml_(d.inicio || '')}"></td>
+      <td><input type="month" class="d-fim" value="${escapeHtml_(fim)}"></td>
       <td><div class="precif-row-acoes">
         <button type="button" class="salvar-despesa">Salvar</button>
         <button type="button" class="excluir excluir-despesa">Excluir</button>
@@ -3891,6 +3918,8 @@ function renderDespesasTabela_() {
   html += `<tr data-id="">
     <td><input type="text" class="d-descricao" placeholder="ex: Aluguel, Salário Margarida..."></td>
     <td><input type="number" step="0.01" class="d-valor" placeholder="0,00"></td>
+    <td><input type="month" class="d-inicio"></td>
+    <td><input type="month" class="d-fim"></td>
     <td><div class="precif-row-acoes"><button type="button" class="salvar-despesa">+ adicionar</button></div></td>
   </tr>`;
   tbl.innerHTML = html;
@@ -3904,9 +3933,13 @@ async function salvarDespesaUi_(btn) {
   const id = tr.dataset.id || '';
   const descricao = tr.querySelector('.d-descricao').value.trim();
   const valorMensal = parseFloat(tr.querySelector('.d-valor').value) || 0;
+  const inicio = (tr.querySelector('.d-inicio') || {}).value || '';
+  const fim = (tr.querySelector('.d-fim') || {}).value || '';
   if (!descricao) { alert('Preenche a descrição antes de salvar.'); return; }
+  if (inicio && fim && fim < inicio) { alert('O mês final é antes do inicial.'); return; }
   btn.disabled = true;
-  const resp = await apiPost_('salvarDespesaFixa', { despesa: { id: id, descricao: descricao, valorMensal: valorMensal } });
+  const resp = await apiPost_('salvarDespesaFixa', { despesa: {
+    id: id, descricao: descricao, valorMensal: valorMensal, inicio: inicio, fim: fim } });
   btn.disabled = false;
   if (!resp || !resp.ok) { alert('Não deu pra salvar: ' + ((resp && resp.error) || 'erro desconhecido')); return; }
   await recarregarConfiguracoes_();

@@ -444,3 +444,11 @@ table.pisos td small, table.pisos td.num small{display:block; font-weight:400;
 table.pisos td{vertical-align:top;}
 table.pisos td.num{font-variant-numeric:tabular-nums; font-weight:600;}
 table.pisos td.val-out small{color:var(--brick);}
+
+
+/* ---- Despesa fixa encerrada ----
+   Fica na lista porque a % de um mes passado precisa dela, mas nao pode parecer
+   despesa corrente. */
+tr.desp-encerrada input{opacity:.55;}
+tr.desp-encerrada td:first-child .pill{margin-left:6px; vertical-align:middle;}
+#despesasTabela input[type=month]{font-family:inherit; font-size:12.5px; padding:5px 6px;}
