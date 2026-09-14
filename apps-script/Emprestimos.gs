@@ -46,29 +46,28 @@ var GRUPO_AMORTIZACAO_ = 'Amortização de Dívida (ignorar na DRE)';
 /** Categorias do Bling que carregam parcela de emprestimo. */
 var CATEGORIAS_EMPRESTIMO_ = { '14674413185': 1, '14674413186': 1 };
 
-/**
- * MUTUO DO SOCIO - a UNICA parcela de 2025 que e emprestimo do Vinicius.
+/*
+ * MUTUO_SOCIO_ FOI REMOVIDA em 14/09/2026, e a historia dela e a licao.
  *
- * HISTORIA DESTE BLOCO, porque ele ja esteve errado: em 14/09/2026 eu inferi
- * que as SEIS parcelas que sobravam em "sem regra" eram devolucao de um
- * emprestimo do socio para a reforma, e montei a tabela com as seis. Ao puxar
- * TODAS as contas do contato "Vinicius Negrao de Oliveira" (16095855208), cinco
- * delas nao existem na lista dele - nao sao do Vinicius. A inferencia estava
- * errada; so a de R$ 2.583,00 de 21/03/2025 e dele, e o historico dela diz
- * "Emprestimo Pijamas": capital de giro para comprar mercadoria, nao obra.
+ * Ela identificava por (mes, valor) as parcelas que eram devolucao de
+ * emprestimo do socio, para dar a elas 100% amortizacao e zero juros - o
+ * tratamento certo, porque emprestimo de socio sem juros nao tem despesa.
  *
- * O TRATAMENTO, porem, e o mesmo e continua certo: emprestimo de socio sem
- * juros nao tem despesa. Devolver e BAIXA DE PASSIVO - sai dinheiro, cai a
- * divida com o socio, o resultado nao e tocado. Por isso 100% amortizacao.
+ * O tratamento estava certo e a IDENTIFICACAO estava errada. Eu inferi que as
+ * seis parcelas orfas eram todas do socio; puxando as contas do contato
+ * Vinicius Negrao de Oliveira (16095855208), cinco nao eram dele. Adivinhar a
+ * natureza de um lancamento pela data e pelo valor nao funciona.
  *
- * A REFORMA NAO ENTRA AQUI e nao precisa de lancamento: ela ja esta nos livros
- * como R$ 5.100,00 em quatro parcelas de jan a abr/2026 (R$ 1.200 x3 + R$ 1.500),
- * na categoria propria 14639321675 "Reforma". Lancar de novo dobraria o custo.
+ * A solucao nao foi consertar a heuristica, foi tirar a decisao do codigo: as 5
+ * devolucoes reais foram movidas no Bling para a categoria propria 14744766135
+ * ("Mutuo de socio - devolucao"), que o GRUPO_CANONICO_ manda direto para
+ * "Amortização de Dívida (ignorar na DRE)". A classificacao passa a viver no
+ * DADO, onde da para conferir, e nao numa tabela de valores aqui dentro.
+ *
+ * Quatro dessas cinco estavam em "Impostos sobre vendas" - emprestimo de socio
+ * contado como imposto, inflando as Deducoes da Receita de ago a nov/2025 em
+ * R$ 3.588,40.
  */
-var MUTUO_SOCIO_ = {
-  '2025-03': [2583.00]
-};
-
 /** Contrato 4376284 (SAC): amortizacao constante. */
 var AMORTIZACAO_SAC_ = 1467.51;
 /** Contrato 3397194 (Price): parcela fixa. */
@@ -123,16 +122,6 @@ function fatiarEmprestimo_(categoriaId, vencimento, valor) {
   if (!v) return null;
 
   var mesRef = Utilities.formatDate(new Date(vencimento), 'America/Sao_Paulo', 'yyyy-MM');
-
-  // MUTUO DO SOCIO: 100% amortizacao, zero juros. Ver MUTUO_SOCIO_.
-  var lista = MUTUO_SOCIO_[mesRef];
-  if (lista) {
-    for (var i = 0; i < lista.length; i++) {
-      if (Math.abs(v - lista[i]) < 0.05) {
-        return { juros: 0, amortizacao: v, contrato: 'mutuo-vinicius' };
-      }
-    }
-  }
 
   // PRICE: parcela fixa de R$ 374,22. A tolerancia de R$ 1,00 cobre
   // arredondamento, nao confunde com nada - a outra parcela e 7x maior.

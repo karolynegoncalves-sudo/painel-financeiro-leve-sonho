@@ -317,6 +317,19 @@ var GRUPO_CANONICO_ = {
   // Consequencia pratica: quanto MAIS fecho vender, maior esta linha. Ela nao
   // e uma despesa a cortar; e a metade do socio.
   , '14744735213': 'Participacao de Parceiros'
+
+  // "Mutuo de socio - devolucao", criada em 14/09/2026. O Vinicius adiantou
+  // dinheiro para comprar mercadoria (pijamas) e para a reforma, e a empresa
+  // devolveu. Emprestimo de socio sem juros NAO TEM DESPESA: devolver e baixa
+  // de passivo - sai dinheiro, cai a divida com o socio, o resultado nao e
+  // tocado. Vai para o mesmo grupo da amortizacao, fora da DRE e visivel em
+  // "Fora do resultado", porque saida de caixa ela e.
+  //
+  // Ter categoria propria substitui a heuristica que existia no Emprestimos.gs,
+  // que identificava essas parcelas por (mes, valor) - e foi exatamente assim
+  // que eu atribui ao socio cinco parcelas que nao eram dele. Classificacao
+  // mora no dado, nao no palpite.
+  , '14744766135': 'Amortização de Dívida (ignorar na DRE)'
 };
 
 /** Forca os grupos de GRUPO_CANONICO_ no _DRE_Mapa. Devolve o que mudou. */
@@ -364,7 +377,17 @@ var PENDENCIAS_ = {
   '24508098410': 14744250501, '24777469219': 14744250501,
   // SABESP (agua, R$ 185,98, venc 10/07/2026) estava em "Compra de insumos e
   // materia prima" e inflava o CMV de julho. Vai para "Agua" (14639321671).
-  '26591060145': 14639321671
+  '26591060145': 14639321671,
+  // Mutuo do socio: 5 devolucoes ao Vinicius Negrao (16095855208), movidas no
+  // Bling em 14/09/2026 para a categoria propria 14744766135. Quatro delas
+  // estavam em "Impostos sobre vendas" (14639321658) - emprestimo de socio
+  // contado como imposto, inflando as Deducoes de ago a nov/2025 em
+  // R$ 3.588,40. A quinta estava em "Emprestimos", junto das do banco.
+  '22333677160': 14744766135,   // 21/03/2025  2.583,00  "Emprestimo Pijamas"
+  '23481675484': 14744766135,   // 29/08/2025    897,10
+  '23481675486': 14744766135,   // 29/09/2025    897,10
+  '23481675488': 14744766135,   // 20/10/2025    897,10
+  '23481675490': 14744766135    // 28/11/2025    897,10
 };
 
 /**
