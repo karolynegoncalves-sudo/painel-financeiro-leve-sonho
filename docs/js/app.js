@@ -1576,12 +1576,28 @@ const BALANCO_ = {
          obrigacao existente em 31/08. Estao em "Cartao a ratear", nao entram em
          nenhuma outra linha deste balanco - sem risco de dobra. */
       ['Faturas de cartão (compra de agosto)', 10216.10, 'Nubank 1.409,25 + 4.953,38 + Sicoob 3.853,47 — vencem em setembro, compra de agosto'],
-      /* R$ 34.782,74 medidos pela sessao do Caixa, menos o DAS de julho
-         (R$ 4.580,21) que ja esta em Divida tributaria logo acima. O RESTO
-         ainda pode conter parcela do Sicoob: o saldo devedor da ficha grafica
-         ja embute parcela vencida e nao paga, e se houver parcela vencida entre
-         estas 47 ela esta contada duas vezes. Pedi a quebra por grupo. */
-      ['Vencido e não pago', 30202.53, '47 contas em aberto com venc. até 31/08 (34.782,74) menos o DAS de julho já contado acima — A CONFERIR: pode conter parcela do Sicoob, que o saldo da ficha já embute']
+      /* CONFERIDO em 14/09/2026, e a conferencia cortou o numero pela metade.
+         A medicao bruta deu R$ 34.782,74 em 47 contas vencidas e abertas. Pedi
+         a quebra por categoria antes de usar, e duas coisas sairam:
+
+           -17.707,59  21 contas em "Transferencias": saque Shopee -> Nubank,
+                       o par EM ABERTO que o script antigo (SAQPAG-) deixou
+                       enquanto o espelho v2 ja lancou e baixou o saque de
+                       verdade. Transferencia entre contas proprias nao e
+                       passivo em nenhuma hipotese, e estas nem existem.
+            -4.580,21  DAS de julho, que ja esta em Divida tributaria acima.
+           =12.494,94  passivo real
+
+         Conferido tambem o que eu temia e nao aconteceu: NENHUMA parcela do
+         Sicoob esta entre as 47, entao nao ha dobra com os R$ 72.812,90 lidos
+         da ficha grafica; e os dois parcelamentos tributarios ficaram fora,
+         porque vencem depois de 31/08.
+
+         A licao: passivo medido por "conta em aberto" carrega lixo de
+         integracao. Sem a quebra por categoria eu teria posto R$ 17,7 mil de
+         transferencia fantasma no balanco - e escrito na tela que a empresa
+         devia isso. */
+      ['Vencido e não pago', 12494.94, '47 contas vencidas e abertas (34.782,74) menos 17.707,59 de saque Shopee→Nubank em aberto (transferência, não dívida) e menos o DAS de julho já contado acima']
     ]
   }
 };
@@ -1671,18 +1687,22 @@ function renderBalanco(el) {
         porque foram ganhados — a bordadeira Brother inclusive. O parque de máquinas
         é maior do que esta linha, mas o que se poderia vender é menor do que a
         operação sugere.</p>
-      <p class="bal-falta"><b>As duas linhas que faltavam não se cancelaram — e essa
-        é a notícia.</b> Eu esperava que contas a receber e contas a pagar tivessem
-        tamanho parecido e o patrimônio líquido ficasse onde estava. Medido em
-        14/09/2026: a receber <b>R$ 1.296</b>, a pagar <b>R$ 40.419</b> — 31 para 1.
-        O patrimônio líquido saiu de <b>−R$ 56.558</b> para <b>−R$ 95.681</b>.</p>
+      <p class="bal-falta"><b>As duas linhas que faltavam não se cancelaram.</b> Eu
+        esperava que contas a receber e contas a pagar tivessem tamanho parecido e o
+        patrimônio líquido ficasse onde estava. Medido em 14/09/2026: a receber
+        <b>R$ 1.296</b>, a pagar <b>R$ 22.711</b> — 17 para 1. O patrimônio líquido
+        saiu de <b>−R$ 56.558</b> para <b>−R$ 79.192</b>.</p>
       <p class="bal-falta">E o formato dessa dívida é diferente do resto: dos
-        R$ 40.419, <b>R$ 30.203 são conta que já venceu e não foi paga</b> — 47 contas
-        com vencimento até 31/08 ainda em aberto. Isso não é financiamento com prazo e
-        taxa, como o Sicoob; é fornecedor esperando. Não se renegocia em planilha, se
-        renegocia por telefone, e vence antes de qualquer plano.
-        <b>Confira se essas 47 são reais</b> — conta paga fora do Bling continua
-        aparecendo como aberta, e aí o número cai.</p>
+        R$ 22.711, <b>R$ 12.495 são conta que já venceu e não foi paga</b> e
+        R$ 10.216 são fatura de cartão de compra de agosto. Não é financiamento com
+        prazo e taxa, como o Sicoob; é fornecedor esperando. Não se renegocia em
+        planilha, se renegocia por telefone, e vence antes de qualquer plano.</p>
+      <p class="bal-falta">A primeira medição desse passivo deu <b>R$ 34.782,74</b>, e
+        conferir a composição cortou <b>R$ 17.707,59</b>: eram 21 saques
+        Shopee→Nubank em aberto, transferência entre contas próprias que a
+        integração antiga deixou pendurada. Passivo medido por "conta em aberto"
+        carrega lixo de integração — sem a quebra por categoria, este balanço estaria
+        afirmando uma dívida que não existe.</p>
     </div>
   `;
 }
