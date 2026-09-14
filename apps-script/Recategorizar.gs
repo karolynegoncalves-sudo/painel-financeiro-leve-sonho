@@ -718,6 +718,105 @@ function listarGrupo(grupo, mes, regime) {
   return msg;
 }
 
+/**
+ * LINHA FANTASMA NAS DEDUCOES: conta apagada no Bling que continua na planilha.
+ *
+ * POR QUE O syncBling NAO RESOLVE: `atualizarContasEmAberto_` comeca com
+ *
+ *     if (String(linha[COL_SITUACAO - 1]).trim() !== '1') return;
+ *
+ * ou seja, so reconfere conta EM ABERTO. Devolucao de venda entra baixada, e
+ * por isso nunca mais e reconferida - some do Bling e fica na planilha para
+ * sempre. Em 14/09/2026 a sessao do Caixa apagou 57 duplicatas de devolucao do
+ * Mercado Pago (R$ 4.391,50) e a DRE continuou mostrando -R$ 3.217,00 em
+ * agosto, porque a tela remonta da aba Fluxo de Caixa.
+ *
+ * POR QUE NAO USEI O LAUDO FANTASMA: ele varre a aba inteira e chegou a achar
+ * ~2.600 linhas. Serve, mas e amplo demais para um conserto de uma linha da
+ * DRE - e operacao ampla no fim de um dia longo e como se erra feio. Esta aqui
+ * olha SO o grupo Deducoes da Receita, e so no periodo pedido.
+ *
+ * NAO APAGA LINHA: marca situacao 5 (cancelada), que e o mesmo tratamento que
+ * o reprocessarLinhasSemCategoria_ ja da a conta apagada no Bling. A linha sai
+ * da DRE e do caixa mas continua na planilha, com o valor visivel - se a
+ * exclusao no Bling tiver sido um erro, da para desfazer trocando o 5 de volta
+ * por 2. Apagar linha nao tem volta.
+ *
+ * @param {string=} desde 'yyyy-MM' (padrao 2026-08)
+ * @param {string=} ate   'yyyy-MM' (padrao = desde)
+ */
+function limparDeducoesFantasma(desde, ate) {
+  desde = desde || '2026-08';
+  ate = ate || desde;
+  var token = getBlingAccessToken_();
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_FLUXO_CAIXA);
+  var ult = sheet.getLastRow();
+  if (ult < 2) return 'Fluxo de Caixa vazio';
+  var dados = sheet.getRange(2, 1, ult - 1, 15).getValues();
+
+  var COL_SITUACAO = 3;
+  var achadas = 0, fantasmas = 0, vivas = 0, falhou = 0, valorFantasma = 0;
+  var detalhe = [];
+
+  for (var i = 0; i < dados.length; i++) {
+    var l = dados[i];
+    if (semAcento_(l[5]).indexOf('deducoes') < 0) continue;
+    var sit = String(l[2] || '').trim();
+    if (sit === '5') continue;                       // ja cancelada
+    var quando = l[14] || l[0];
+    var m = quando instanceof Date
+      ? Utilities.formatDate(quando, 'America/Sao_Paulo', 'yyyy-MM')
+      : String(quando || '').trim().slice(0, 7);
+    if (m < desde || m > ate) continue;
+
+    var id = l[12];
+    var tipo = String(l[13] || '').trim();
+    if (!id || (tipo !== 'pagar' && tipo !== 'receber')) continue;
+    achadas++;
+
+    var r = fetchBlingStatus_('https://api.bling.com.br/Api/v3/contas/' + tipo + '/' + id, token);
+    if (r.status === 404) {
+      sheet.getRange(i + 2, COL_SITUACAO).setValue('5');
+      fantasmas++;
+      valorFantasma += Math.abs(Number(l[11]) || 0);
+      detalhe.push('  ' + m + '  R$ ' + Math.abs(Number(l[11]) || 0).toFixed(2)
+                   + '  ' + tipo + ':' + id + '  ' + String(l[10] || '').slice(0, 40));
+    } else if (r.status === 200) {
+      vivas++;
+    } else {
+      // status inesperado NAO vira exclusao: 429 ou 500 marcariam conta boa
+      // como cancelada, e isso apagaria devolucao real da DRE
+      falhou++;
+    }
+    Utilities.sleep(250);
+  }
+
+  var out = ['DEDUCOES FANTASMA de ' + desde + ' a ' + ate,
+             '  conferidas no Bling: ' + achadas,
+             '  APAGADAS no Bling (marquei cancelada): ' + fantasmas
+               + '  =  R$ ' + valorFantasma.toFixed(2),
+             '  ainda existem: ' + vivas,
+             '  sem resposta (NAO mexi): ' + falhou];
+  if (fantasmas) { out.push(''); out.push('as que marquei:'); out = out.concat(detalhe); }
+  if (falhou) {
+    out.push('');
+    out.push('ATENCAO: ' + falhou + ' conta(s) nao responderam. Rode de novo -');
+    out.push('status inesperado nao vira exclusao de proposito, senao um 429 do');
+    out.push('Bling apagaria devolucao boa da DRE.');
+  }
+  if (fantasmas) { recalcularDre_(); out.push(''); out.push('DRE recalculada.'); }
+  var msg = out.join('\n');
+  logSync_('limparDeducoesFantasma', 'ok',
+           achadas + ' conferidas, ' + fantasmas + ' fantasma(s), ' + falhou + ' falha(s)');
+  Logger.log(msg);
+  return msg;
+}
+
+/** Atalho sem argumento: agosto e setembro, que e onde estao as duplicatas. */
+function _rodarLimparDeducoesFantasma() {
+  return limparDeducoesFantasma('2026-08', '2026-09');
+}
+
 /** Atalho: a linha de Deducoes da Receita de um mes, conta por conta. */
 function listarDeducoes(mes) {
   return listarGrupo('deducoes', mes || '2026-08');

@@ -214,6 +214,10 @@ function onOpen() {
              '_rodarReprocessarSemCategoria')
     .addItem('Manutencao da DRE (mapa + pendencias + recalculo)', 'manutencaoDre')
     .addItem('O que ainda esta (sem mapear)', 'semMapearAno')
+    /* Conta apagada no Bling que ficou na planilha. O syncBling nao alcanca:
+       ele so reconfere conta EM ABERTO, e devolucao entra baixada. */
+    .addItem('Limpar devolucoes apagadas no Bling (ago-set)',
+             '_rodarLimparDeducoesFantasma')
     .addSeparator()
     .addItem('1) Configurar setup da planilha', 'setupWorkbook')
     .addItem('2) Importar produtos do NuvemShop (uma vez)', 'importarProdutosNuvemShop_')
