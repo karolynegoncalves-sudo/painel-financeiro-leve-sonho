@@ -69,6 +69,56 @@ var CANAIS_SEM_NOTA_ = { 'Nuvemshop': 1 };
  */
 var ALIQUOTA_SIMPLES_ = 0.0772;
 
+/**
+ * IMPOSTO DO SIMPLES POR COMPETENCIA - a linha vem da GUIA, nao da conta.
+ *
+ * O PROBLEMA QUE ISSO RESOLVE, e sao quatro ao mesmo tempo:
+ *
+ *  1. o DAS era lancado com competencia no MES DO PAGAMENTO. Abril caia em
+ *     maio, maio em junho, julho em agosto. Tres meses errados de uma vez.
+ *  2. jan, fev, mar e jun NAO tinham DAS lancado em lugar nenhum - jan a mar
+ *     porque foram parcelados, jun sem motivo aparente.
+ *  3. as PARCELAS dos dois parcelamentos (R$ 483,51 do Simples e R$ 521,27 do
+ *     ICMS) estavam dentro das Deducoes. Parcela de parcelamento e amortizacao
+ *     de divida, nao despesa do mes: contando as duas coisas, o mesmo imposto
+ *     entra duas vezes.
+ *  4. havia uma PROVISAO RECORRENTE de R$ 4.867,34 - o valor do DAS de abril,
+ *     repetido mes a mes de 09/2026 ate 08/2027 - sem guia que a lastreie.
+ *
+ * A SOLUCAO: a DRE deixa de somar a categoria "Impostos sobre vendas" e passa
+ * a calcular o imposto a partir desta tabela, que e a das GUIAS do Simples. A
+ * categoria sai da DRE e vai para um grupo visivel em "Fora do resultado",
+ * onde continua mostrando o que foi PAGO - que e informacao de caixa, e no
+ * caixa ela pertence.
+ *
+ * Com isso os quatro problemas somem juntos, sem apagar nem criar conta
+ * nenhuma no Bling.
+ *
+ * FONTE: guias e recibo de parcelamento em EXTRATOS...\Impostos, lidos em
+ * 14/09/2026. Os valores de 10/2025 a 03/2026 vem do recibo de adesao ao
+ * parcelamento (saldo devedor ORIGINAL, sem multa e juros - encargo de mora e
+ * despesa financeira, nao imposto sobre venda).
+ */
+var GRUPO_IMPOSTO_SIMPLES_ = 'Imposto do Simples (competência)';
+
+var DAS_POR_COMPETENCIA_ = {
+  '2025-10': 3886.75, '2025-11': 3164.91, '2025-12': 3874.66,
+  '2026-01': 2813.74, '2026-02': 4036.83, '2026-03': 5704.90,
+  '2026-04': 4867.34, '2026-05': 4236.31, '2026-06': 3060.45,
+  // julho: a guia ainda nao foi gerada. R$ 4.580,21 e a conta que existe no
+  // Bling com vencimento 31/08, e bate com a aliquota de 7,72% sobre uma
+  // receita declarada de R$ 59.301 - coerente com o painel (R$ 61.464) na
+  // mesma razao de maio e junho. TROCAR pelo valor da guia quando sair.
+  '2026-07': 4580.21,
+  // agosto: ESTIMADO. Aliquota de 7,72% sobre a receita do painel menos a
+  // venda do site (que nao entra na base declarada): 56.860 - 6.999 = 49.861.
+  // TROCAR pelo valor da guia quando sair.
+  '2026-08': 3849.28
+};
+
+/** Meses cujo valor acima e estimativa, nao guia. Aparecem no log. */
+var DAS_ESTIMADO_ = { '2026-07': 1, '2026-08': 1 };
+
 const JANELA_SYNC_DESDE = '2025-01-01';
 
 /**
@@ -697,6 +747,28 @@ function recalcularDre_() {
     });
     return { linhas: n, total: soma };
   };
+  // Imposto do Simples pela GUIA, na competencia da apuracao. Ver o comentario
+  // de GRUPO_IMPOSTO_SIMPLES_ no topo deste arquivo.
+  const lancarImpostoSimples = () => {
+    let n = 0, soma = 0, estimados = [];
+    Object.keys(DAS_POR_COMPETENCIA_).forEach(mes => {
+      const v = Number(DAS_POR_COMPETENCIA_[mes]) || 0;
+      if (!v) return;
+      soma += v;
+      n++;
+      if (DAS_ESTIMADO_[mes]) estimados.push(mes);
+      ['competencia', 'realizado'].forEach(regime => {
+        const chave = regime + '|' + mes + '|' + GRUPO_IMPOSTO_SIMPLES_;
+        totais[chave] = (totais[chave] || 0) - v;
+      });
+    });
+    return { meses: n, total: soma, estimados: estimados };
+  };
+  const imp = lancarImpostoSimples();
+  logSync_('recalcularDre', 'ok', 'imposto do Simples por competencia: R$ '
+    + imp.total.toFixed(2) + ' em ' + imp.meses + ' mes(es)'
+    + (imp.estimados.length ? ' | ESTIMADO (sem guia ainda): ' + imp.estimados.join(', ') : ''));
+
   const prov = provisionarImpostoSemNota();
   if (prov.linhas) {
     logSync_('recalcularDre', 'ok', 'provisao de imposto sobre venda sem nota: R$ '

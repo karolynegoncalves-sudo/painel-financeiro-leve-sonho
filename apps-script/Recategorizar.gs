@@ -330,6 +330,20 @@ var GRUPO_CANONICO_ = {
   // que eu atribui ao socio cinco parcelas que nao eram dele. Classificacao
   // mora no dado, nao no palpite.
   , '14744766135': 'Amortização de Dívida (ignorar na DRE)'
+
+  // "Impostos sobre vendas" SAI DA DRE em 14/09/2026, e o motivo e que ela
+  // misturava quatro coisas de naturezas diferentes:
+  //   - o DAS pago, com competencia no mes do PAGAMENTO e nao da apuracao
+  //   - as parcelas dos dois parcelamentos, que sao amortizacao de divida
+  //   - uma provisao recorrente de R$ 4.867,34 sem guia que a lastreie
+  //   - ICMS de parcelamento antigo
+  // Nenhuma dessas e "imposto sobre a venda do mes", que e o que a linha de
+  // Deducoes precisa ter.
+  //
+  // O imposto da DRE passa a vir da tabela DAS_POR_COMPETENCIA_ (BlingSync.gs),
+  // que e a das GUIAS. Esta categoria continua visivel em "Fora do resultado",
+  // mostrando o que foi PAGO - informacao de caixa, e no caixa ela pertence.
+  , '14639321658': 'Imposto pago (ignorar na DRE)'
 };
 
 /** Forca os grupos de GRUPO_CANONICO_ no _DRE_Mapa. Devolve o que mudou. */

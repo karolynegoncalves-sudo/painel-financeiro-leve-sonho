@@ -1598,7 +1598,9 @@ const DFC_POR_GRUPO = {
   // onde fica abaixo do EBITDA.
   'Participação de Parceiros':              'admin',
   // amortização é saída de financiamento: paga dívida, não custeia a operação
-  'Amortização de Dívida (ignorar na DRE)': 'financeiro'
+  'Amortização de Dívida (ignorar na DRE)': 'financeiro',
+  // imposto pago é saída operacional no caixa, mesmo estando fora da DRE
+  'Imposto pago (ignorar na DRE)':          'impostos'
 };
 
 /* Grupos que sao dinheiro de VENDA entrando no caixa. Usado tambem pelo
@@ -1764,17 +1766,23 @@ const CUSTO_FIXO_GRUPOS = ['Despesas Comerciais', 'Despesas Administrativas', 'D
    receita do painel e a declarada está em GRUPO_PROVISAO_IMPOSTO_, no
    BlingSync.gs. */
 const GRUPO_PROVISAO = 'Provisão de Imposto (venda sem nota)';
-const ATE_MC = ['Receita Bruta', 'Deduções da Receita', GRUPO_PROVISAO, 'CMV',
-                'Despesas Variáveis de Venda'];
+/* O imposto do Simples vem da GUIA, por competência, e não das contas pagas —
+   ver DAS_POR_COMPETENCIA_ em BlingSync.gs. Fica em linha própria, separado das
+   Deduções (que são devolução e desconto) e da provisão do site (que é
+   estimativa sobre venda sem nota). Três naturezas, três linhas. */
+const GRUPO_IMPOSTO = 'Imposto do Simples (competência)';
+const DEDUZ = ['Deduções da Receita', GRUPO_IMPOSTO, GRUPO_PROVISAO];
+const ATE_MC = ['Receita Bruta'].concat(DEDUZ, ['CMV', 'Despesas Variáveis de Venda']);
 const DRE_ESTRUTURA = [
   { tipo: 'grupo',    nome: 'Receita Bruta' },
   { tipo: 'grupo',    nome: 'Deduções da Receita' },
+  { tipo: 'grupo',    nome: GRUPO_IMPOSTO },
   { tipo: 'grupo',    nome: GRUPO_PROVISAO },
   { tipo: 'subtotal', nome: 'Receita Líquida',
-    soma: ['Receita Bruta', 'Deduções da Receita', GRUPO_PROVISAO] },
+    soma: ['Receita Bruta'].concat(DEDUZ) },
   { tipo: 'grupo',    nome: 'CMV' },
   { tipo: 'subtotal', nome: 'Lucro Bruto',
-    soma: ['Receita Bruta', 'Deduções da Receita', GRUPO_PROVISAO, 'CMV'] },
+    soma: ['Receita Bruta'].concat(DEDUZ, ['CMV']) },
   { tipo: 'grupo',    nome: 'Despesas Variáveis de Venda' },
   { tipo: 'subtotal', nome: 'Margem de Contribuição', soma: ATE_MC },
   { tipo: 'grupo',    nome: 'Despesas Comerciais' },
@@ -1824,6 +1832,11 @@ const DRE_FORA = ['Não Operacional (ignorar na DRE)', 'Estoque (ignorar na DRE)
                      foram R$ 1.734,24, mais da metade da parcela. Quem olha só
                      a DRE não vê esse dinheiro sair. Ver Emprestimos.gs. */
                   'Amortização de Dívida (ignorar na DRE)',
+                  /* O DAS e as parcelas de parcelamento efetivamente PAGOS. Saem
+                     do resultado porque o imposto do mês já entra pela guia, na
+                     competência — contar os dois seria contar duas vezes. Mas
+                     aparecem aqui porque É saída de caixa. */
+                  'Imposto pago (ignorar na DRE)',
                   '(sem mapear)'];
 
 /*
