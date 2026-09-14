@@ -11,9 +11,16 @@
      emoji dentro do <text> - e so ele. -->
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌙</text></svg>">
 <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌙</text></svg>">
+<!-- ?v= NOS NOSSOS ARQUIVOS: o GitHub Pages serve css e js com cache longo, e
+     sem a query o navegador segura a versao antiga por horas. Em 14/09/2026 a
+     Karolyne viu a DRE errada DEPOIS de eu corrigir e publicar - a correcao
+     estava no servidor e nao na tela dela, e nos dois perdemos tempo achando
+     que o conserto nao tinha funcionado.
+     AO PUBLICAR MUDANCA EM js/ OU css/, TROQUE O VALOR DE v EM TODAS as linhas
+     abaixo. Se esquecer, a mudanca existe e ninguem ve. -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,500&family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/style.css?v=20260914c">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.5.0/chart.umd.min.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
@@ -77,8 +84,8 @@
   </footer>
 </div>
 
-<script src="js/config.js"></script>
-<script src="js/precificacao-calc.js"></script>
-<script src="js/app.js"></script>
+<script src="js/config.js?v=20260914c"></script>
+<script src="js/precificacao-calc.js?v=20260914c"></script>
+<script src="js/app.js?v=20260914c"></script>
 </body>
 </html>
