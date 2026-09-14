@@ -544,35 +544,95 @@ function conferirFaturasPorData() {
 }
 
 /*
- * conferirFaturasPorPortador FOI REMOVIDA em 14/09/2026, e o porque vale mais
- * que a funcao.
+ * conferirFaturasPorPortador FOI REMOVIDA em 14/09/2026. O porque vale mais
+ * que a funcao - e a primeira versao deste comentario estava ERRADA, o que
+ * tambem vale registrar.
  *
  * A ideia era boa: conferirFaturasPorData tem um ponto cego (se a fatura foi
  * paga depois do vencimento, somar o dia do vencimento nao a encontra e o
  * resultado diz "FALTA" sem faltar), e o portador seria o eixo imune a data.
  *
- * SO QUE O PORTADOR NAO EXISTE NO DADO. Rodada em 14/09/2026, a funcao devolveu
- * TUDO em "(sem portador)" - R$ 74 mil a R$ 144 mil por mes, ou seja, todas as
- * saidas. Duas razoes, e as duas sao definitivas:
+ * Rodada pela Karolyne, a funcao devolveu TUDO em "(sem portador)" - R$ 74 mil
+ * a R$ 144 mil por mes, ou seja, todas as saidas. Eu escrevi aqui que "a aba
+ * nao tem coluna de portador". ESTAVA ERRADO: a coluna existe (COL 8, nome do
+ * portador) e a funcao lia a coluna certa. O que acontece e mais especifico:
  *
- *   1. a aba Fluxo de Caixa nao tem coluna de portador; o sync nunca a trouxe.
- *   2. e trazer nao resolveria: no export da API, 1.640 das 1.716 contas tem
- *      portadorId = 0. No Bling o portador mora no BORDERO, nao na conta
- *      (ver a memoria bling-exportar-extrato-em-vez-de-varrer-api).
+ *   a coluna de portador e preenchida nas ENTRADAS (Itau, Sicoob, Nubank
+ *   aparecem nas contas a receber) e fica VAZIA nas SAIDAS.
  *
- * Ou seja: o eixo portador e um caminho morto para esta pergunta. Nao vale
- * reescrever.
+ * E saida e exatamente o que a auditoria de fatura precisa. A causa raiz e a
+ * mesma de sempre: no Bling o portador vem do BORDERO, nao da conta, e no
+ * export da API 1.640 das 1.716 contas a PAGAR tem portadorId = 0 (ver a
+ * memoria bling-exportar-extrato-em-vez-de-varrer-api).
  *
- * QUEM RESPONDE A PERGUNTA, ENTAO:
+ * Conclusao inalterada, motivo corrigido: o eixo portador nao serve para
+ * conferir fatura enquanto a saida nao carregar portador. Trazer a coluna nao
+ * resolve - ela ja esta la, vazia na metade que importa.
+ *
+ * QUEM RESPONDE A PERGUNTA:
  *   conferirFaturas()  - agrupa as linhas da fatura e mostra em quantas
  *                        categorias ela foi rateada. Foi assim que agosto/2026
  *                        foi auditado ao centavo nos tres cartoes.
  *
- * E um teste feito em 14/09/2026 que confirma que a fatura ESTA nos livros:
- * procurei, para cada uma das 6 faturas de jul e ago, uma conta de valor
- * exatamente igual ao total, com 20 dias de folga. NENHUMA existe - e isso e a
- * boa noticia, nao a ma. Significa que a fatura entra RATEADA em varias linhas
- * por categoria, que e exatamente o que se quer: nenhuma linha isolada vale o
- * total porque o total foi distribuido. Se existisse uma linha igual ao total,
- * ai sim haveria fatura entrando sem rateio.
+ * E o teste de 14/09/2026 que CONFIRMA que a fatura esta nos livros: procurei,
+ * para cada uma das 6 faturas de jul e ago, uma conta de valor exatamente igual
+ * ao total, com 20 dias de folga. NENHUMA existe - e essa e a boa noticia. A
+ * fatura entra RATEADA em varias linhas por categoria, nenhuma isolada vale o
+ * total. Uma linha igual ao total e que seria o defeito.
  */
+
+/**
+ * Lista as linhas que caem em "(sem mapear)" num mes, para saber o que sao.
+ *
+ * POR QUE: em setembro/2026 apareceu +R$ 17.563,96 em "(sem mapear)" na DRE.
+ * Entrada, so no regime competencia (logo, conta em ABERTO), e fora do
+ * resultado - nao inflava receita, o que e o certo. Mas "(sem mapear)" nao diz
+ * o que e, e o risco nao e o valor: e alguem "consertar" isso para dentro da
+ * Receita Bruta um dia e dobrar o faturamento, porque a receita da DRE ja vem
+ * inteira da aba _Receita_Pedidos.
+ *
+ * A unica categoria mapeada para "(sem mapear)" e a 14739989237, "A Classificar
+ * (revisar)" - ou seja, por construcao e conta que ninguem classificou no
+ * Bling. Esta funcao mostra quais, com contato e historico, para classificar.
+ *
+ * @param {string} mes  'yyyy-MM' (padrao: 2026-09)
+ */
+function listarSemMapear(mes) {
+  mes = mes || '2026-09';
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_FLUXO_CAIXA);
+  var ult = sheet.getLastRow();
+  if (ult < 2) return 'Fluxo de Caixa vazio';
+  var dados = sheet.getRange(2, 1, ult - 1, Math.max(sheet.getLastColumn(), 15)).getValues();
+
+  var achadas = [], total = 0, porCat = {};
+  dados.forEach(function (l) {
+    var grupo = String(l[5] || '').trim();
+    if (grupo.indexOf('sem mapear') < 0) return;
+    // a competencia e a coluna 15, com fallback para a data
+    var quando = l[14] || l[0];
+    var m = quando instanceof Date
+      ? Utilities.formatDate(quando, 'America/Sao_Paulo', 'yyyy-MM')
+      : String(quando || '').trim().slice(0, 7);
+    if (m !== mes) return;
+    var v = Number(l[11] || 0) * (String(l[1]).trim() === 'entrada' ? 1 : -1);
+    total += v;
+    var cat = String(l[3] || '(sem categoria)') + ' ' + String(l[4] || '');
+    porCat[cat] = (porCat[cat] || 0) + v;
+    if (achadas.length < 60) {
+      achadas.push([m, String(l[1]).trim(), 'sit' + l[2], 'R$ ' + Number(l[11] || 0).toFixed(2),
+                    cat, String(l[13] || '') + ':' + String(l[12] || '')].join('  '));
+    }
+  });
+
+  var out = ['(SEM MAPEAR) em ' + mes + ': R$ ' + total.toFixed(2)
+             + ' em ' + achadas.length + ' linha(s) mostradas', '', 'por categoria:'];
+  Object.keys(porCat).sort().forEach(function (k) {
+    out.push('  ' + k + '  ->  R$ ' + porCat[k].toFixed(2));
+  });
+  out.push('');
+  out.push('as linhas (ate 60):');
+  achadas.forEach(function (a) { out.push('  ' + a); });
+  var msg = out.join('\n');
+  Logger.log(msg);
+  return msg;
+}
