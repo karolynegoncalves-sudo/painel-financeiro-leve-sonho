@@ -1545,8 +1545,14 @@ const BALANCO_ = {
       ['Informática',             4004.00, 'notebooks e impressoras — custo 10.400, já depreciado'],
       ['(depreciação acumulada)',     0.0, 'custo total 36.850, sendo 25.515 já depreciados']
     ],
+    /* PISO, nao saldo exato - e a diferenca importa. O Bling guarda a situacao
+       de HOJE: conta que estava aberta em 31/08 e foi recebida em setembro
+       aparece baixada agora e NAO entra aqui. O exato exigiria a data de cada
+       baixa, que mora no bordero. Entao isto e "venceu ate 31/08 e continua em
+       aberto", que e um minimo. */
     'Contas a receber': [
-      ['(não levantado)', 0.00, 'FALTA — venda feita que os canais ainda não liberaram, mais a ficha da CLA']
+      ['Vencido e não recebido', 1296.28, '2 contas em aberto com vencimento até 31/08 — PISO: o que foi recebido em setembro não aparece mais como aberto'],
+      ['(ficha da CLA)', 0.00, 'FALTA — a última ficha do private label ainda não foi cobrada']
     ]
   },
   passivo: {
@@ -1560,7 +1566,16 @@ const BALANCO_ = {
       ['DAS de julho em aberto',   4580.21, 'guia 07.20.26239.9819789-5, venceu 31/08']
     ],
     'Contas a pagar e cartões': [
-      ['(não levantado)', 0.00, 'FALTA — as 3 faturas de setembro somam 10.216 e são compra de agosto']
+      /* As 3 faturas de setembro. Vencem em setembro, mas a COMPRA e de agosto:
+         obrigacao existente em 31/08. Estao em "Cartao a ratear", nao entram em
+         nenhuma outra linha deste balanco - sem risco de dobra. */
+      ['Faturas de cartão (compra de agosto)', 10216.10, 'Nubank 1.409,25 + 4.953,38 + Sicoob 3.853,47 — vencem em setembro, compra de agosto'],
+      /* R$ 34.782,74 medidos pela sessao do Caixa, menos o DAS de julho
+         (R$ 4.580,21) que ja esta em Divida tributaria logo acima. O RESTO
+         ainda pode conter parcela do Sicoob: o saldo devedor da ficha grafica
+         ja embute parcela vencida e nao paga, e se houver parcela vencida entre
+         estas 47 ela esta contada duas vezes. Pedi a quebra por grupo. */
+      ['Vencido e não pago', 30202.53, '47 contas em aberto com venc. até 31/08 (34.782,74) menos o DAS de julho já contado acima — A CONFERIR: pode conter parcela do Sicoob, que o saldo da ficha já embute']
     ]
   }
 };
@@ -1603,6 +1618,11 @@ function renderBalanco(el) {
       saldo, guarda movimento: as carteiras da Shopee e do Mercado Pago aparecem
       lá com <b>R$ 27,9 mil e R$ 21 mil acima do real</b>, e aqui está o extrato.
       Para atualizar, troque <code>BALANCO_</code> no app.js.</p>
+    <p class="dre-nota" style="color:var(--brick);"><b>Contas a pagar e a receber são
+      PISO, não saldo exato.</b> O Bling guarda a situação de hoje: conta que estava
+      aberta em 31/08 e foi quitada em setembro já aparece baixada e não entra na soma.
+      O saldo exato da data exige a data de cada baixa, que fica no borderô. Os dois
+      lados estão subestimados, e o de pagar mais que o de receber.</p>
 
     <div class="kpi-grid" style="margin-bottom:18px;">
       <div class="kpi"><div class="kpi-label">Ativo</div>
@@ -1639,9 +1659,18 @@ function renderBalanco(el) {
       <p>Por isso a estratégia começa aqui e não na DRE: <b>prazo e taxa da dívida</b>,
         e decidir o que fazer com os ${F(BALANCO_.ativo['Estoque'].reduce((s, x) => s + x[1], 0))}
         de estoque, que é o maior ativo da empresa e não paga parcela.</p>
-      <p class="bal-falta"><b>Duas linhas ainda faltam e se cancelam em parte:</b>
-        contas a receber melhora o ativo, contas a pagar e cartões piora o passivo. Se
-        forem de tamanho parecido, o patrimônio líquido não se move.</p>
+      <p class="bal-falta"><b>As duas linhas que faltavam não se cancelaram — e essa
+        é a notícia.</b> Eu esperava que contas a receber e contas a pagar tivessem
+        tamanho parecido e o patrimônio líquido ficasse onde estava. Medido em
+        14/09/2026: a receber <b>R$ 1.296</b>, a pagar <b>R$ 40.419</b> — 31 para 1.
+        O patrimônio líquido saiu de <b>−R$ 56.558</b> para <b>−R$ 95.681</b>.</p>
+      <p class="bal-falta">E o formato dessa dívida é diferente do resto: dos
+        R$ 40.419, <b>R$ 30.203 são conta que já venceu e não foi paga</b> — 47 contas
+        com vencimento até 31/08 ainda em aberto. Isso não é financiamento com prazo e
+        taxa, como o Sicoob; é fornecedor esperando. Não se renegocia em planilha, se
+        renegocia por telefone, e vence antes de qualquer plano.
+        <b>Confira se essas 47 são reais</b> — conta paga fora do Bling continua
+        aparecendo como aberta, e aí o número cai.</p>
     </div>
   `;
 }
