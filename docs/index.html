@@ -20,7 +20,13 @@
      abaixo. Se esquecer, a mudanca existe e ninguem ve. -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,500&family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/style.css?v=20260914s">
+<!-- O ?v= protege js e css, mas nao protege ESTE arquivo: index.html vindo do
+     cache aponta para a versao antiga de tudo. Estas metas pedem revalidacao a
+     cada carga - o custo e um request condicional, e o beneficio e a correcao
+     chegar na tela em vez de ficar no servidor. -->
+<meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<link rel="stylesheet" href="css/style.css?v=20260914t">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.5.0/chart.umd.min.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
@@ -84,14 +90,14 @@
   </footer>
 </div>
 
-<script src="js/config.js?v=20260914s"></script>
-<script src="js/precificacao-calc.js?v=20260914s"></script>
+<script src="js/config.js?v=20260914t"></script>
+<script src="js/precificacao-calc.js?v=20260914t"></script>
 <!-- GAVETA DE DETALHE DA DRE. Fica fora das abas de proposito: a aba e
      redesenhada inteira a cada render, e a gaveta sobreviveria a isso com o
      conteudo de outro periodo. Aqui ela e independente e o render a fecha. -->
 <div id="gvFundo" hidden></div>
 <aside id="gaveta" hidden aria-live="polite"></aside>
 
-<script src="js/app.js?v=20260914s"></script>
+<script src="js/app.js?v=20260914t"></script>
 </body>
 </html>

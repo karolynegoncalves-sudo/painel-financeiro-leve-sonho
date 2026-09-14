@@ -4,6 +4,21 @@ const fmtBRL = (v, dec = 0) => Number(v || 0).toLocaleString('pt-BR', { style: '
 const fmtPct = (v, dec = 1) => (v >= 0 ? '+' : '') + (Number(v || 0) * 100).toLocaleString('pt-BR', { minimumFractionDigits: dec, maximumFractionDigits: dec }) + '%';
 const fmtPctSimples_ = (v, dec = 1) => (Number(v || 0) * 100).toLocaleString('pt-BR', { minimumFractionDigits: dec, maximumFractionDigits: dec }) + '%';
 const fmtDataBR = (d) => d.toLocaleDateString('pt-BR');
+/* VERSAO DESTE ARQUIVO, mostrada na DRE ao lado do carimbo do backend.
+ *
+ * POR QUE: o `?v=` no index.html protege o js e o css do cache, mas NAO protege
+ * o proprio index.html - se ele vier do cache do navegador ou da CDN do GitHub
+ * Pages, ele aponta para a versao ANTIGA do js e a correcao nova nao chega. Em
+ * 14/09/2026 a Karolyne disse "nao esta clicavel" sobre a gaveta que eu acabara
+ * de publicar, e eu nao tinha como saber se era bug ou cache.
+ *
+ * Com o numero na tela a pergunta morre: se o que ela ve e menor que o que eu
+ * acabei de subir, e cache, e o conserto e recarregar - nao e codigo.
+ *
+ * TROCAR JUNTO com o ?v= do index.html. Sao os dois lados da mesma versao.
+ */
+const PAINEL_VERSAO = '20260914t';
+
 const escapeHtml_ = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const monthLabel = (p) => {
   const m = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
@@ -2449,9 +2464,10 @@ function renderDreCaixa_(corpo, rows, porCompetencia) {
        <code>das=UNDEF</code> a tabela de guias não existe no projeto implantado;
        <code>das=13 imp=0</code> ela existe e o valor não sai do
        <code>getDreFontes_</code>; <code>imp=13</code> o problema está nesta
-       tela, não no backend.</p>`
+       tela, não no backend. Tela <code>${PAINEL_VERSAO}</code>.</p>`
     : `<p class="dre-nota" style="font-size:11px;">backend
-       <code>${escapeHtml_(BACKEND_VERSAO)}</code></p>`;
+       <code>${escapeHtml_(BACKEND_VERSAO)}</code> · tela
+       <code>${PAINEL_VERSAO}</code></p>`;
 
   corpo.innerHTML = `<div class="panel"><h3>DRE do período</h3>
     ${avisoBackend}
