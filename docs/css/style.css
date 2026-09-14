@@ -389,3 +389,19 @@ tr.linha-aberta td{background:#FFFDF7;}
 .dre-nota { margin: 0 0 14px; font-size: 13px; line-height: 1.5;
             color: var(--muted, #6b7280); max-width: 70ch; }
 .dre-nota b { color: inherit; font-weight: 600; }
+
+
+/* ---------- Balanço patrimonial ----------
+   A coluna de fonte e a parte que faz o balanco ser auditavel: numero sem
+   procedencia nao se confere depois. Fica em corpo menor para nao competir
+   com o valor, mas nunca escondida. */
+table.dre td.bal-fonte{font-size:11.5px; line-height:1.45; color:var(--muted);
+  text-align:left; white-space:normal; max-width:42ch;}
+table.dre td.bal-falta{color:var(--brick); font-weight:600;}
+table.dre tr.dre-resultado td.bal-fonte{color:#D8E6DE; font-size:12px;}
+.bal-leitura{margin-top:22px; padding:18px 20px; background:var(--panel);
+  border:1px solid var(--line); border-left:4px solid var(--brick);}
+.bal-leitura h3{margin:0 0 8px; font-size:15px; font-weight:700;}
+.bal-leitura p{margin:0 0 9px; font-size:14px; line-height:1.6; color:var(--ink);}
+.bal-leitura p:last-child{margin-bottom:0;}
+.bal-leitura p.bal-falta{color:var(--muted); font-size:13px;}

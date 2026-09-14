@@ -513,6 +513,7 @@ async function safeRenderTab(view) {
       if (renderObsoleta_(gen)) return;
       return renderDre(el, recortar_().filter(r => r.paga));
     }
+    if (view === 'balanco') return renderBalanco(el);
     if (view === 'vendas') {
       await garantirVendas_(el);
       if (renderObsoleta_(gen)) return;
@@ -1472,6 +1473,145 @@ function faturaNaoRateada_(rows) {
            de: datas[0], ate: datas[datas.length - 1] };
 }
 
+
+/* =========================== BALANCO PATRIMONIAL ===========================
+ *
+ * A DRE diz se o mes deu lucro. A DFC diz para onde o dinheiro foi. O balanco
+ * diz o que a empresa E - e era o unico dos tres que nao existia aqui.
+ *
+ * POR QUE OS NUMEROS SAO DIGITADOS E NAO CALCULADOS: balanco e FOTOGRAFIA de
+ * uma data, e as posicoes nao estao no Fluxo de Caixa. Saldo de conta vem do
+ * extrato do banco (o Bling nao tem saldo, tem lancamento); saldo devedor de
+ * emprestimo vem da ficha do Sicoob; imobilizado vem de nota de compra. Somar
+ * lancamento nao produz saldo - foi exatamente por tentar isso que a carteira
+ * Shopee aparecia com R$ 27.878 no Bling quando o extrato dizia R$ 977,01.
+ *
+ * PARA ATUALIZAR: troque os numeros de BALANCO_ e a data em BALANCO_.data.
+ * Cada linha tem a fonte escrita ao lado de proposito: numero de balanco sem
+ * fonte nao se confere depois.
+ */
+const BALANCO_ = {
+  data: '31/08/2026',
+  ativo: {
+    'Caixa e equivalentes': [
+      ['Sicoob conta corrente', 4748.28, 'extrato — sem os 2.000 de cheque especial, que é limite e não ativo'],
+      ['Nubank',                1846.15, 'OFX, saldo datado (LEDGERBAL)'],
+      ['Carteira Shopee',        977.01, 'extrato da Shopee, coluna saldo_depois — no Bling aparece 27.878, errado'],
+      ['Mercado Pago',             0.00, 'extrato, 373 movimentos reconstruídos — no Bling aparece +21 mil, errado'],
+      ['Pagar.me',                 0.00, 'a Pagar.me esvazia a conta a cada repasse, não acumula']
+    ],
+    'Estoque': [
+      ['Peça acabada',         13851.97, '839 peças pela ficha técnica'],
+      ['Em produção',           7130.43, '1.358 peças, tecido e corte já gastos'],
+      ['Tecido em rolo',        5032.80, '720 m de cetim'],
+      ['Linhas e aviamentos',   2864.55, '333 unidades contadas em 12/09'],
+      ['Fechos Carmóvel',        645.86, '80 unidades da NF 3986']
+    ],
+    'Imobilizado': [
+      ['Máquinas e equipamentos', 7331.42, 'bordadeiras, costura, corte, prensas — custo 26.450, já depreciado'],
+      ['Informática',             4004.00, 'notebooks e impressoras — custo 10.400, já depreciado'],
+      ['(depreciação acumulada)',     0.0, 'custo total 36.850, sendo 25.515 já depreciados']
+    ],
+    'Contas a receber': [
+      ['(não levantado)', 0.00, 'FALTA — venda feita que os canais ainda não liberaram, mais a ficha da CLA']
+    ]
+  },
+  passivo: {
+    'Empréstimos bancários': [
+      ['Sicoob 4376284', 67701.11, 'SAC, 1,75% a.m., até 07/2030 — saldo da ficha em 08/09'],
+      ['Sicoob 3397194',  5111.79, 'Price, 2,10% a.m., até 12/2027 — saldo da ficha em 08/09']
+    ],
+    'Dívida tributária': [
+      ['Parcelamento do Simples', 27076.56, '56 de 60 parcelas de R$ 483,51 — adesão 04/05/2026'],
+      ['Parcelamento do ICMS',      521.27, 'última das 6 parcelas, vence 30/09'],
+      ['DAS de julho em aberto',   4580.21, 'guia 07.20.26239.9819789-5, venceu 31/08']
+    ],
+    'Contas a pagar e cartões': [
+      ['(não levantado)', 0.00, 'FALTA — as 3 faturas de setembro somam 10.216 e são compra de agosto']
+    ]
+  }
+};
+
+function renderBalanco(el) {
+  const F = (v) => fmtBRL(v, 2);
+  let ativo = 0, passivo = 0;
+  const bloco_ = (titulo, grupos, acumula) => {
+    let h = '<tr class="dre-secao"><th colspan="3">' + titulo + '</th></tr>';
+    Object.keys(grupos).forEach((g) => {
+      let sub = 0;
+      let linhas = '';
+      grupos[g].forEach(([rot, v, fonte]) => {
+        sub += v;
+        const falta = /^\(/.test(rot);
+        linhas += '<tr><th>&nbsp;&nbsp;' + escapeHtml_(rot) + '</th>'
+          + '<td class="num">' + (falta && !v ? '&mdash;' : F(v)) + '</td>'
+          + '<td class="bal-fonte' + (falta ? ' bal-falta' : '') + '">'
+          + escapeHtml_(fonte) + '</td></tr>';
+      });
+      acumula(sub);
+      h += '<tr class="dre-subtotal"><th>' + escapeHtml_(g) + '</th>'
+        + '<td class="num">' + F(sub) + '</td><td></td></tr>' + linhas;
+    });
+    return h;
+  };
+  const corpoAtivo = bloco_('ATIVO', BALANCO_.ativo, (v) => { ativo += v; });
+  const corpoPassivo = bloco_('PASSIVO', BALANCO_.passivo, (v) => { passivo += v; });
+  const pl = ativo - passivo;
+  const razao = passivo / ativo;
+  const trib = 27076.56 + 521.27 + 4580.21;
+
+  el.innerHTML = `
+    <div class="section-head">
+      <h2 class="section-title">Balanço Patrimonial</h2>
+      <div class="section-desc">O que a empresa <b>é</b> em <b>${BALANCO_.data}</b> — de um lado o que ela tem, do outro o que ela deve. A DRE diz se o mês rendeu; a DFC, para onde o dinheiro foi; este diz se sobra patrimônio.</div>
+    </div>
+    <p class="dre-nota">Posições de <b>${BALANCO_.data}</b>, lidas de extrato, ficha de
+      empréstimo e nota de compra — não somadas de lançamento. O Bling não guarda
+      saldo, guarda movimento: as carteiras da Shopee e do Mercado Pago aparecem
+      lá com <b>R$ 27,9 mil e R$ 21 mil acima do real</b>, e aqui está o extrato.
+      Para atualizar, troque <code>BALANCO_</code> no app.js.</p>
+
+    <div class="kpi-grid" style="margin-bottom:18px;">
+      <div class="kpi"><div class="kpi-label">Ativo</div>
+        <div class="kpi-value">${F(ativo)}</div>
+        <div class="kpi-foot">caixa, estoque e imobilizado</div></div>
+      <div class="kpi"><div class="kpi-label">Passivo</div>
+        <div class="kpi-value val-out">${F(passivo)}</div>
+        <div class="kpi-foot">${Math.round(100 * trib / passivo)}% é dívida tributária</div></div>
+      <div class="kpi"><div class="kpi-label">Patrimônio líquido</div>
+        <div class="kpi-value ${pl < 0 ? 'val-out' : 'val-in'}">${F(pl)}</div>
+        <div class="kpi-foot">dívida ÷ ativo = ${razao.toFixed(1)}x</div></div>
+    </div>
+
+    <table class="dre simple">
+      <thead><tr><th>conta</th><th class="num">valor</th><th>de onde vem</th></tr></thead>
+      <tbody>
+        ${corpoAtivo}
+        <tr class="dre-subtotal"><th>TOTAL DO ATIVO</th><td class="num">${F(ativo)}</td><td></td></tr>
+        ${corpoPassivo}
+        <tr class="dre-subtotal"><th>TOTAL DO PASSIVO</th><td class="num">${F(passivo)}</td><td></td></tr>
+        <tr class="dre-resultado"><th>PATRIMÔNIO LÍQUIDO</th>
+          <td class="num ${pl < 0 ? 'val-out' : 'val-in'}">${F(pl)}</td>
+          <td class="bal-fonte">${pl < 0 ? 'a empresa deve mais do que tem' : 'sobra patrimônio'}</td></tr>
+      </tbody>
+    </table>
+
+    <div class="bal-leitura">
+      <h3>A conta que junta os três demonstrativos</h3>
+      <p>O EBITDA de jan a ago é <b>+R$ 12.482</b>, ou <b>R$ 1.560 por mês</b> — a
+        operação se paga. O serviço da dívida é <b>R$ 4.677 por mês</b>: três vezes
+        isso. A dívida de ${F(passivo)} levaria <b>${Math.round(passivo / 1560)} meses
+        de EBITDA</b> para ser quitada, e isso supondo que o resultado financeiro não
+        existisse — que é justamente o problema.</p>
+      <p>Por isso a estratégia começa aqui e não na DRE: <b>prazo e taxa da dívida</b>,
+        e decidir o que fazer com os ${F(BALANCO_.ativo['Estoque'].reduce((s, x) => s + x[1], 0))}
+        de estoque, que é o maior ativo da empresa e não paga parcela.</p>
+      <p class="bal-falta"><b>Duas linhas ainda faltam e se cancelam em parte:</b>
+        contas a receber melhora o ativo, contas a pagar e cartões piora o passivo. Se
+        forem de tamanho parecido, o patrimônio líquido não se move.</p>
+    </div>
+  `;
+}
 
 function renderDre(el, rows) {
   const temVendas = (VENDAS_ROWS || []).length > 0;
