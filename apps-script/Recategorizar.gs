@@ -273,7 +273,9 @@ var GRUPO_CANONICO_ = {
   // mes corrente ficava errada calada. Fora do resultado ela fica incompleta e
   // VISIVEL, no quadro "Fora do resultado", cobrando o rateio.
   // Criada no Bling em 13/09/2026 pela sessao "Caixa" (raiz, tipo despesa).
-  , '14744752723': 'Cartão a ratear (ignorar na DRE)'
+  // SEM virgula na frente: a linha do IPTU acima ja termina com virgula. As
+  // entradas abaixo usam virgula-na-frente porque a de cima NAO tem.
+  '14744752723': 'Cartão a ratear (ignorar na DRE)'
 
   // Antecipacao de recebiveis, criada em 12/09/2026 sob o pai financeiro. Os
   // 1.477 lancamentos do Acelera (R$ 12.200,44) foram movidos para ela. E
