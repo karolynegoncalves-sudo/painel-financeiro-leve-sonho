@@ -1173,13 +1173,33 @@ function reprocessarLinhasSemCategoria_() {
   const contasBancarias = getContasBancarias_(token);
   const dados = sheet.getRange(2, 1, ultima - 1, COL_ORIGEM_TIPO).getValues();
 
-  let consertadas = 0, semCatNoBling = 0, comRateio = 0, falhou = 0, restam = 0, apagadas = 0;
+  let consertadas = 0, semCatNoBling = 0, comRateio = 0, falhou = 0, restam = 0, apagadas = 0,
+      aindaCanario = 0;
   const porStatus = {}; // pra saber DE VERDADE por que falhou
 
   for (let i = 0; i < dados.length; i++) {
     const catId = String(dados[i][COL_CAT_ID - 1] || '').trim();
     const catNome = String(dados[i][COL_CAT_NOME - 1] || '').trim();
-    const precisa = !catId || !catNome || catNome === '(sem categoria)';
+    /* CATEGORIA CONGELADA: "A Classificar (revisar)" TAMBEM e candidata.
+     *
+     * O sync e append-only: linha que ja existe nunca tem a categoria lida de
+     * novo. Ate 14/09/2026 esta fila olhava so linha com categoria VAZIA, e por
+     * isso a conta que nascia em "A Classificar" ficava ali PARA SEMPRE mesmo
+     * depois de a Karolyne classificar no Bling - a planilha guardava o valor
+     * de quando a linha nasceu.
+     *
+     * O efeito pratico era eu pedir a mesma classificacao de novo a cada
+     * revisao da DRE, como se o trabalho dela nao tivesse acontecido. Nao era
+     * dado apagado, era dado ignorado - pior, porque parecia problema dela.
+     *
+     * A canario e a unica categoria que vale reler: por desenho ela existe para
+     * ser temporaria, e sao poucas linhas (7 em 14/09/2026). Se a conta seguir
+     * em "A Classificar" no Bling, a rotina simplesmente reescreve o mesmo
+     * valor - custa uma chamada e nao trava a fila. Por isso ela NAO e marcada
+     * para sair da fila, diferente da conta sem categoria no Bling. */
+    const CANARIO_ = '14739989237';   // "A Classificar (revisar)"
+    const precisa = !catId || !catNome || catNome === '(sem categoria)'
+                    || catId === CANARIO_;
     if (!precisa) continue;
     if (String(dados[i][COL_SITUACAO - 1]).trim() === '5') continue; // ja cancelada
 
@@ -1240,13 +1260,19 @@ function reprocessarLinhasSemCategoria_() {
       if (port.nome) sheet.getRange(linha, COL_PORT_NOME).setValue(port.nome);
     }
 
-    consertadas++;
+    // reler a canario e util so quando o Bling JA tem a categoria nova; se
+    // voltar canario, a conta continua esperando classificacao la e isso tem de
+    // aparecer no resumo em vez de contar como conserto
+    if (String(r.categoriaId) === CANARIO_) aindaCanario++;
+    else consertadas++;
     Utilities.sleep(300);
   }
 
   recalcularDre_();
   const resumo = consertadas + ' consertada(s), ' + apagadas + ' apagada(s) no Bling -> cancelada, '
-    + semCatNoBling + ' sem categoria no proprio Bling, ' + comRateio + ' com rateio (pulei), '
+    + semCatNoBling + ' sem categoria no proprio Bling, '
+    + aindaCanario + ' ainda em "A Classificar" no Bling (classifique LA), '
+    + comRateio + ' com rateio (pulei), '
     + falhou + ' falha(s)'
     + (restam ? ', ' + restam + ' pendente(s) - rode de novo' : ', terminou tudo')
     + ' | HTTP: ' + JSON.stringify(porStatus);
