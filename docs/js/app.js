@@ -1645,6 +1645,70 @@ const BALANCO_ = {
   }
 };
 
+/*
+ * O RAZONETE DO BALANCO: ativo de um lado, passivo e patrimonio do outro.
+ *
+ * POR QUE desenhar isso alem da tabela de contas: a tabela responde "quanto
+ * tem de cada coisa" e esconde a identidade que da nome ao demonstrativo -
+ * ATIVO = PASSIVO + PATRIMONIO LIQUIDO. No formato de T a identidade fica
+ * visivel, e com ela o fato desconfortavel: os dois lados so fecham porque o
+ * patrimonio liquido e NEGATIVO. Quem le a tabela ve um numero ruim; quem le o
+ * T entende que o numero ruim e o que sustenta a conta.
+ *
+ * E o formato em que contador brasileiro le balanco, entao serve tambem para
+ * mostrar a terceiro sem traducao.
+ */
+function razonete_(ativoGrupos, passivoGrupos, ativo, passivo, pl) {
+  const F = (v) => fmtBRL(v, 2);
+  const soma = (g) => g.reduce((s, x) => s + x[1], 0);
+  const lado = (grupos) => Object.keys(grupos)
+    .map((g) => ({ nome: g, valor: soma(grupos[g]) }))
+    .filter((x) => x.valor !== 0);
+
+  const esq = lado(ativoGrupos);
+  const dir = lado(passivoGrupos);
+  /* O patrimonio liquido e uma linha do lado DIREITO, nao um resultado no pe da
+     pagina. E ai que ele pertence: capital proprio financia ativo do mesmo jeito
+     que divida financia. Negativo, ele aparece subtraindo - que e exatamente o
+     que significa. */
+  dir.push({ nome: 'Patrimônio líquido', valor: pl, pl: true });
+
+  const linhas = Math.max(esq.length, dir.length);
+  let corpo = '';
+  for (let i = 0; i < linhas; i++) {
+    const e = esq[i], d = dir[i];
+    corpo += '<tr>'
+      + '<td>' + (e ? escapeHtml_(e.nome) : '') + '</td>'
+      + '<td class="num">' + (e ? F(e.valor) : '') + '</td>'
+      + '<td class="rz-meio">' + (d ? escapeHtml_(d.nome) : '') + '</td>'
+      + '<td class="num' + (d && d.pl ? (d.valor < 0 ? ' val-out' : ' val-in') : '') + '">'
+      + (d ? F(d.valor) : '') + '</td></tr>';
+  }
+
+  return `<div class="panel">
+    <h3>O balanço em razonete</h3>
+    <div class="sub">O mesmo balanço no formato de T, que é como contador lê. Serve
+      para uma coisa que a tabela acima não mostra: <b>os dois lados fecham no mesmo
+      número</b>. E só fecham porque o patrimônio líquido é negativo — ou seja, a
+      dívida financia não só o ativo, mas também o prejuízo acumulado.</div>
+    <div style="overflow-x:auto;"><table class="simple razonete">
+      <thead><tr>
+        <th colspan="2">ATIVO <small>o que a empresa tem</small></th>
+        <th colspan="2" class="rz-meio">PASSIVO + PATRIMÔNIO <small>de quem é</small></th>
+      </tr></thead>
+      <tbody>${corpo}</tbody>
+      <tfoot><tr>
+        <th>TOTAL</th><th class="num">${F(ativo)}</th>
+        <th class="rz-meio">TOTAL</th><th class="num">${F(passivo + pl)}</th>
+      </tr></tfoot>
+    </table></div>
+    <div class="sub" style="margin-top:.7rem;">Leitura em uma linha: de cada
+      <b>R$ 1,00</b> de ativo, <b>${F(passivo / ativo)}</b> é
+      de terceiros. O que passa de R$ 1,00 é o que a empresa deve além de tudo o que
+      possui.</div>
+  </div>`;
+}
+
 function renderBalanco(el) {
   const F = (v) => fmtBRL(v, 2);
   let ativo = 0, passivo = 0;
@@ -1713,6 +1777,8 @@ function renderBalanco(el) {
           <td class="bal-fonte">${pl < 0 ? 'a empresa deve mais do que tem' : 'sobra patrimônio'}</td></tr>
       </tbody>
     </table>
+
+    ${razonete_(BALANCO_.ativo, BALANCO_.passivo, ativo, passivo, pl)}
 
     <div class="bal-leitura">
       <h3>A conta que junta os três demonstrativos</h3>
@@ -2469,14 +2535,14 @@ function renderVendas(el, rowsPagas) {
   corpo.innerHTML = `
     <div class="kpi-grid">
       <div class="kpi ok"><div class="kpi-label">Vendido no período</div>
-        <div class="kpi-valor">${fmtBRL(bruto, 0)}</div>
-        <div class="kpi-sub">${vendas.length} pedido(s) faturado(s)</div></div>
+        <div class="kpi-value">${fmtBRL(bruto, 0)}</div>
+        <div class="kpi-foot">${vendas.length} pedido(s) faturado(s)</div></div>
       <div class="kpi"><div class="kpi-label">Ticket médio</div>
-        <div class="kpi-valor">${fmtBRL(ticket, 0)}</div>
-        <div class="kpi-sub">por pedido</div></div>
+        <div class="kpi-value">${fmtBRL(ticket, 0)}</div>
+        <div class="kpi-foot">por pedido</div></div>
       <div class="kpi ${canceladas.length ? 'alerta' : ''}"><div class="kpi-label">Cancelados</div>
-        <div class="kpi-valor">${canceladas.length}</div>
-        <div class="kpi-sub">${fmtBRL(perdido, 0)} fora da receita</div></div>
+        <div class="kpi-value">${canceladas.length}</div>
+        <div class="kpi-foot">${fmtBRL(perdido, 0)} fora da receita</div></div>
     </div>
     <div class="panel"><h3>Receita por canal</h3>
       <div style="overflow-x:auto;"><table class="simple dre" id="tblVendasCanal"></table></div></div>

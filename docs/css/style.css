@@ -414,3 +414,23 @@ table.dre tr.dre-resultado td.bal-fonte{color:#D8E6DE; font-size:12px;}
   text-align:left; white-space:normal; max-width:56ch; min-width:26ch;}
 #tblDreFora td.fora-motivo code{font-size:11px;}
 #tblDreFora td.fora-semmotivo{color:var(--brick); font-weight:600;}
+
+
+/* ---- Razonete: o balanco em T ----
+   A regra no meio e o que faz o formato: sem ela sao quatro colunas soltas e a
+   identidade ativo = passivo + patrimonio nao se le. */
+table.razonete{width:100%; min-width:520px;}
+table.razonete th, table.razonete td{vertical-align:baseline;}
+table.razonete th small{display:block; font-weight:400; text-transform:none;
+  letter-spacing:0; font-size:10.5px; color:var(--muted); margin-top:2px;}
+table.razonete .rz-meio{border-left:2px solid var(--ink); padding-left:14px;}
+table.razonete .num{font-variant-numeric:tabular-nums; white-space:nowrap;}
+table.razonete tfoot th{border-top:2px solid var(--ink); font-weight:700;}
+table.razonete thead th{border-bottom:1px solid var(--ink);}
+
+/* No celular o T nao cabe: as colunas empilham e a regra do meio vira uma
+   regra em cima do lado direito, que e a traducao honesta do formato. */
+@media (max-width:560px){
+  table.razonete{min-width:0;}
+  table.razonete .rz-meio{border-left:0; padding-left:0;}
+}
