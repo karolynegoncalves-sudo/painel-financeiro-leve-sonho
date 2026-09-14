@@ -717,6 +717,25 @@ function listarSemMapear(mes) {
   return listarGrupo('sem mapear', mes || '2026-09');
 }
 
+/* ------------------------------------------------------------------------
+ * ATALHOS SEM ARGUMENTO.
+ *
+ * O dropdown do editor do Apps Script NAO passa argumento: ele so executa a
+ * funcao selecionada, e o parametro fica no padrao. Escrevi listarGrupo com
+ * (grupo, mes) e a Karolyne nao tinha como pedir julho - e eu ja conhecia esse
+ * gotcha, esta documentado em manutencaoCompleta e foi o motivo de
+ * recategorizarIPTU imprimir tudo de uma vez.
+ *
+ * Duas saidas, e as duas valem:
+ *   1. da planilha, em qualquer celula vazia: =listarDeducoes("2026-07")
+ *      a funcao devolve o texto e ele aparece na celula.
+ *   2. do editor, estas funcoes sem parametro nenhum.
+ * ---------------------------------------------------------------------- */
+function deducoesJulho()    { return listarDeducoes('2026-07'); }
+function deducoesAgosto()   { return listarDeducoes('2026-08'); }
+function deducoesSetembro() { return listarDeducoes('2026-09'); }
+function deducoesResumo()   { return resumoDeducoes(2026); }
+
 /**
  * As Deducoes de TODOS os meses de um ano, so os totais e a contagem - para
  * achar o mes que esta fora do padrao antes de abrir conta por conta.
