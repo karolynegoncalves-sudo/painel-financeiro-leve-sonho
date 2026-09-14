@@ -732,18 +732,29 @@ function listarSemMapear(mes) {
 }
 
 /**
- * TODO o "(sem mapear)" do ano, de uma vez, agrupado por CATEGORIA - que e o
- * que precisa ser resolvido, nao a linha.
+ * TODO o "(sem mapear)" do ano, separado pelo que resolve cada caso.
  *
- * listarSemMapear pede o mes e o dropdown do editor nao passa argumento, entao
- * na pratica so dava para ver setembro. Mapear uma categoria conserta todos os
- * meses de uma vez, e por isso a saida aqui e por categoria: cada linha de
- * "POR CATEGORIA" e uma decisao a tomar no _DRE_Mapa.
+ * A primeira versao agrupava so por categoria, e isso escondia a diferenca que
+ * importa. Rodada em 14/09/2026, a saida foi R$ 17.789,44 em "0 (sem
+ * categoria)" e -R$ 1.291,38 em "A Classificar (revisar)" - dois numeros no
+ * mesmo bolo, com consertos OPOSTOS:
  *
- * ANTES DE MAPEAR, uma armadilha: a receita da DRE vem inteira da aba
- * _Receita_Pedidos, pelo pedido. Se uma dessas contas a receber for "arrumada"
- * para dentro de Receita Bruta, o faturamento dobra. Venda vai para
- * "Receita pelo pedido (ignorar na DRE)", nunca para Receita Bruta.
+ *   FILA (categoria em branco ou 0): a conta TEM categoria no Bling, a planilha
+ *   e que ainda nao buscou o detalhe dela. O sync e append-only e a busca de
+ *   detalhe roda por fila com teto de 4,5 min, entao o mes mais novo sempre
+ *   fica atras. NAO se resolve escrevendo no _DRE_Mapa - se resolve rodando
+ *   _rodarReprocessarSemCategoria ate "restam 0".
+ *
+ *   DECISAO (categoria existe e aponta para "(sem mapear)"): alguem precisa
+ *   dizer o que aquilo e. A unica categoria nessa situacao por desenho e a
+ *   14739989237 "A Classificar (revisar)", que e canario: tem de ficar
+ *   apontando para "(sem mapear)" para nunca sumir calada. O conserto e no
+ *   BLING, trocando a categoria da conta.
+ *
+ * ARMADILHA ao mapear: a receita da DRE vem inteira da aba _Receita_Pedidos,
+ * pelo pedido. Se uma conta a receber for "arrumada" para dentro de Receita
+ * Bruta, o faturamento dobra. Venda vai para "Receita pelo pedido (ignorar na
+ * DRE)", nunca para Receita Bruta.
  */
 function semMapearAno(ano) {
   ano = String(ano || 2026);
@@ -752,47 +763,57 @@ function semMapearAno(ano) {
   if (ult < 2) return 'Fluxo de Caixa vazio';
   var dados = sheet.getRange(2, 1, ult - 1, Math.max(sheet.getLastColumn(), 15)).getValues();
 
-  var porCat = {}, porMes = {}, exemplo = {}, total = 0, n = 0;
+  var balde = {
+    fila:    { nome: 'FILA - detalhe nao buscado (conserto: _rodarReprocessarSemCategoria)',
+               total: 0, n: 0, porMes: {}, linhas: [] },
+    decisao: { nome: 'DECISAO - categoria aponta para (sem mapear) (conserto: no Bling)',
+               total: 0, n: 0, porMes: {}, linhas: [] }
+  };
+
   dados.forEach(function (l) {
     if (semAcento_(l[5]).indexOf('sem mapear') < 0) return;
-    var sit = String(l[2] || '').trim();
-    if (sit === '5') return;                                  // cancelada
+    if (String(l[2] || '').trim() === '5') return;                   // cancelada
     var quando = l[14] || l[0];
     var m = quando instanceof Date
       ? Utilities.formatDate(quando, 'America/Sao_Paulo', 'yyyy-MM')
       : String(quando || '').trim().slice(0, 7);
     if (m.slice(0, 4) !== ano) return;
 
+    var catId = String(l[3] || '').trim();
+    var b = (!catId || catId === '0') ? balde.fila : balde.decisao;
     var v = Math.abs(Number(l[11]) || 0) * (String(l[1]).trim() === 'entrada' ? 1 : -1);
-    var cat = String(l[3] || '0') + '  ' + String(l[4] || '(sem categoria)');
-    porCat[cat] = (porCat[cat] || 0) + v;
-    porMes[m] = (porMes[m] || 0) + v;
-    total += v;
-    n++;
-    if (!exemplo[cat]) {
-      exemplo[cat] = [l[8], l[9], l[10]].filter(function (x) { return x; })
-                       .join(' ').slice(0, 70);
-    }
+    b.total += v;
+    b.n++;
+    b.porMes[m] = (b.porMes[m] || 0) + v;
+    b.linhas.push({
+      v: v,
+      txt: ['R$ ' + v.toFixed(2),
+            (l[0] instanceof Date
+              ? Utilities.formatDate(l[0], 'America/Sao_Paulo', 'dd/MM')
+              : String(l[0]).slice(0, 10)),
+            String(l[1]).trim(),
+            'cat:' + (catId || 'vazia'),
+            String(l[13] || '') + ':' + String(l[12] || ''),
+            [l[8], l[9], l[10]].filter(function (x) { return x; }).join(' ').slice(0, 55)
+           ].join('  ')
+    });
   });
 
-  var out = ['(SEM MAPEAR) em ' + ano + ': R$ ' + total.toFixed(2) + ' em ' + n + ' linha(s)',
-             '',
-             'POR CATEGORIA - cada linha e uma decisao a tomar no _DRE_Mapa:'];
-  Object.keys(porCat).sort(function (a, b) { return Math.abs(porCat[b]) - Math.abs(porCat[a]); })
-    .forEach(function (k) {
-      out.push('  R$ ' + porCat[k].toFixed(2) + '   ' + k);
-      if (exemplo[k]) out.push('        ex.: ' + exemplo[k]);
-    });
-  out.push('');
-  out.push('por mes:');
-  Object.keys(porMes).sort().forEach(function (m) {
-    out.push('  ' + m + '  ->  R$ ' + porMes[m].toFixed(2));
+  var out = ['(SEM MAPEAR) em ' + ano + ' - dois baldes, dois consertos diferentes', ''];
+  ['fila', 'decisao'].forEach(function (k) {
+    var b = balde[k];
+    out.push('== ' + b.nome);
+    out.push('   R$ ' + b.total.toFixed(2) + ' em ' + b.n + ' linha(s)');
+    if (!b.n) { out.push('   (vazio)', ''); return; }
+    out.push('   por mes: ' + Object.keys(b.porMes).sort().map(function (m) {
+      return m + ' ' + b.porMes[m].toFixed(2);
+    }).join(' | '));
+    b.linhas.sort(function (a, c) { return Math.abs(c.v) - Math.abs(a.v); });
+    out.push('   as maiores:');
+    b.linhas.slice(0, 25).forEach(function (a) { out.push('     ' + a.txt); });
+    if (b.linhas.length > 25) out.push('     ... e mais ' + (b.linhas.length - 25) + ' linha(s)');
+    out.push('');
   });
-  out.push('');
-  out.push('COMO MAPEAR: abra a aba _DRE_Mapa, ache a categoria pelo id da');
-  out.push('esquerda e escreva o grupo na coluna grupoDRE. Depois rode');
-  out.push('manutencaoDre - ele reescreve a coluna de grupo de TODAS as linhas');
-  out.push('antigas tambem (fixarGrupoCanonico_), nao so das novas.');
   out.push('Venda -> "Receita pelo pedido (ignorar na DRE)". NUNCA Receita Bruta.');
 
   var msg = out.join('\n');
