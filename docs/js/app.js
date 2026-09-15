@@ -17,7 +17,7 @@ const fmtDataBR = (d) => d.toLocaleDateString('pt-BR');
  *
  * TROCAR JUNTO com o ?v= do index.html. Sao os dois lados da mesma versao.
  */
-const PAINEL_VERSAO = '20260914v';
+const PAINEL_VERSAO = '20260915a';
 
 const escapeHtml_ = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const monthLabel = (p) => {
@@ -2519,6 +2519,87 @@ let DRILL = null;
  *   subtotal e resultado -> a COMPOSICAO: quais linhas entram e com quanto.
  *     Sem isso "EBITDA" e uma palavra; com isso e uma conta.
  */
+/*
+ * O CMV ABERTO POR COMPONENTE - quando o dado permite.
+ *
+ * A Karolyne pediu para clicar no CMV e ver "os valores de faccao etc, tudo
+ * abertinho". O calculo por ficha tecnica sabe disso (tecido + corte + costura
+ * + aviamentos), mas quem preenche a aba _CMV_Consumo grava so o TOTAL por mes
+ * e canal. A tela nao tem como abrir o que nao recebeu.
+ *
+ * Duas respostas, e a diferenca entre elas e honestidade:
+ *
+ *   COM as colunas tecido/corte/costura/aviamentos preenchidas: mostra a
+ *     quebra de verdade, somada no periodo.
+ *
+ *   SEM elas: mostra o que existe e E real - pecas vendidas, custo medio por
+ *     peca e quantas pecas nao tinham ficha - e diz de onde a quebra viria.
+ *     NAO estima a composicao aplicando a ficha media: isso daria quatro
+ *     numeros com cara de medidos que ninguem mediu, e hoje foi exatamente o
+ *     tipo de precisao falsa que custou o dia.
+ *
+ * pecasSemFicha e o aviso que importa: peca vendida sem ficha entra no CMV com
+ * custo ZERO, entao onde ele e alto a margem do canal esta otimista por falta
+ * de custo, nao por sobra de margem.
+ */
+function cmvPorDentro_(linhas) {
+  const F = (v) => fmtBRL(v, 2);
+  const soma = (campo) => linhas.reduce((s, r) => s + (Number(r[campo]) || 0), 0);
+  const total = soma('valor');
+  const pecas = soma('qtd');
+  const semFicha = soma('alerta');
+
+  const comps = [['tecido', 'Tecido'], ['corte', 'Corte'],
+                 ['costura', 'Costura (facção)'], ['aviamentos', 'Aviamentos']];
+  const temQuebra = comps.some(c => linhas.some(r => r[c[0]] !== undefined));
+  const somaComp = comps.reduce((s, c) => s + soma(c[0]), 0);
+
+  let h = '';
+  if (temQuebra && somaComp > 0) {
+    h += '<h4>Por componente</h4><table class="simple gv-tab">'
+      + comps.map(function (c) {
+        const v = soma(c[0]);
+        if (!v) return '';
+        return '<tr><td>' + c[1] + '</td><td class="num">' + F(-v) + '</td>'
+          + '<td class="num gv-pct">' + fmtPctSimples_(v / somaComp) + '</td></tr>';
+      }).join('')
+      + '</table>';
+    const resto = total - somaComp;
+    if (Math.abs(resto) > 0.5) {
+      h += '<p class="gv-nota">Os componentes somam ' + F(somaComp)
+        + ' contra ' + F(total) + ' de CMV — diferença de <b>' + F(Math.abs(resto))
+        + '</b>. Quem preenche a aba não fechou a quebra com o total.</p>';
+    }
+  }
+
+  h += '<h4>Peças e custo médio</h4><table class="simple gv-tab">'
+    + '<tr><td>Peças vendidas</td><td class="num">' + pecas + '</td></tr>'
+    + (pecas ? '<tr><td>Custo médio por peça</td><td class="num">' + F(total / pecas)
+       + '</td></tr>' : '')
+    + '<tr><td>Peças sem ficha técnica</td><td class="num'
+      + (semFicha ? ' val-out' : '') + '">' + semFicha + '</td></tr>'
+    + '</table>';
+
+  if (semFicha) {
+    h += '<p class="gv-nota" style="color:var(--brick);"><b>' + semFicha
+      + ' peça(s) sem ficha entraram com custo ZERO.</b> Onde isso é alto, a margem '
+      + 'do canal está otimista por falta de custo, não por sobra de margem — '
+      + 'cadastre a ficha desses modelos.</p>';
+  }
+
+  if (!temQuebra || somaComp <= 0) {
+    h += '<p class="gv-nota"><b>A quebra por tecido, corte, costura e aviamentos '
+      + 'ainda não vem no dado.</b> A aba <code>_CMV_Consumo</code> grava só o total '
+      + 'por mês e canal; as colunas <code>tecido</code>, <code>corte</code>, '
+      + '<code>costura</code> e <code>aviamentos</code> já existem e estão vazias. '
+      + 'Quando o script que calcula o custo de fabricação passar a preenchê-las, '
+      + 'esta gaveta abre sozinha. Não estimo pela ficha média de propósito: daria '
+      + 'quatro números com cara de medidos que ninguém mediu. '
+      + 'A composição de <b>uma</b> peça está na <b>Ficha de Preço</b>, item por item.</p>';
+  }
+  return h;
+}
+
 function abrirGaveta_(item) {
   if (!DRILL || !item) return;
   const F = (v) => fmtBRL(v, 2);
@@ -2566,7 +2647,8 @@ function abrirGaveta_(item) {
         <table class="simple gv-tab">`
         + chaves.map(k => `<tr><td>${escapeHtml_(k)}</td><td class="num">${abs(porChave[k])}</td>
             <td class="num gv-pct">${fmtPctSimples_(porChave[k] / (soma(dentro) || 1))}</td></tr>`).join('')
-        + '</table>';
+        + '</table>'
+        + (item.nome === 'CMV' ? cmvPorDentro_(dentro) : '');
 
     } else {
       /* Grupo de lancamento: categorias primeiro (e ali que se decide), depois

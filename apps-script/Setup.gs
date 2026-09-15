@@ -183,7 +183,15 @@ function setupReceitaPedidos_(ss) {
  */
 function setupCmvConsumo_(ss) {
   const sheet = getOrCreateSheet_(ss, ABA_CMV_CONSUMO_);
-  ensureHeader_(sheet, ['mes', 'canal', 'valor', 'pecas', 'pecasSemFicha', 'atualizadoEm']);
+  /* As quatro ultimas sao a QUEBRA do custo, e existem porque a Karolyne pediu
+     para abrir o CMV: "queria ver os valores de faccao etc, tudo abertinho".
+     Hoje so o TOTAL e gravado, e a tela nao tem como abrir o que nao recebeu.
+     Ficam opcionais: vazias, a gaveta mostra o que da (pecas e custo medio por
+     peca) e diz que a quebra depende de quem preenche a aba. Preenchidas, ela
+     mostra tecido, corte, costura e aviamentos.
+     Quem preenche e o script de custo de fabricacao, fora deste projeto. */
+  ensureHeader_(sheet, ['mes', 'canal', 'valor', 'pecas', 'pecasSemFicha', 'atualizadoEm',
+                        'tecido', 'corte', 'costura', 'aviamentos']);
 }
 
 function setupDre_(ss) {

@@ -23,7 +23,7 @@
  * TROQUE ESTA STRING quando mexer no que o doGet devolve. O painel mostra o
  * valor e avisa em vermelho quando nao encontra a marca que ele espera.
  */
-const BACKEND_VERSAO_ = '2026-09-14 imposto+provisao+janela+colunas';
+const BACKEND_VERSAO_ = '2026-09-15 cmv-aberto';
 
 function doGet(e) {
   const params = (e && e.parameter) || {};
@@ -505,9 +505,38 @@ function getDreFontesV2_() {
     });
   }
 
+  /* O CMV vai com a QUEBRA quando a aba tiver: tecido, corte, costura e
+     aviamentos (colunas 7 a 10). Sao opcionais - vazias, a gaveta mostra pecas
+     e custo medio e diz de onde viria a quebra. Le por NOME de coluna porque
+     elas nasceram depois das cinco primeiras e podem nao existir. */
+  const lerCmv = function () {
+    const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_CMV_CONSUMO_);
+    if (!sh || sh.getLastRow() < 2) return [];
+    const nCols = Math.max(sh.getLastColumn(), 5);
+    const tudo = sh.getRange(1, 1, sh.getLastRow(), nCols).getValues();
+    const h = tudo[0].map(function (x) { return String(x).trim(); });
+    const j = function (nome) { return h.indexOf(nome); };
+    const iT = j('tecido'), iC = j('corte'), iS = j('costura'), iA = j('aviamentos');
+    const out = [];
+    for (let i = 1; i < tudo.length; i++) {
+      const l = tudo[i];
+      const mes = mesTexto_(l[0]);
+      const valor = Number(l[2]) || 0;
+      if (!mes || !valor) continue;
+      const r = { mes: mes, canal: String(l[1] || ''), valor: valor,
+                  qtd: Number(l[3]) || 0, alerta: Number(l[4]) || 0 };
+      if (iT >= 0) r.tecido = Number(l[iT]) || 0;
+      if (iC >= 0) r.corte = Number(l[iC]) || 0;
+      if (iS >= 0) r.costura = Number(l[iS]) || 0;
+      if (iA >= 0) r.aviamentos = Number(l[iA]) || 0;
+      out.push(r);
+    }
+    return out;
+  };
+
   return {
     receita: ler(ABA_RECEITA_PEDIDOS_, 4),
-    cmv: ler(ABA_CMV_CONSUMO_, 5),
+    cmv: lerCmv(),
     imposto: impostoPorMes,
     provisao: provisaoPorMes
   };
