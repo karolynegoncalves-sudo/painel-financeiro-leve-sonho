@@ -971,15 +971,36 @@ function detalharMes(mes) {
   out.push('  Use este relatorio para saber O QUE tem dentro de cada grupo, nao');
   out.push('  para conferir o total da DRE - eles nao fecham de proposito.');
   out.push('');
+  /* SO AS CATEGORIAS DE TRANSFERENCIA, nao o grupo inteiro.
+   *
+   * A primeira versao somava "Nao Operacional" todo e acusava desequilibrio, e
+   * em abril/2026 isso deu um alarme FALSO: o grupo fechou em -R$ 603,29, mas
+   * as transferencias em si fecharam em +R$ 172,15 (recebidas 37.316,02 contra
+   * saidas 37.143,87) e o resto era "Investimentos" (-725,44) e "Retirada de
+   * socio" (-50,00) - que DEVEM ser diferentes de zero, porque sao saida de
+   * dinheiro de verdade e nao movimento entre contas proprias.
+   *
+   * Alarme falso e pior que nenhum alarme: treina a pessoa a ignorar o
+   * proximo, e o proximo pode ser o verdadeiro. */
   var transf = grupos['Não Operacional (ignorar na DRE)'];
-  if (transf && Math.abs(transf.total) > 1) {
-    out.push('  ATENCAO: "Nao Operacional" fechou em ' + reais(transf.total)
-             + ' em vez de perto de zero.');
-    out.push('  Transferencia entre contas proprias tem duas pernas e deve somar');
-    out.push('  zero. Sobra significa perna faltando - saida lancada sem a entrada');
-    out.push('  correspondente, ou o contrario. Isso NAO afeta a DRE, mas afeta o');
-    out.push('  saldo das carteiras no Bling.');
-    out.push('');
+  if (transf) {
+    var saldoTransf = 0, achou = false;
+    Object.keys(transf.cats).forEach(function (c) {
+      if (semAcento_(c).indexOf('transfer') < 0) return;
+      saldoTransf += transf.cats[c];
+      achou = true;
+    });
+    if (achou && Math.abs(saldoTransf) > 1) {
+      out.push('  ATENCAO: as TRANSFERENCIAS fecharam em ' + reais(saldoTransf)
+               + ' em vez de perto de zero.');
+      out.push('  Transferencia entre contas proprias tem duas pernas e deve somar');
+      out.push('  zero. Sobra significa perna faltando - saida lancada sem a entrada');
+      out.push('  correspondente, ou o contrario. Isso NAO afeta a DRE, mas afeta o');
+      out.push('  saldo das carteiras no Bling.');
+      out.push('  (Investimento e retirada de socio ficam FORA desta conta: sao');
+      out.push('   saida de dinheiro de verdade e devem ser diferentes de zero.)');
+      out.push('');
+    }
   }
   out.push('');
   if (fora.length) bloco(fora, 'FORA DO RESULTADO (mexe no caixa, nao no lucro)');
