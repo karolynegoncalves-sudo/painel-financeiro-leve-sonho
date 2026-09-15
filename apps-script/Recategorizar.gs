@@ -413,7 +413,62 @@ var PENDENCIAS_ = {
   // calada; agora ficam fora do resultado e VISIVEIS, cobrando o rateio.
   '23969868934': 14744752723,   // venc 11/09  1.409,25
   '23969868964': 14744752723,   // venc 17/09  4.953,38
-  '23969868959': 14744752723    // venc 10/09  3.853,47
+  '23969868959': 14744752723,   // venc 10/09  3.853,47
+
+  /* ------------------------------------------------------------------
+   * FACCAO LANCADA COMO "SERVICOS DE TERCEIROS" EM JAN-ABR/2026.
+   * 57 contas, R$ 24.593,20, para 14739931044 (Faccao / Mao de obra
+   * terceirizada), que o mapa manda para "Estoque (ignorar na DRE)".
+   *
+   * DE ONDE VEIO: a Karolyne notou em 14/09/2026 que "Servicos de
+   * terceiros" aparecia em Despesas Administrativas ate abril e depois
+   * sumia da DRE. A categoria propria de faccao nasceu no meio do ano;
+   * antes dela, o pagamento da costureira caia em Administrativas.
+   *
+   * POR QUE E DOBRA, e nao so classificacao feia: o CMV da DRE vem da
+   * aba _CMV_Consumo, que e pecas vendidas x ficha tecnica, e a ficha JA
+   * TEM a costura dentro. Conferido: 70 robes -> R$ 350,00 (R$ 5,00 cada)
+   * e 75 pijamas -> R$ 825,00 (R$ 11,00 cada), exatamente a tabela da
+   * Vilma que alimenta a ficha. Entao a mesma costura estava no CMV e em
+   * Administrativas - jan-abr apareciam R$ 24.593,20 piores do que foram.
+   *
+   * AS 57 SAO TODAS FACCAO, sem excecao, e isso foi VERIFICADO em vez de
+   * presumido: listarServicosTerceiros agrupou por quem recebeu e toda
+   * descricao e trabalho por peca ("70 robes", "75 pijamas", "211
+   * caseados", "500 xuxinhas", "36 camisetas"). Nenhum contador,
+   * freelancer ou manutencao no meio.
+   *
+   * E OS TOTAIS FECHAM NO CENTAVO: janeiro da R$ 7.804,50 e abril
+   * R$ 7.691,50, identicos ao total da categoria "Servicos de terceiros"
+   * naqueles meses. Ou seja, nao sobra nada na categoria - ela fica
+   * zerada em jan-abr, o que e a prova de que nao classifiquei junto
+   * nada que nao era.
+   *
+   * ORDEM CONFERIDA ANTES DE MEXER: a aba _CMV_Consumo TEM abril
+   * (R$ 20.366,93, 27,5% da receita, quebrado por canal), logo tirar a
+   * costura de Administrativas nao deixa o custo sem lugar - ele volta
+   * pelo CMV quando a peca vende. Se a aba estivesse vazia nesses meses,
+   * esta reclassificacao teria deixado jan-abr bons demais.
+   *
+   * O QUE ISTO NAO FAZ: nao mexe no Bling. La as 57 continuam em
+   * "Servicos de terceiros". Faccao nova deve ser lancada direto em
+   * 14739931044 para nao voltar a divergir.
+   * ------------------------------------------------------------------ */
+  '25288696944': 14739931044, '25288701072': 14739931044, '25330048488': 14739931044, '25330520446': 14739931044,
+  '25355966205': 14739931044, '25355981717': 14739931044, '25355993960': 14739931044, '25356037676': 14739931044,
+  '25492128814': 14739931044, '25556459200': 14739931044, '25556562581': 14739931044, '25574893015': 14739931044,
+  '25574907782': 14739931044, '25575181239': 14739931044, '24992992593': 14739931044, '24993002405': 14739931044,
+  '24993029861': 14739931044, '24993041107': 14739931044, '24993046603': 14739931044, '24993054480': 14739931044,
+  '25056189288': 14739931044, '25076589622': 14739931044, '25076598503': 14739931044, '25076604545': 14739931044,
+  '25076618298': 14739931044, '25076646023': 14739931044, '25113841014': 14739931044, '25186055400': 14739931044,
+  '25209298859': 14739931044, '25209306268': 14739931044, '25209312776': 14739931044, '25209315505': 14739931044,
+  '25209316976': 14739931044, '25209319802': 14739931044, '25209353882': 14739931044, '25214251058': 14739931044,
+  '25214271398': 14739931044, '25214276631': 14739931044, '25214309806': 14739931044, '25214340742': 14739931044,
+  '24837308707': 14739931044, '24837310632': 14739931044, '24837319083': 14739931044, '24845594487': 14739931044,
+  '24845641182': 14739931044, '24845762689': 14739931044, '24845769186': 14739931044, '24845780676': 14739931044,
+  '24845785090': 14739931044, '24845797880': 14739931044, '24938959668': 14739931044, '24938964059': 14739931044,
+  '24965150085': 14739931044, '24965305352': 14739931044, '24765285720': 14739931044, '24765524053': 14739931044,
+  '25628593327': 14739931044
 };
 
 /**
