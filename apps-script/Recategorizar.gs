@@ -1012,50 +1012,43 @@ function detalharMes(mes) {
 }
 
 /**
- * OS LANCAMENTOS DE "SERVICOS DE TERCEIROS" AGRUPADOS POR QUEM RECEBEU.
+ * OS LANCAMENTOS DE UMA CATEGORIA AGRUPADOS POR QUEM RECEBEU.
  *
- * DE ONDE VEIO: a Karolyne notou em 14/09/2026 que ate abril a faccao estava
- * lancada em "Servicos de terceiros" (14639321680 -> Despesas Administrativas)
- * e depois passou a ter categoria propria (14739931044 -> Estoque, fora da
- * DRE). A reclassificacao esta certa - mao de obra de costura e custo da PECA,
- * que vira CMV quando a peca vende, nao despesa do mes em que a costureira foi
- * paga - mas ela quebrou a comparacao no meio do ano.
+ * POR QUE AGRUPA POR QUEM: e o nome que separa naturezas que o valor nao
+ * separa. Em "Servicos de terceiros" separou costureira de servico de terceiro
+ * de verdade; em "Fretes e seguros" separa frete de COMPRA (Uber de tecido,
+ * Lalamove, o coco indo ao Bras) de frete de VENDA (envio ao cliente). Sao
+ * contas opostas: frete de compra e custo de aquisicao do ESTOQUE, que volta
+ * pelo CMV quando a peca vende; frete de venda e despesa variavel do mes.
  *
- * E CRIOU RISCO DE DOBRA em jan-abr: o CMV da DRE vem da aba _CMV_Consumo,
- * que e pecas vendidas x ficha tecnica, e a ficha JA TEM a costura dentro
- * (robe R$ 5,00, pijama R$ 11,00). Onde os dois existem no mesmo mes, a costura
- * conta duas vezes e o mes aparece pior do que foi.
+ * Nasceu como listarServicosTerceiros em 14/09/2026 e virou generica no dia
+ * seguinte, quando a Karolyne percebeu que o frete tinha o mesmo problema: uma
+ * categoria guardando duas naturezas, e a DRE somando as duas no lugar de uma.
  *
- * ORDEM QUE IMPORTA, e errar nela cria um defeito novo:
- *   1. conferir se _CMV_Consumo cobre jan-abr (conferirCmvPorMes);
- *   2. se COBRE, reclassificar estes lancamentos para 14739931044 - a dobra
- *      desaparece e o ano passa a ter uma definicao so;
- *   3. se NAO cobre, NAO reclassificar ainda: a costura de jan-abr existe so
- *      aqui, e tirar daqui deixaria esses meses sem o custo, bons demais.
- *      Primeiro preencher o CMV desses meses.
- *
- * AGRUPA POR QUEM RECEBEU porque e isso que separa costureira de servico de
- * terceiro de verdade (contador, freelancer, manutencao). O valor nao separa;
- * o nome separa.
+ * Traz o ID DA CONTA de cada linha porque e o que o PENDENCIAS_ precisa para
+ * reclassificar depois - sem ele a lista serve para entender e nao para
+ * consertar.
  */
-function listarServicosTerceiros(desde, ate) {
+function listarCategoria(cat, desde, ate, rotulo) {
+  cat = String(cat || '').trim();
   desde = desde || '2026-01';
-  ate = ate || '2026-04';
-  var CAT = '14639321680';
+  ate = ate || '2026-12';
+  if (!cat) return 'informe o id da categoria';
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_FLUXO_CAIXA);
   var ult = sheet.getLastRow();
   if (ult < 2) return 'Fluxo de Caixa vazio';
   var dados = sheet.getRange(2, 1, ult - 1, 15).getValues();
 
-  var porQuem = {}, total = 0, n = 0;
+  var porQuem = {}, total = 0, n = 0, nome = rotulo || cat;
   dados.forEach(function (l) {
-    if (String(l[3] || '').trim() !== CAT) return;
+    if (String(l[3] || '').trim() !== cat) return;
     if (String(l[2] || '').trim() === '5') return;
     var quando = l[14] || l[0];
     var m = quando instanceof Date
       ? Utilities.formatDate(quando, 'America/Sao_Paulo', 'yyyy-MM')
       : String(quando || '').trim().slice(0, 7);
     if (m < desde || m > ate) return;
+    if (!rotulo && l[4]) nome = String(l[4]).trim();
 
     var quem = String(l[8] || '(sem nome)').trim();
     var v = Math.abs(Number(l[11]) || 0);
@@ -1068,9 +1061,9 @@ function listarServicosTerceiros(desde, ate) {
     n++;
   });
 
-  var out = ['SERVICOS DE TERCEIROS (14639321680) de ' + desde + ' a ' + ate,
+  var out = [nome + ' (' + cat + ') de ' + desde + ' a ' + ate,
              'R$ ' + total.toFixed(2) + ' em ' + n + ' lancamento(s)', '',
-             'POR QUEM RECEBEU - marque quem e COSTUREIRA:'];
+             'POR QUEM RECEBEU:'];
   Object.keys(porQuem).sort(function (a, b) { return porQuem[b].total - porQuem[a].total; })
     .forEach(function (q) {
       out.push('');
@@ -1078,16 +1071,45 @@ function listarServicosTerceiros(desde, ate) {
                + '  (' + porQuem[q].linhas.length + ')');
       porQuem[q].linhas.forEach(function (t) { out.push(t); });
     });
-  out.push('');
-  out.push('ANTES DE RECLASSIFICAR: confira se a aba _CMV_Consumo tem linha para');
-  out.push('jan-abr. Se NAO tiver, tirar a costura daqui deixa esses meses sem o');
-  out.push('custo da costura em lugar nenhum.');
+  if (!n) out.push('  (nenhum lancamento no periodo)');
 
   var msg = out.join('\n');
   Logger.log(msg);
   try { SpreadsheetApp.getUi().alert(msg.slice(0, 6000)); } catch (e) {}
   return msg;
 }
+
+/**
+ * Faccao lancada como "Servicos de terceiros" - o caso que originou a funcao.
+ * Resolvido em 15/09/2026: as 57 contas de jan-abr foram para 14739931044 pelo
+ * PENDENCIAS_. Fica para conferir que a categoria continua limpa.
+ */
+function listarServicosTerceiros(desde, ate) {
+  return listarCategoria('14639321680', desde || '2026-01', ate || '2026-04',
+                         'Servicos de terceiros');
+}
+
+/**
+ * "Fretes e seguros" do ano, para separar frete de COMPRA de frete de VENDA.
+ *
+ * A categoria esta mapeada em "Despesas Variaveis de Venda", que e o lugar do
+ * frete de SAIDA - o que varia com a venda. Mas a Karolyne apontou em
+ * 15/09/2026 que na pratica quase tudo ali e ENTRADA: Uber e Lalamove para
+ * buscar tecido, e o coco indo ao Bras comprar.
+ *
+ * Frete de entrada e custo de aquisicao do estoque: sem ele o tecido nao chega,
+ * entao ele faz parte do que o tecido custou, e volta pelo CMV quando a peca
+ * vende. No lugar errado ele faz duas coisas ruins de uma vez - joga no mes uma
+ * despesa que era ativo, e piora a margem de contribuicao POR CANAL, que e a
+ * regua de decidir preco e canal.
+ */
+function listarFretes(desde, ate) {
+  return listarCategoria('14639321667', desde || '2026-01', ate || '2026-12',
+                         'Fretes e seguros');
+}
+
+/** Atalho sem argumento - o seletor do editor nao passa parametro. */
+function fretes2026() { return listarFretes('2026-01', '2026-12'); }
 
 /** Quanto a aba _CMV_Consumo tem por mes - responde se jan-abr esta coberto. */
 function conferirCmvPorMes() {

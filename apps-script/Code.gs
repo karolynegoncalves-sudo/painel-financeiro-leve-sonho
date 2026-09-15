@@ -232,6 +232,11 @@ function onOpen() {
        "Servicos de terceiros" antes de a categoria propria existir. */
     .addItem('Conferir CMV por mes (_CMV_Consumo)', 'conferirCmvPorMes')
     .addItem('Servicos de terceiros jan-abr (quem recebeu)', 'terceirosJanAbr')
+    /* Frete: a categoria guarda duas naturezas opostas - frete de COMPRA
+       (estoque) e de VENDA (despesa variavel). Agrupado por quem recebeu, o
+       nome separa: Uber/Lalamove/coco de um lado, Correios/transportadora do
+       outro. */
+    .addItem('Fretes e seguros 2026 (quem recebeu)', 'fretes2026')
     .addSeparator()
     .addItem('1) Configurar setup da planilha', 'setupWorkbook')
     .addItem('2) Importar produtos do NuvemShop (uma vez)', 'importarProdutosNuvemShop_')
