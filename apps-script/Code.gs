@@ -23,7 +23,7 @@
  * TROQUE ESTA STRING quando mexer no que o doGet devolve. O painel mostra o
  * valor e avisa em vermelho quando nao encontra a marca que ele espera.
  */
-const BACKEND_VERSAO_ = '2026-09-15 cmv-aberto';
+const BACKEND_VERSAO_ = '2026-09-15 periodo-sob-demanda';
 
 function doGet(e) {
   const params = (e && e.parameter) || {};
@@ -44,7 +44,10 @@ function doGet(e) {
     // Medido em 24/08/2026: despesasFixas le 24 linhas e leva 2,26s. Vem
     // junto, entao, e o login passa a fazer uma chamada em vez de duas.
     case 'fluxoCaixa': {
-      const r = getFluxoCaixaRows_();
+      /* `de` e `ate` vem da tela: ela pede o periodo do filtro mais o
+         anterior comparavel. Ausentes, cai na janela de 13 meses - cliente
+         antigo continua funcionando. */
+      const r = getFluxoCaixaRows_(params.de, params.ate);
       // dreFontes vem no mesmo pacote pelo mesmo motivo de despesasFixas: cada
       // chamada ao Web App custa ~2s de pedágio fixo, e a DRE precisa das duas
       // logo na primeira tela.
@@ -345,13 +348,55 @@ const COLS_FLUXO_ = 15;   // data..competencia; o painel nao usa nada alem disso
  * entao data futura convive com linha antiga. Cortar pelo fim da aba pareceria
  * funcionar e perderia lancamento sem avisar.
  */
-function getFluxoCaixaRows_() {
+/**
+ * @param {string=} pedidoDe  'yyyy-MM-dd' inicio do periodo pedido pela tela
+ * @param {string=} pedidoAte 'yyyy-MM-dd' fim
+ *
+ * PERIODO PEDIDO PELA TELA, e nao a janela inteira.
+ *
+ * Medido em 15/09/2026: a resposta inteira sao 19.405 linhas e ~4,1 MB, contra
+ * 252 KB de todo o codigo do painel - o dado e 16x o programa. O servidor
+ * levava 19s e o login da Karolyne levava 3 MINUTOS, ou seja, quase tudo era
+ * trafegar e reinterpretar JSON no navegador.
+ *
+ * A comparacao que fechou o diagnostico foi com o painel de financas da
+ * familia, que abre rapido porque o Apps Script SOMA e manda ~18 objetos
+ * prontos. O da Leve Sonho manda linha crua porque precisa: a aba Fluxo de
+ * Caixa tem busca e filtro por lancamento. A troca escolhida foi baixar menos
+ * linha, nao parar de mandar linha.
+ *
+ * DUAS COISAS ENTRAM SEMPRE, INDEPENDENTE DO PERIODO, e esquecer qualquer uma
+ * delas quebraria tela sem dar erro:
+ *
+ *   1. CONTA EM ABERTO (situacao 1) de QUALQUER data. A aba "Hoje" lista
+ *      atrasadas ("r.aberta && r.date < hoje", sem limite para tras), vencendo
+ *      hoje e proximos 7 dias, e a projecao de caixa vai a 30 dias - nada disso
+ *      obedece ao filtro. Recortar pelo periodo faria a conta atrasada de
+ *      janeiro desaparecer da tela que existe justamente para cobra-la.
+ *
+ *   2. O PERIODO ANTERIOR comparavel, que a TELA pede somando-o ao intervalo:
+ *      os KPIs mostram "x% vs. periodo anterior" e leem FLUXO_ROWS para isso.
+ *      Sem ele a comparacao viraria "sem periodo anterior comparavel" calada.
+ *
+ * O PISO DE 13 MESES CONTINUA valendo como teto de quanto se pode pedir: pedir
+ * 2024 nao traz 2024, e a tela avisa em vermelho (avisoJanela_) em vez de
+ * mostrar zero.
+ */
+function getFluxoCaixaRows_(pedidoDe, pedidoAte) {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_FLUXO_CAIXA);
   const ultima = sheet ? sheet.getLastRow() : 0;
   if (!sheet || ultima < 2) return { headers: [], rows: [], desde: null, total: 0 };
 
   const headers = sheet.getRange(1, 1, 1, COLS_FLUXO_).getValues()[0];
-  const desde = janelaPainelDesde_();
+  const data8 = function (v) {
+    const t = String(v || '').trim();
+    return /^\d{4}-\d{2}-\d{2}$/.test(t) ? t : '';
+  };
+  const piso = janelaPainelDesde_();
+  const pedido = data8(pedidoDe);
+  /* max(pedido, piso): a tela nao pode pedir mais fundo que a janela. */
+  const desde = (pedido && pedido > piso) ? pedido : piso;
+  const ate = data8(pedidoAte) || '9999-12-31';
   const n = ultima - 1;
 
   /* A coluna da competencia vem do CABECALHO, nao fixa no indice 14. O resto do
@@ -366,15 +411,20 @@ function getFluxoCaixaRows_() {
     return String(v || '').trim().slice(0, 10);
   };
 
-  // FASE 1: so as duas colunas de data, para achar a faixa de linhas
+  // FASE 1: as duas colunas de data e a situacao, para achar a faixa de linhas
   const datas = sheet.getRange(2, 1, n, 1).getValues();
   const comps = sheet.getRange(2, iComp + 1, n, 1).getValues();
+  const iSit = headers.indexOf('situacao') >= 0 ? headers.indexOf('situacao') : 2;
+  const sits = sheet.getRange(2, iSit + 1, n, 1).getValues();
   let primeira = -1, ultimaLinha = -1;
   const dentro = new Array(n);
   for (let i = 0; i < n; i++) {
     const d = texto(datas[i][0]);
     const c = texto(comps[i][0]);
-    dentro[i] = (d && d >= desde) || (c && c >= desde);
+    const noPeriodo = (d && d >= desde && d <= ate) || (c && c >= desde && c <= ate);
+    /* Em aberto entra sempre - ver o cabecalho desta funcao, item 1. */
+    const emAberto = String(sits[i][0] || '').trim() === '1';
+    dentro[i] = noPeriodo || emAberto;
     if (dentro[i]) { if (primeira < 0) primeira = i; ultimaLinha = i; }
   }
   if (primeira < 0) return { headers: headers, rows: [], desde: desde, total: n };
@@ -432,7 +482,7 @@ function getFluxoCaixaRows_() {
     if (iCompOut >= 0) linha[iCompOut] = ymd(linha[iCompOut]);
     rows.push(linha);
   }
-  return { headers: hOut, rows: rows, desde: desde, total: n,
+  return { headers: hOut, rows: rows, desde: desde, ate: ate, total: n,
            lidas: bloco.length, cols: hOut.length };
 }
 

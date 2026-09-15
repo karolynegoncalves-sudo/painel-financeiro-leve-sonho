@@ -17,7 +17,7 @@ const fmtDataBR = (d) => d.toLocaleDateString('pt-BR');
  *
  * TROCAR JUNTO com o ?v= do index.html. Sao os dois lados da mesma versao.
  */
-const PAINEL_VERSAO = '20260915a';
+const PAINEL_VERSAO = '20260915b';
 
 const escapeHtml_ = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const monthLabel = (p) => {
@@ -123,6 +123,12 @@ async function handleCredentialResponse(response) {
 }
 
 async function verificarESeguir_(token) {
+  /* O PERIODO PRECISA EXISTIR ANTES DA PRIMEIRA BUSCA. Antes era o setupTabs
+     que o calculava, DEPOIS do fetch - e agora o fetch depende dele. */
+  if (!FILTER.start || !FILTER.end) {
+    const [s0, e0] = computeRange_(FILTER.preset);
+    FILTER.start = s0; FILTER.end = e0;
+  }
   if (tokenExpirado_(token)) {
     sessionStorage.removeItem('id_token');
     idToken = null;
@@ -137,7 +143,11 @@ async function verificarESeguir_(token) {
     return;
   }
 
-  const data = await apiFetch_('fluxoCaixa', token);
+  /* O login ja pede o periodo, e registra a chave no cache para a primeira
+     troca de aba nao rebuscar o mesmo intervalo. */
+  const [ps0] = periodoAnterior_(FILTER.start, FILTER.end);
+  const de0 = ymdLocal_(ps0), ate0 = ymdLocal_(FILTER.end);
+  const data = await apiFetch_('fluxoCaixa', token, 3, { de: de0, ate: ate0 });
   if (data && data.error === 'not_authorized') {
     document.getElementById('deniedEmail').textContent = decodeJwtEmail(token);
     document.getElementById('loginDenied').style.display = 'block';
@@ -152,6 +162,8 @@ async function verificarESeguir_(token) {
   if (data && data.janelaDesde) JANELA_DESDE = data.janelaDesde;
   LINHAS_NA_ABA = (data && data.linhasNaAba) || 0;
   FLUXO_ROWS = parseFluxoRows_(data);
+  FLUXO_CHAVE = de0 + '|' + ate0;
+  FLUXO_CACHE[FLUXO_CHAVE] = FLUXO_ROWS;
   /* Vendas NAO entra no login. Sao 8.824 pedidos e 7,6 segundos - o
      login inteiro esperava por eles mesmo quando a pessoa ia direto pra
      precificacao, que nem usa vendas. Quem precisa e a aba KPIs, e ela
@@ -188,8 +200,12 @@ document.getElementById('btnSair').addEventListener('click', () => {
    for JSON, tenta de novo com espera crescente. `_falhou` marca a
    diferenca entre "nao consegui falar com a planilha" e "a planilha
    respondeu e esta vazia", que sao problemas distintos. */
-async function apiFetch_(view, token, tentativas) {
+async function apiFetch_(view, token, tentativas, extra) {
   const max = tentativas === undefined ? 3 : tentativas;
+  /* `extra` vira querystring. Serve para o periodo do fluxo de caixa, que
+     deixou de ser fixo em 15/09/2026 - ver garantirFluxo_. */
+  const qsExtra = Object.keys(extra || {})
+    .map(function (k) { return '&' + k + '=' + encodeURIComponent(extra[k]); }).join('');
   let ultimoErro = '';
   for (let t = 1; t <= max; t++) {
     try {
@@ -198,7 +214,7 @@ async function apiFetch_(view, token, tentativas) {
          navegador - o painel mostraria dado de antes da republicacao mesmo
          depois de recarregar. Dashboard nunca deve ler dado de cache. */
       const resp = await fetch(CFG.APPS_SCRIPT_URL + '?view=' + view
-        + '&token=' + encodeURIComponent(token) + '&_=' + Date.now(),
+        + '&token=' + encodeURIComponent(token) + qsExtra + '&_=' + Date.now(),
         { cache: 'no-store' });
       const txt = await resp.text();
       try {
@@ -331,6 +347,51 @@ const FILTER = { preset: 'mes', start: null, end: null, monthStr: '' };
    (JANELA_PAINEL_MESES). Serve para AVISAR quando o filtro pede periodo mais
    antigo do que o que foi carregado: sem o aviso a tela mostraria zero, e zero
    parece numero, nao parece falta. */
+/* PERIODO JA BAIXADO, por chave "de|ate". O painel deixou de trazer 13 meses
+   no login (4,1 MB, 19.405 linhas, 3 minutos) e passou a trazer o periodo do
+   filtro mais o anterior comparavel.
+   O cache existe para a troca de mes doer uma vez so: voltar a um mes ja
+   aberto e instantaneo. Guarda as linhas ja interpretadas, nao o JSON - o
+   custo maior era justamente interpretar. */
+const FLUXO_CACHE = {};
+let FLUXO_CHAVE = '';
+
+/**
+ * Garante que FLUXO_ROWS cobre o periodo do filtro. Chamada antes de desenhar.
+ *
+ * PEDE O PERIODO ANTERIOR JUNTO porque os KPIs comparam com ele ("x% vs.
+ * periodo anterior", em rowsAnterior). Sem isso a comparacao sumiria calada, e
+ * numero que falta sem avisar e o pior defeito que este painel teve.
+ *
+ * Conta EM ABERTO vem sempre do servidor, de qualquer data, porque a aba Hoje
+ * lista atrasada sem limite para tras - ver getFluxoCaixaRows_ no Code.gs.
+ */
+async function garantirFluxo_(el) {
+  if (!FILTER.start || !FILTER.end) return;
+  const [ps] = periodoAnterior_(FILTER.start, FILTER.end);
+  const de = ymdLocal_(ps), ate = ymdLocal_(FILTER.end);
+  const chave = de + '|' + ate;
+  if (chave === FLUXO_CHAVE) return;
+  if (FLUXO_CACHE[chave]) { FLUXO_ROWS = FLUXO_CACHE[chave]; FLUXO_CHAVE = chave; return; }
+
+  if (el) el.innerHTML = '<div class="state-msg">Carregando o período…</div>';
+  const d = await apiFetch_('fluxoCaixa', idToken, 3, { de: de, ate: ate });
+  if (!d || d.error || d._falhou) {
+    /* Nao apaga o que ja estava na tela: periodo que falhou com FLUXO_ROWS
+       zerado desenharia "sem lancamentos", que e mentira diferente de erro. */
+    if (el) el.innerHTML = '<div class="state-msg">Não consegui carregar esse período. '
+      + 'Tente de novo em alguns segundos.</div>';
+    return;
+  }
+  const rows = parseFluxoRows_(d);
+  FLUXO_CACHE[chave] = rows;
+  FLUXO_CHAVE = chave;
+  FLUXO_ROWS = rows;
+  if (d.janelaDesde) JANELA_DESDE = d.janelaDesde;
+  if (d.backend) BACKEND_VERSAO = d.backend;
+  if (d.linhasNaAba) LINHAS_NA_ABA = d.linhasNaAba;
+}
+
 let JANELA_DESDE = null;
 let LINHAS_NA_ABA = 0;
 
@@ -375,12 +436,18 @@ function computeRange_(preset, monthStr, customStart, customEnd) {
   return [startOfDay_(new Date(hoje.getFullYear(), hoje.getMonth(), 1)), endOfDay_(hoje)];
 }
 
-function aplicarFiltro_(preset, monthStr, customStart, customEnd) {
+async function aplicarFiltro_(preset, monthStr, customStart, customEnd) {
   const [start, end] = computeRange_(preset, monthStr, customStart, customEnd);
   FILTER.preset = preset;
   FILTER.start = start;
   FILTER.end = end;
   FILTER.monthStr = monthStr || '';
+  /* Buscar ANTES de redesenhar. Redesenhar primeiro mostraria o periodo novo
+     com os dados do antigo por alguns segundos - rotulo de um mes sobre numero
+     de outro, que e exatamente a corrida de 09/09/2026. */
+  const ativa = document.querySelector('#tabNav button.active');
+  const alvo = ativa ? document.getElementById('tab-' + ativa.dataset.tab) : null;
+  await garantirFluxo_(alvo);
   rerenderAbaAtiva_();
 }
 
@@ -460,7 +527,9 @@ function setupTabs() {
       document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
       btn.classList.add('active');
       const view = btn.dataset.tab;
-      document.getElementById('tab-' + view).classList.add('active');
+      const painel = document.getElementById('tab-' + view);
+      painel.classList.add('active');
+      await garantirFluxo_(painel);
       safeRenderTab(view);
     });
   });
