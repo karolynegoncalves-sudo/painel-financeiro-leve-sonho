@@ -228,6 +228,11 @@ function onOpen() {
     .addItem('Abrir janeiro/2026 por categoria', 'detalharJaneiro')
     .addItem('Abrir agosto/2026 por categoria', 'detalharAgosto')
     .addSeparator()
+    /* A investigacao da faccao: onde o CMV existe, e quem recebeu como
+       "Servicos de terceiros" antes de a categoria propria existir. */
+    .addItem('Conferir CMV por mes (_CMV_Consumo)', 'conferirCmvPorMes')
+    .addItem('Servicos de terceiros jan-abr (quem recebeu)', 'terceirosJanAbr')
+    .addSeparator()
     .addItem('1) Configurar setup da planilha', 'setupWorkbook')
     .addItem('2) Importar produtos do NuvemShop (uma vez)', 'importarProdutosNuvemShop_')
     .addToUi();

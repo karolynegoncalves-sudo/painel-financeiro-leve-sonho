@@ -915,7 +915,116 @@ function detalharMes(mes) {
   return msg;
 }
 
+/**
+ * OS LANCAMENTOS DE "SERVICOS DE TERCEIROS" AGRUPADOS POR QUEM RECEBEU.
+ *
+ * DE ONDE VEIO: a Karolyne notou em 14/09/2026 que ate abril a faccao estava
+ * lancada em "Servicos de terceiros" (14639321680 -> Despesas Administrativas)
+ * e depois passou a ter categoria propria (14739931044 -> Estoque, fora da
+ * DRE). A reclassificacao esta certa - mao de obra de costura e custo da PECA,
+ * que vira CMV quando a peca vende, nao despesa do mes em que a costureira foi
+ * paga - mas ela quebrou a comparacao no meio do ano.
+ *
+ * E CRIOU RISCO DE DOBRA em jan-abr: o CMV da DRE vem da aba _CMV_Consumo,
+ * que e pecas vendidas x ficha tecnica, e a ficha JA TEM a costura dentro
+ * (robe R$ 5,00, pijama R$ 11,00). Onde os dois existem no mesmo mes, a costura
+ * conta duas vezes e o mes aparece pior do que foi.
+ *
+ * ORDEM QUE IMPORTA, e errar nela cria um defeito novo:
+ *   1. conferir se _CMV_Consumo cobre jan-abr (conferirCmvPorMes);
+ *   2. se COBRE, reclassificar estes lancamentos para 14739931044 - a dobra
+ *      desaparece e o ano passa a ter uma definicao so;
+ *   3. se NAO cobre, NAO reclassificar ainda: a costura de jan-abr existe so
+ *      aqui, e tirar daqui deixaria esses meses sem o custo, bons demais.
+ *      Primeiro preencher o CMV desses meses.
+ *
+ * AGRUPA POR QUEM RECEBEU porque e isso que separa costureira de servico de
+ * terceiro de verdade (contador, freelancer, manutencao). O valor nao separa;
+ * o nome separa.
+ */
+function listarServicosTerceiros(desde, ate) {
+  desde = desde || '2026-01';
+  ate = ate || '2026-04';
+  var CAT = '14639321680';
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_FLUXO_CAIXA);
+  var ult = sheet.getLastRow();
+  if (ult < 2) return 'Fluxo de Caixa vazio';
+  var dados = sheet.getRange(2, 1, ult - 1, 15).getValues();
+
+  var porQuem = {}, total = 0, n = 0;
+  dados.forEach(function (l) {
+    if (String(l[3] || '').trim() !== CAT) return;
+    if (String(l[2] || '').trim() === '5') return;
+    var quando = l[14] || l[0];
+    var m = quando instanceof Date
+      ? Utilities.formatDate(quando, 'America/Sao_Paulo', 'yyyy-MM')
+      : String(quando || '').trim().slice(0, 7);
+    if (m < desde || m > ate) return;
+
+    var quem = String(l[8] || '(sem nome)').trim();
+    var v = Math.abs(Number(l[11]) || 0);
+    if (!porQuem[quem]) porQuem[quem] = { total: 0, linhas: [] };
+    porQuem[quem].total += v;
+    porQuem[quem].linhas.push('      ' + m + '  R$ ' + v.toFixed(2)
+      + '  conta ' + String(l[13] || '') + ':' + String(l[12] || '')
+      + '  ' + String(l[10] || '').slice(0, 45));
+    total += v;
+    n++;
+  });
+
+  var out = ['SERVICOS DE TERCEIROS (14639321680) de ' + desde + ' a ' + ate,
+             'R$ ' + total.toFixed(2) + ' em ' + n + ' lancamento(s)', '',
+             'POR QUEM RECEBEU - marque quem e COSTUREIRA:'];
+  Object.keys(porQuem).sort(function (a, b) { return porQuem[b].total - porQuem[a].total; })
+    .forEach(function (q) {
+      out.push('');
+      out.push('  ' + q + '   ->  R$ ' + porQuem[q].total.toFixed(2)
+               + '  (' + porQuem[q].linhas.length + ')');
+      porQuem[q].linhas.forEach(function (t) { out.push(t); });
+    });
+  out.push('');
+  out.push('ANTES DE RECLASSIFICAR: confira se a aba _CMV_Consumo tem linha para');
+  out.push('jan-abr. Se NAO tiver, tirar a costura daqui deixa esses meses sem o');
+  out.push('custo da costura em lugar nenhum.');
+
+  var msg = out.join('\n');
+  Logger.log(msg);
+  try { SpreadsheetApp.getUi().alert(msg.slice(0, 6000)); } catch (e) {}
+  return msg;
+}
+
+/** Quanto a aba _CMV_Consumo tem por mes - responde se jan-abr esta coberto. */
+function conferirCmvPorMes() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('_CMV_Consumo');
+  if (!sheet || sheet.getLastRow() < 2) return 'A aba _CMV_Consumo esta VAZIA.';
+  var d = sheet.getRange(2, 1, sheet.getLastRow() - 1, 5).getValues();
+  var porMes = {};
+  d.forEach(function (l) {
+    var m = l[0] instanceof Date
+      ? Utilities.formatDate(l[0], 'America/Sao_Paulo', 'yyyy-MM')
+      : String(l[0] || '').trim().slice(0, 7);
+    if (!m) return;
+    if (!porMes[m]) porMes[m] = { valor: 0, pecas: 0, semFicha: 0 };
+    porMes[m].valor += Number(l[2]) || 0;
+    porMes[m].pecas += Number(l[3]) || 0;
+    porMes[m].semFicha += Number(l[4]) || 0;
+  });
+  var out = ['_CMV_Consumo por mes', '', 'mes        CMV          pecas   sem ficha'];
+  Object.keys(porMes).sort().forEach(function (m) {
+    var b = porMes[m];
+    out.push('  ' + m + '  R$ ' + b.valor.toFixed(2) + '   ' + b.pecas + '   ' + b.semFicha);
+  });
+  out.push('');
+  out.push('Mes que NAO aparece aqui tem CMV zero na DRE - e se a faccao daquele');
+  out.push('mes tambem sair de Administrativas, o custo da costura desaparece.');
+  var msg = out.join('\n');
+  Logger.log(msg);
+  try { SpreadsheetApp.getUi().alert(msg.slice(0, 6000)); } catch (e) {}
+  return msg;
+}
+
 /** Atalhos sem argumento - o seletor do editor nao passa parametro. */
+function terceirosJanAbr() { return listarServicosTerceiros('2026-01', '2026-04'); }
 function detalharAbril()    { return detalharMes('2026-04'); }
 function detalharJaneiro()  { return detalharMes('2026-01'); }
 function detalharAgosto()   { return detalharMes('2026-08'); }
