@@ -17,7 +17,7 @@ const fmtDataBR = (d) => d.toLocaleDateString('pt-BR');
  *
  * TROCAR JUNTO com o ?v= do index.html. Sao os dois lados da mesma versao.
  */
-const PAINEL_VERSAO = '20260915b';
+const PAINEL_VERSAO = '20260915c';
 
 const escapeHtml_ = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const monthLabel = (p) => {
@@ -2203,7 +2203,15 @@ const GRUPO_PROVISAO = 'Provisão de Imposto (venda sem nota)';
    Deduções (que são devolução e desconto) e da provisão do site (que é
    estimativa sobre venda sem nota). Três naturezas, três linhas. */
 const GRUPO_IMPOSTO = 'Imposto do Simples (competência)';
-const DEDUZ = ['Deduções da Receita', GRUPO_IMPOSTO, GRUPO_PROVISAO];
+/* A PROVISAO SAIU DO RESULTADO em 15/09/2026, por decisao da Karolyne: "nao faz
+   sentido ter ele no momento, sabemos do risco mas tira".
+   E decisao dela e e defensavel: provisao e estimativa de um risco que ainda nao
+   virou obrigacao - nao ha guia, nao ha autuacao, nao ha data. Manter no
+   resultado piora o mes por um evento que pode nao acontecer.
+   MAS NAO FOI APAGADA. Foi para "Fora do resultado", com o motivo escrito e o
+   valor visivel mes a mes. Risco conhecido que sai da tela deixa de ser
+   conhecido, e a unica coisa pior que provisionar errado e esquecer. */
+const DEDUZ = ['Deduções da Receita', GRUPO_IMPOSTO];
 const ATE_MC = ['Receita Bruta'].concat(DEDUZ, ['CMV', 'Despesas Variáveis de Venda']);
 /*
  * DEPRECIACAO DO IMOBILIZADO: R$ 393,75/mes.
@@ -2267,7 +2275,6 @@ const DRE_ESTRUTURA = [
   { tipo: 'grupo',    nome: 'Receita Bruta' },
   { tipo: 'grupo',    nome: 'Deduções da Receita' },
   { tipo: 'grupo',    nome: GRUPO_IMPOSTO },
-  { tipo: 'grupo',    nome: GRUPO_PROVISAO },
   { tipo: 'subtotal', nome: 'Receita Líquida',
     soma: ['Receita Bruta'].concat(DEDUZ) },
   { tipo: 'grupo',    nome: 'CMV' },
@@ -2331,6 +2338,9 @@ const DRE_FORA = ['Não Operacional (ignorar na DRE)', 'Estoque (ignorar na DRE)
                      competência — contar os dois seria contar duas vezes. Mas
                      aparecem aqui porque É saída de caixa. */
                   'Imposto pago (ignorar na DRE)',
+                  /* Ver o comentario em DEDUZ: saiu do resultado em
+                     15/09/2026 e ficou aqui, visivel. */
+                  GRUPO_PROVISAO,
                   '(sem mapear)'];
 
 /*
@@ -2375,6 +2385,13 @@ const MOTIVO_FORA = {};
    'Transferência entre contas próprias, aporte e retirada de sócio, empréstimo e compra de '
    + 'máquina. Mexe no caixa e no balanço, não no resultado da operação. Se as transferências '
    + 'não somarem perto de zero, alguma está lançada com uma perna só.'],
+  ['Provisão de Imposto (venda sem nota)',
+   'O painel fatura mais do que as notas fiscais, e a diferença é venda do site sem NF. '
+   + 'A alíquota de 7,72% sobre essa diferença é o imposto que <b>seria</b> devido se ela '
+   + 'fosse declarada. Saiu do resultado em 15/09/2026 por decisão da Karolyne: provisão é '
+   + 'estimativa de um risco que ainda não virou obrigação — não há guia, não há autuação, '
+   + 'não há data. Fica aqui, e não apagada, porque risco conhecido que sai da tela deixa '
+   + 'de ser conhecido. Nos 8 primeiros meses de 2026 soma <b>R$ 6.418,32</b>.'],
   ['(sem mapear)',
    'Categoria sem grupo na aba <code>_DRE_Mapa</code> — a que aponta para cá é '
    + '"A Classificar (revisar)". NÃO é decisão, é PENDÊNCIA: rode <code>listarSemMapear</code> '

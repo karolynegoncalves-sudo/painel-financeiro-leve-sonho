@@ -517,3 +517,22 @@ table.dre tr.dre-resultado td.val-out, table.dre tr.dre-resultado th.val-out,
 table.simple tr.dre-resultado td.val-out, table.simple tr.dre-resultado th.val-out{
   color:#FFB4A8 !important;}
 table.dre tr.dre-resultado td, table.dre tr.dre-resultado th{color:#EAF2EE;}
+
+
+/* ---- O TITULO DO RESULTADO ESTAVA ILEGIVEL, e nao era a cor do texto ----
+   A primeira coluna da DRE e fixa (sticky) para nao sumir ao rolar o periodo de
+   lado, e essa regra - `#tblDre th:first-child` - pinta o fundo com
+   var(--panel), que e claro. Ela usa seletor de ID, entao GANHA de
+   `table.dre tr.dre-resultado th`, que e classe. Resultado: texto branco sobre
+   fundo claro na unica celula da linha que ficou fora da faixa verde.
+
+   A Karolyne pediu "muda de branco pra preto". Preto resolveria a leitura e
+   deixaria uma celula clara com texto preto no meio de uma faixa verde escura -
+   conserta o sintoma e quebra a faixa. O defeito e o FUNDO, nao o texto.
+
+   Estas regras tem id + classe, entao ganham da sticky e devolvem o verde.
+   Vale tambem para o subtotal, pelo mesmo motivo de especificidade. */
+#tblDre tr.dre-resultado th:first-child, #tblDre tr.dre-resultado td:first-child{
+  background:#2F4F43; color:#fff;}
+#tblDre tr.dre-subtotal th:first-child, #tblDre tr.dre-subtotal td:first-child{
+  background:var(--sage-bg, #EEF3EE); color:var(--ink, #1a1a1a);}
