@@ -904,8 +904,28 @@ function detalharMes(mes) {
   bloco(naDre, 'ENTRA NO RESULTADO');
   naDre.forEach(function (g) { soma += grupos[g].total; });
   out.push('SOMA DOS GRUPOS DA DRE: ' + reais(soma));
-  out.push('  (nao e o resultado da tela: receita, CMV e imposto vem das abas');
-  out.push('   _Receita_Pedidos, _CMV_Consumo e das guias, nao destes lancamentos)');
+  out.push('');
+  out.push('  ISTO NAO E A DRE. Quatro coisas que a DRE faz e este relatorio nao:');
+  out.push('   1. receita vem da aba _Receita_Pedidos, nao das contas a receber;');
+  out.push('   2. CMV vem da aba _CMV_Consumo (pecas vendidas x ficha tecnica);');
+  out.push('   3. imposto vem da GUIA por competencia, nao do que foi pago;');
+  out.push('   4. a PARCELA de emprestimo aparece aqui INTEIRA, e na DRE ela e');
+  out.push('      fatiada: so o juro e despesa, a amortizacao sai do resultado');
+  out.push('      (ver fatiarEmprestimo_ no Emprestimos.gs). Entao o Resultado');
+  out.push('      Financeiro daqui e MAIOR que o da DRE.');
+  out.push('  Use este relatorio para saber O QUE tem dentro de cada grupo, nao');
+  out.push('  para conferir o total da DRE - eles nao fecham de proposito.');
+  out.push('');
+  var transf = grupos['Não Operacional (ignorar na DRE)'];
+  if (transf && Math.abs(transf.total) > 1) {
+    out.push('  ATENCAO: "Nao Operacional" fechou em ' + reais(transf.total)
+             + ' em vez de perto de zero.');
+    out.push('  Transferencia entre contas proprias tem duas pernas e deve somar');
+    out.push('  zero. Sobra significa perna faltando - saida lancada sem a entrada');
+    out.push('  correspondente, ou o contrario. Isso NAO afeta a DRE, mas afeta o');
+    out.push('  saldo das carteiras no Bling.');
+    out.push('');
+  }
   out.push('');
   if (fora.length) bloco(fora, 'FORA DO RESULTADO (mexe no caixa, nao no lucro)');
 
