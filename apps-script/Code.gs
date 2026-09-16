@@ -780,6 +780,8 @@ function corrigirDreMapa_() {
     '14739930076': 'Estoque (ignorar na DRE)',         // Embalagem e Insumos de Produção
     '14739931044': 'Estoque (ignorar na DRE)',         // Facção / Mão de obra terceirizada
     '14639321661': 'Estoque (ignorar na DRE)',         // Custo dos serviços prestados
+    // frete de ENTRADA: custo de aquisição do estoque, não despesa de venda
+    '14745004500': 'Estoque (ignorar na DRE)',         // Frete de compra
 
     // RECEITA NÃO VEM MAIS DA CONTA A RECEBER. A conta só nasce quando o
     // marketplace libera o dinheiro, e cada espelho grava numa base

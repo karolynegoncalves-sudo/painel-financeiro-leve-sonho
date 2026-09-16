@@ -293,6 +293,25 @@ var GRUPO_CANONICO_ = {
   // receita outra vez - vai para "Venda já contada pelo pedido (ignorar na DRE)", que
   // existe so para isso. Em 12/09/2026 foram 247 contas, R$ 17.563,96, que sem
   // este mapeamento apareceriam como receita nova.
+  /* FRETE DE COMPRA (criada em 16/09/2026, id do Bling 14745004500).
+   *
+   * Frete de ENTRADA e custo de aquisicao do estoque: sem ele o tecido nao
+   * chega, entao ele faz parte do que o tecido custou e volta pelo CMV quando a
+   * peca vende. Fica no mesmo grupo da Faccao, que tem o mesmo pai
+   * (14639321661 Custo dos servicos prestados).
+   *
+   * POR QUE NAO FICA EM "Fretes e seguros": aquela categoria esta em Despesas
+   * Variaveis de Venda, que e o lugar do frete de SAIDA - o que varia com a
+   * venda. Frete de compra nao tem relacao com o canal em que a peca vendeu, e
+   * estava sendo rateado como se tivesse, piorando a margem de contribuicao POR
+   * CANAL - a regua de decidir preco e canal.
+   *
+   * E TEM UM SEGUNDO EFEITO, apontado pela sessao do Caixa e maior que o
+   * primeiro: se o frete do tecido nunca entrou no custo do rolo, o custo
+   * unitario da peca no Bling esta BAIXO. Entao a margem por canal esta otimista
+   * no numerador e no denominador ao mesmo tempo. Consertar o grupo aqui nao
+   * conserta isso - exige reprocessar a valorizacao do estoque. */
+  , '14745004500': 'Estoque (ignorar na DRE)'   // Frete de compra
   , '14639321643': 'Venda já contada pelo pedido (ignorar na DRE)'   // Vendas de produtos
   // As irmas da 643. Estavam so no corrigirDreMapa_ do Code.gs, que e rotina
   // avulsa - entao o manutencaoDre nao as corrigia e elas ficariam com o nome
