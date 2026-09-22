@@ -17,7 +17,7 @@ const fmtDataBR = (d) => d.toLocaleDateString('pt-BR');
  *
  * TROCAR JUNTO com o ?v= do index.html. Sao os dois lados da mesma versao.
  */
-const PAINEL_VERSAO = '20260915c';
+const PAINEL_VERSAO = '20260922a';
 
 const escapeHtml_ = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const monthLabel = (p) => {
@@ -1673,7 +1673,14 @@ const BALANCO_ = {
     'Estoque': [
       ['Peça acabada',         13851.97, '839 peças pela ficha técnica'],
       ['Em produção',           7130.43, '1.358 peças, tecido e corte já gastos'],
-      ['Tecido em rolo',        5032.80, '720 m de cetim'],
+      /* CORRIGIDO em 22/09/2026, de R$ 5.032,80 para R$ 2.152,80.
+         Estava a R$ 6,99/m, e o cetim comum custa R$ 2,99/m - confirmado pela
+         nota 16993 do Bras (1.016 m a 2,99) e pela Karolyne.
+         A prova de que os R$ 6,99 eram o erro, e nao o preco: peca acabada e em
+         producao sao valorizadas PELA FICHA TECNICA, que ja usa 2,99. Só esta
+         linha discordava do resto do proprio estoque.
+         Estoque se carrega a CUSTO, e o custo e 2,99. */
+      ['Tecido em rolo',        2152.80, '720 m de cetim comum a R$ 2,99/m (nota 16993)'],
       ['Linhas e aviamentos',   2864.55, '333 unidades contadas em 12/09'],
       ['Fechos Carmóvel',        645.86, '80 unidades da NF 3986']
     ],
