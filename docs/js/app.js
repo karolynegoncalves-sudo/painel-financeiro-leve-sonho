@@ -17,7 +17,7 @@ const fmtDataBR = (d) => d.toLocaleDateString('pt-BR');
  *
  * TROCAR JUNTO com o ?v= do index.html. Sao os dois lados da mesma versao.
  */
-const PAINEL_VERSAO = '20260922a';
+const PAINEL_VERSAO = '20260924a';
 
 const escapeHtml_ = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const monthLabel = (p) => {
@@ -2532,6 +2532,41 @@ function renderDreCaixa_(corpo, rows, porCompetencia) {
     });
   }
 
+  /* QUANTO DESTE PERIODO E PROVISAO, e nao fato.
+   *
+   * A DRE por competencia inclui conta EM ABERTO de proposito - e o ponto do
+   * regime: o fato aconteceu, o dinheiro nao andou. Mas parcela provisionada no
+   * Bling costuma ser o valor de UM MES REAL CLONADO para frente, e isso a tela
+   * lia como medicao.
+   *
+   * Medido em 24/09/2026 no frete dos Correios (categoria 14639321667): as 36
+   * contas baixadas de set/2023 a set/2026 tem 36 valores DISTINTOS - nenhum se
+   * repete, de R$ 51,31 a R$ 823,52, media R$ 423,38. As 11 em aberto sao todas
+   * exatamente R$ 344,06, que e o valor real de maio/2026 clonado como
+   * recorrencia ate ago/2027. Eu apresentei "R$ 344,06/mes, R$ 4.128/ano" a
+   * Karolyne como se fosse fato; o realizado de jul+ago+set foi R$ 818,61.
+   *
+   * Mesmo padrao do DAS de R$ 4.867,34 que aparecia 13 vezes ate 08/2027.
+   *
+   * Nao da para distinguir provisao de conta a vencer legitima olhando a linha -
+   * as duas estao em aberto. Entao a tela nao adivinha: ela DIZ o quanto do
+   * periodo esta em aberto e deixa a leitura para quem sabe. Mes fechado da
+   * zero e o aviso nao aparece. */
+  const emAberto = rows.filter(r => r.aberta)
+    .reduce((s, r) => s + Math.abs(r.valor), 0);
+  const movimento = rows.reduce((s, r) => s + Math.abs(r.valor), 0);
+  const pctAberto = movimento ? emAberto / movimento : 0;
+  const avisoProvisao = emAberto > 0
+    ? `<p class="dre-nota" style="color:var(--brick);"><b>${fmtBRL(emAberto, 2)}
+       deste período (${fmtPctSimples_(pctAberto)} do movimento) vem de conta
+       EM ABERTO</b> — fato reconhecido cujo dinheiro ainda não andou. Parte disso
+       pode ser <b>provisão</b>: parcela futura lançada no Bling é, com frequência, o
+       valor de um mês real copiado para frente. O frete dos Correios, por exemplo,
+       está provisionado em R$ 344,06 até ago/2027, e os valores reais dos últimos
+       três anos variaram de R$ 51,31 a R$ 823,52. Para mês fechado este aviso não
+       aparece.</p>`
+    : '';
+
   const resultado = totalDe(somaDe(DRE_ESTRUTURA[DRE_ESTRUTURA.length - 1].soma));
   const veredito = resultado >= 0
     ? `Sobrou <b>${fmtBRL(resultado, 2)}</b> no período — ${fmtPctSimples_(pct(resultado))} do faturamento.`
@@ -2564,6 +2599,7 @@ function renderDreCaixa_(corpo, rows, porCompetencia) {
 
   corpo.innerHTML = `<div class="panel"><h3>DRE do período</h3>
     ${avisoBackend}
+    ${avisoProvisao}
     <div style="overflow-x:auto;"><table class="simple dre" id="tblDre"></table></div>
     <div class="sub" style="margin-top:.6rem;">${veredito}</div></div>`
     + (htmlFora ? `<div class="panel"><h3>Fora do resultado</h3>
