@@ -293,6 +293,26 @@ var GRUPO_CANONICO_ = {
   // receita outra vez - vai para "Venda já contada pelo pedido (ignorar na DRE)", que
   // existe so para isso. Em 12/09/2026 foram 247 contas, R$ 17.563,96, que sem
   // este mapeamento apareceriam como receita nova.
+  /* FRETE DE COMPRA: as idas ao Bras que estavam em "Fretes e seguros".
+   *
+   * 14639321667 "Fretes e seguros" esta mapeada em Despesas Variaveis de Venda,
+   * que e o lugar do frete de SAIDA. Estas duas sao de ENTRADA - buscar tecido -
+   * e por isso vao para Estoque, onde voltam pelo CMV quando a peca vende.
+   *
+   * A segunda foi apontada pela sessao "Contas a Pagar e Receber" em 24/09/2026,
+   * e ela corrige uma medicao minha: eu havia dito a Karolyne que so R$ 180,00
+   * de 2026 era frete de compra, medido no listarFretes. Estava certo na data e
+   * ficou errado no dia seguinte - o motoboy ("Coco", contato 16119049417) cobra
+   * R$ 60,00 por ida e acumula varias numa conta, e as contas dele caem nessa
+   * mesma categoria. Isso nao para de crescer.
+   *
+   * CUIDADO ao varrer por contato: nem tudo do Coco e frete. Quando a conta e do
+   * TECIDO comprado no Bras, ela cai em 14639321655 "Compra de insumos e materia
+   * prima" - que ja e Estoque e esta certa. Mover por nome de contato levaria
+   * compra de tecido junto. O que separa e a natureza da conta, nao quem recebeu. */
+  , '25267635131': 14745004500   // 2026-03  R$ 180,00  "Frete Bras 3 idas"
+  , '26879636213': 14745004500   // venc 15/09  R$ 360,00  Coco, 6 idas acumuladas
+
   /* FRETE DE COMPRA (criada em 16/09/2026, id do Bling 14745004500).
    *
    * Frete de ENTRADA e custo de aquisicao do estoque: sem ele o tecido nao
