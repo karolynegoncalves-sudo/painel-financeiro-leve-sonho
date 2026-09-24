@@ -327,6 +327,14 @@ var GRUPO_CANONICO_ = {
    * que e o lugar do frete de SAIDA. Estas duas sao de ENTRADA - buscar tecido -
    * e por isso vao para Estoque, onde voltam pelo CMV quando a peca vende.
    *
+   * VARREDURA COMPLETA do contato Coco (16119049417) em 24/09/2026: 8 contas no
+   * total, todas baixadas. Seis em "Fretes e seguros" (R$ 1.427,00: R$ 887,00 em
+   * 2025 e R$ 540,00 em 2026) e duas em "Compra de insumos e materia prima"
+   * (R$ 525,50, ambas de 2025) - essas duas FICAM, porque ali ele comprou
+   * tecido, nao transporte, e Insumos ja e Estoque.
+   * A ida ao Bras custa R$ 60,00 TIPICAMENTE, nao invariavelmente: a conta mista
+   * tem uma ida a R$ 40,00. Nao inferir quantidade a partir de valor.
+   *
    * A segunda foi apontada pela sessao "Contas a Pagar e Receber" em 24/09/2026,
    * e ela corrige uma medicao minha: eu havia dito a Karolyne que so R$ 180,00
    * de 2026 era frete de compra, medido no listarFretes. Estava certo na data e
@@ -338,8 +346,22 @@ var GRUPO_CANONICO_ = {
    * TECIDO comprado no Bras, ela cai em 14639321655 "Compra de insumos e materia
    * prima" - que ja e Estoque e esta certa. Mover por nome de contato levaria
    * compra de tecido junto. O que separa e a natureza da conta, nao quem recebeu. */
+  , '23421205283': 14745004500   // 2025-07  R$ 300,00  "5 Bras"
+  , '23783876158': 14745004500   // 2025-09  R$ 120,00  "2 bras"
+  , '24197341890': 14745004500   // 2025-10  R$ 240,00  "4 idas ao bras"
   , '25267635131': 14745004500   // 2026-03  R$ 180,00  "Frete Bras 3 idas"
-  , '26879636213': 14745004500   // venc 15/09  R$ 360,00  Coco, 6 idas acumuladas
+  , '26879636213': 14745004500   // 2026-09  R$ 360,00  Coco, 6 idas discriminadas
+  /* A CONTA MISTA, e ela nao precisa ser dividida - foi o que me travou por um
+     dia e nao devia ter travado. Historico: "Bras 19/06 60,00 / Bras 23/06
+     40,00 / Bras 25/06 60,00 / Cetim 10,00 / Moletom 56,90" = R$ 160,00 de
+     frete + R$ 66,90 de material (mais R$ 0,10 de arredondamento).
+     Os DOIS pedacos vao para o MESMO GRUPO: frete de compra -> Estoque, e
+     compra de insumo -> Estoque. Categoria diferente, grupo igual. Entao mover
+     a conta inteira poe 100% dela no lugar certo da DRE, e a unica imprecisao e
+     de ROTULO: quem ler "Frete de compra" como medida de custo de transporte
+     esta lendo R$ 66,90 a mais. Dividir exigiria criar duas contas no Bling
+     para acertar um rotulo sem mudar nenhum numero do resultado. */
+  , '23194610781': 14745004500   // 2025-06  R$ 227,00  MISTA (160 frete + 66,90 material)
 
   /* FRETE DE COMPRA (criada em 16/09/2026, id do Bling 14745004500).
    *
