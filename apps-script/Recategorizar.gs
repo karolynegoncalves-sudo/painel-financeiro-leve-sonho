@@ -293,6 +293,34 @@ var GRUPO_CANONICO_ = {
   // receita outra vez - vai para "Venda já contada pelo pedido (ignorar na DRE)", que
   // existe so para isso. Em 12/09/2026 foram 247 contas, R$ 17.563,96, que sem
   // este mapeamento apareceriam como receita nova.
+  /* SEGURO DO IMOVEL: 6 parcelas que estavam em "Fretes e seguros".
+   *
+   * Categoria "Seguros" (14745745467, pai 14639321670 Despesas administrativas)
+   * criada em 24/09/2026 pela sessao "Contas a Pagar e Receber", que tambem
+   * moveu as 6 contas no Bling - entao painel e Bling nao divergem.
+   *
+   * POR QUE SAIU: seguro contra incendio do imovel nao varia com venda nenhuma.
+   * Estava em Despesas Variaveis de Venda so porque o nome da categoria
+   * 14639321667 tem a palavra "seguros". O dano nao era o valor (R$ 846,48 no
+   * ano), era o LUGAR: Despesas Variaveis alimenta a margem de contribuicao POR
+   * CANAL, que e a regua de decidir preco e canal. Custo fixo ali dentro faz
+   * todo canal parecer pior, e proporcionalmente ao faturamento - o contrario
+   * do que um seguro faz.
+   *
+   * ACHADO DE PASSAGEM, e maior que estas contas: eu li R$ 148,51 na parcela de
+   * julho e o GET no Bling devolveu R$ 141,08. As seis sao identicas. A planilha
+   * tem valor VELHO porque `atualizarContasEmAberto_` reconfere valor, situacao
+   * e vencimento SO de conta em situacao 1 - a de julho esta baixada (sit 2) e
+   * nunca foi reconferida. Ou seja: conta cujo valor muda no Bling DEPOIS de ser
+   * baixada guarda o valor antigo no painel para sempre. Sao R$ 7,43 aqui;
+   * ninguem sabe quanto no total. Mesma familia do congelamento de categoria. */
+  , '23531325615': 14745745467   // 2026-07  141,08  (planilha dizia 148,51)
+  , '23750121089': 14745745467   // 2026-08  141,08
+  , '23969868907': 14745745467   // 2026-09  141,08
+  , '24250682983': 14745745467   // 2026-10  141,08
+  , '24508098261': 14745745467   // 2026-11  141,08
+  , '24777468958': 14745745467   // 2026-12  141,08
+
   /* FRETE DE COMPRA: as idas ao Bras que estavam em "Fretes e seguros".
    *
    * 14639321667 "Fretes e seguros" esta mapeada em Despesas Variaveis de Venda,
@@ -332,6 +360,7 @@ var GRUPO_CANONICO_ = {
    * no numerador e no denominador ao mesmo tempo. Consertar o grupo aqui nao
    * conserta isso - exige reprocessar a valorizacao do estoque. */
   , '14745004500': 'Estoque (ignorar na DRE)'   // Frete de compra
+  , '14745745467': 'Despesas Administrativas'   // Seguros (do imovel)
   , '14639321643': 'Venda já contada pelo pedido (ignorar na DRE)'   // Vendas de produtos
   // As irmas da 643. Estavam so no corrigirDreMapa_ do Code.gs, que e rotina
   // avulsa - entao o manutencaoDre nao as corrigia e elas ficariam com o nome
