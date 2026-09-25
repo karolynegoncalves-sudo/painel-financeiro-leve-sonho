@@ -17,7 +17,7 @@ const fmtDataBR = (d) => d.toLocaleDateString('pt-BR');
  *
  * TROCAR JUNTO com o ?v= do index.html. Sao os dois lados da mesma versao.
  */
-const PAINEL_VERSAO = '20260924a';
+const PAINEL_VERSAO = '20260926a';
 
 const escapeHtml_ = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const monthLabel = (p) => {
@@ -3334,8 +3334,36 @@ function calcularFicha_(modelo, tamanho, tecido, escolhidos, canalObj, preco) {
      costura. Embalagem entra depois - nao e custo de fabricar, mas tem
      que estar no preco. Separar os dois deixa ver o custo real da peca
      sem o frete de correio embutido. */
-  const custoFabricacao = custoTecido + custoAcab + custoCorte + custoCostura
-    + custoAviamento + custoMaoObraExtra + custoTam;
+  /* CUSTO MANUAL POR CANAL vence a formula, quando existe.
+   *
+   * Acessorio (touca, fronha, xuxinha, saquinho) nao tem rendimento de tecido
+   * cadastrado, entao a formula devolveria custo quase zero e a peca pareceria
+   * de graca. Pior: o custo dele MUDA DE CANAL por um motivo que a formula nao
+   * sabe ver - a Karolyne explicou em 26/09/2026 que acessorio vendido em
+   * MARKETPLACE e feito de RETALHO de robe, e so a encomenda pelo site usa
+   * tecido comprado.
+   *
+   * Tecido de retalho ja foi pago dentro do robe. Cobrar de novo no acessorio
+   * conta a mesma compra duas vezes - o mesmo defeito da faccao, que estava em
+   * Despesas Administrativas e dentro do CMV ao mesmo tempo.
+   *
+   * O tamanho disso nao e decorativo: a fronha custa R$ 13,96 com tecido e
+   * R$ 1,73 de retalho. Na Shopee, onde canal e custo fixo comem ~84% do preco,
+   * isso e a diferenca entre um piso de R$ 88,80 e um de R$ 10,99 - entre
+   * "impossivel de vender" e "vende bem".
+   *
+   * Vem de _Precificacao_Producao, a mesma tabela que ja diz o que muda por
+   * canal (material e costura). Coluna vazia ou zero = calcula pela formula. */
+  const custoFabricacao = (prod && prod.custoManual > 0)
+    ? prod.custoManual
+    : custoTecido + custoAcab + custoCorte + custoCostura
+      + custoAviamento + custoMaoObraExtra + custoTam;
+  if (prod && prod.custoManual > 0) {
+    avisos.push('Custo de ' + fmtBRL(prod.custoManual, 2) + ' vem do cadastro manual de '
+      + escapeHtml_(canalObj.grupo) + ', não da ficha de tecido — é como acessório é '
+      + 'medido. Em marketplace ele é feito de retalho de robe, cujo tecido já foi pago '
+      + 'dentro do robe.');
+  }
   const custo = custoFabricacao + custoEmbalagem;
   /* A taxa depende do preço quando o canal cobra por faixa (Shopee).
      Sem preço informado, cai na primeira faixa — que é o que a pessoa vê

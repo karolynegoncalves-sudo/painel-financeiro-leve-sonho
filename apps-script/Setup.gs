@@ -674,8 +674,14 @@ function setupPrecificacaoSku_(ss) {
 function setupPrecificacaoProducao_(ss) {
   const sheet = getOrCreateSheet_(ss, ABA_PRECIFICACAO_PRODUCAO);
   const jaTinhaDados = sheet.getLastRow() > 1;
+  /* custoManual e OPCIONAL e serve para peca que nao tem ficha de tecido -
+     acessorio. Preenchida, ela E o custo naquele canal e a formula de tecido +
+     corte + costura + aviamentos nao roda. Vazia ou zero = calcula normal.
+     Existe porque acessorio vendido em MARKETPLACE e feito de retalho de robe
+     (tecido ja pago dentro do robe) e so a encomenda pelo site usa tecido
+     comprado - ver getPrecificacaoProducao_ no PrecificacaoSku.gs. */
   ensureHeader_(sheet, [
-    'canalGrupo', 'tipoPeca', 'material', 'costuraValor', 'ativo'
+    'canalGrupo', 'tipoPeca', 'material', 'costuraValor', 'ativo', 'custoManual'
   ]);
   if (jaTinhaDados) return;
 

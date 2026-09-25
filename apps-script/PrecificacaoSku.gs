@@ -110,15 +110,37 @@ function getPrecificacaoProducao_() {
   const idx = (n) => headers.indexOf(n);
   const iCanal = idx('canalGrupo'), iTipoPeca = idx('tipoPeca'), iMaterial = idx('material'),
     iCostura = idx('costuraValor'), iAtivo = idx('ativo');
+  /* CUSTO MANUAL POR CANAL (26/09/2026). Coluna opcional: se estiver preenchida
+     para aquele (canal, tipoPeca), ela E o custo da peca e a formula de tecido
+     nao roda.
+
+     POR QUE AQUI e nao numa tabela nova: esta aba ja e a que diz "o que muda por
+     canal" - material e costura. Acessorio muda de canal pela mesma razao, e
+     inventar uma segunda tabela por canal criaria duas fontes para a mesma
+     pergunta.
+
+     DE ONDE VEIO: a Karolyne explicou em 26/09/2026 que acessorio vendido em
+     MARKETPLACE e feito de RETALHO de robe, e so a encomenda pelo site usa
+     tecido comprado. Tecido de retalho ja foi pago dentro do robe - cobrar de
+     novo no acessorio conta a mesma compra duas vezes, igual a faccao que
+     estava em Administrativas e no CMV ao mesmo tempo. */
+  const iManual = idx('custoManual');
 
   return rows
     .filter(r => r[iCanal] && r[iTipoPeca] && (r[iAtivo] === true || String(r[iAtivo]).toUpperCase() === 'TRUE' || r[iAtivo] === ''))
-    .map(r => ({
-      canalGrupo: String(r[iCanal]).trim(),
-      tipoPeca: String(r[iTipoPeca]).trim(),
-      material: String(r[iMaterial] || '').trim(),
-      costuraValor: num_(r[iCostura])
-    }));
+    .map(function (r) {
+      const o = {
+        canalGrupo: String(r[iCanal]).trim(),
+        tipoPeca: String(r[iTipoPeca]).trim(),
+        material: String(r[iMaterial] || '').trim(),
+        costuraValor: num_(r[iCostura])
+      };
+      /* So entra quando tem valor. Zero e vazio significam "calcula pela
+         formula" - senao uma celula em branco zeraria o custo da peca, que e o
+         tipo de erro que nao aparece na tela. */
+      if (iManual >= 0 && num_(r[iManual]) > 0) o.custoManual = num_(r[iManual]);
+      return o;
+    });
 }
 
 /**
