@@ -3046,7 +3046,7 @@ function renderVendas(el, rowsPagas) {
   // de casar quando a receita do Fluxo de Caixa virou "Venda ja contada pelo
   // pedido (ignorar na DRE)", e esta ponta da ponte passou a responder zero.
   const recebido = rowsPagas
-    .filter(r => GRUPOS_RECEBIMENTO_.some(g => chaveGrupo_(g) === chaveGrupo_(r.grupoDRE)))
+    .filter(r => ehRecebimento_(r.grupoDRE))
     .reduce((s, r) => s + (r.tipo === 'entrada' ? r.valor : -r.valor), 0);
 
   const serie = serieTemporal_(vendas, FILTER.start, FILTER.end);
@@ -3173,15 +3173,26 @@ function renderDreCompetenciaVendas_(corpoPai) {
      Id duplicado nao da erro nenhum: o navegador escolhe um e segue. */
   document.getElementById('tblCanal').innerHTML = html;
 
-  // comparativo com o regime de caixa, que e a duvida que gera essa tela
-  const rowsCaixa = (FLUXO_ROWS || []).filter(r => r.date >= FILTER.start && r.date <= FILTER.end);
+  /* comparativo com o regime de caixa, que e a duvida que gera essa tela.
+     `r.paga` FALTAVA aqui (achado pela sessao Caixa em 02/10/2026): sem ele a
+     linha "Recebi no periodo" contava conta EM ABERTO (situacao 1) e
+     CANCELADA (situacao 5) como dinheiro que entrou. O bug e de setembro, mas
+     so passou a mentir agora: enquanto a linha respondia R$ 0 por causa do
+     nome do grupo, o filtro que faltava nao tinha efeito visivel. Conserto que
+     destrava um numero precisa de uma segunda olhada no resto do calculo. */
+  const rowsCaixa = (FLUXO_ROWS || [])
+    .filter(r => r.paga && r.date >= FILTER.start && r.date <= FILTER.end);
   /* Antes era indexOf('Receita Bruta'), que parou de casar quando a receita do
      Fluxo de Caixa foi remapeada para "Venda já contada pelo pedido (ignorar na DRE)" -
      e a linha passou a responder R$ 0 em todo mes, dizendo que nada tinha sido
-     recebido. Ver GRUPOS_RECEBIMENTO_. */
+     recebido. Ver ehRecebimento_.
+     LIQUIDO, nao bruto: estorno de venda chega como saida no mesmo grupo, e
+     dinheiro devolvido ao cliente nao e dinheiro recebido. Era a terceira
+     definicao de "recebido" na mesma base - as outras duas (totais_ e o
+     `recebido` de renderVendas) ja eram liquidas. */
   const receitaCaixa = rowsCaixa
-    .filter(r => r.tipo === 'entrada' && GRUPOS_RECEBIMENTO_.some(g => chaveGrupo_(g) === chaveGrupo_(r.grupoDRE)))
-    .reduce((s, r) => s + r.valor, 0);
+    .filter(r => ehRecebimento_(r.grupoDRE))
+    .reduce((s, r) => s + (r.tipo === 'entrada' ? r.valor : -r.valor), 0);
   const dif = totalBruto - receitaCaixa;
   document.getElementById('dreComparativo').innerHTML = `
     <table class="simple">
