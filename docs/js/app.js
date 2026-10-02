@@ -693,6 +693,66 @@ function chaveGrupo_(s) {
   return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase();
 }
 
+/*
+ * "Venda ja contada pelo pedido (ignorar na DRE)" NAO e lixo: no regime de
+ * CAIXA ela e a unica receita que existe.
+ *
+ * O "(ignorar na DRE)" fala da TABELA da DRE, que toma a receita de
+ * _Receita_Pedidos por competencia - se a conta a receber entrasse la
+ * tambem, a receita dobrava. Fora daquela tabela, ignorar este grupo e
+ * apagar o faturamento.
+ *
+ * Em 02/10/2026 a sessao Caixa achou o efeito no ponto de equilibrio, e a
+ * varredura mostrou SETE leitores de receita de caixa. Cinco procuravam o
+ * nome 'Receita Bruta', que nenhuma linha de caixa carrega desde o
+ * remapeamento - respondiam R$ 0 em todo mes, hoje e no historico. Dois ja
+ * tinham sido consertados a mao (ver GRUPOS_RECEBIMENTO_), cada um com sua
+ * copia do filtro. Estes helpers existem pra que o oitavo lugar nao precise
+ * lembrar da regra.
+ */
+function ehRecebimento_(grupo) {
+  return GRUPOS_RECEBIMENTO_.some(g => chaveGrupo_(g) === chaveGrupo_(grupo));
+}
+
+/*
+ * Agregado da DRE no periodo filtrado, pela MESMA base da tabela da DRE:
+ * competencia, conta em aberto incluida (competencia e o fato, nao o
+ * pagamento), cancelada fora, e receita/CMV/imposto vindos das abas externas.
+ *
+ * Existe porque o ponto de equilibrio remontava essa conta por fora, com
+ * outro conjunto de grupos, e chegava a um mcPct que nao era o da DRE. Duas
+ * margens de contribuicao na mesma tela e pior do que uma errada: nao ha como
+ * saber qual seguir.
+ *
+ * Devolve null quando as abas externas nao chegaram - a tela precisa dizer
+ * isso em vez de mostrar margem calculada sem receita nem CMV.
+ */
+function agregadoDre_(start, end) {
+  const fontes = (DRE_FONTES && (DRE_FONTES.receita || []).length
+                              && (DRE_FONTES.cmv || []).length) ? DRE_FONTES : null;
+  if (!fontes) return null;
+
+  const base = (FLUXO_ROWS || [])
+    .filter(r => !r.cancelada && r.dateComp >= start && r.dateComp <= end);
+  const pg = agregarPorGrupo_(base);
+
+  /* As fontes externas sao MENSAIS - receita pela data do pedido, CMV por
+     consumo - e nao ha como recortar meia competencia sem inventar rateio. E
+     o mesmo motivo do `forcarMes` em serieTemporal_. Periodo que pega pedaco
+     de mes leva o mes inteiro dessas tres linhas. */
+  const mesesChave = {};
+  mesesDoPeriodo_(start, end).forEach(m => { mesesChave[m.chave] = 1; });
+  const soma = (lista) => (lista || [])
+    .filter(r => mesesChave[r.mes])
+    .reduce((s, r) => s + Math.abs(Number(r.valor) || 0), 0);
+
+  pg['Receita Bruta'] = soma(fontes.receita);
+  pg['CMV'] = -soma(fontes.cmv);
+  pg[GRUPO_IMPOSTO] = -soma(fontes.imposto);
+  pg[GRUPO_PROVISAO] = -soma(fontes.provisao);
+  return pg;
+}
+
 function canonizarGrupo_(nome) {
   /* Montado na PRIMEIRA CHAMADA, nao no topo do arquivo: DRE_ESTRUTURA e
      DRE_FORA sao declaradas mais abaixo, e ler um `const` antes da declaracao
@@ -726,15 +786,28 @@ function agregarPorGrupo_(rows) {
 
 function totais_(rows) {
   const porGrupo = agregarPorGrupo_(rows);
-  const receitaBruta = porGrupo['Receita Bruta'] || 0;
+  /* Era `porGrupo['Receita Bruta']`, que devolvia 0 sempre - nenhuma linha de
+     caixa tem esse grupo desde o remapeamento. Com isso o cartao "Receita
+     bruta recebida" mostrava R$ 0,00, o PMR saia 0 dias, e as duas series do
+     grafico desenhavam receita no chao. Ver ehRecebimento_. */
+  const receitaBruta = Object.keys(porGrupo)
+    .filter(ehRecebimento_)
+    .reduce((s, g) => s + porGrupo[g], 0);
   /* "(sem mapear)" nao entra no resultado, pelo mesmo motivo dos "(ignorar na
      DRE)": a tabela da DRE ja o deixa fora (DRE_FORA), e com ele aqui o KPI e
      a tabela discordavam em R$ 1.065,90 sem nada na tela explicando a
      diferenca. Ele nao desaparece - fica listado em "Fora do resultado", com o
      motivo em vermelho, porque e pendencia de classificacao e nao decisao. */
+  /* EXCECAO pro grupo de recebimento: ele tem "(ignorar na DRE)" no nome e
+     ainda assim e a receita do caixa. Sem a excecao, "Resultado liquido"
+     somava despesa e nenhuma receita - um numero negativo enorme, que nao era
+     o resultado de nada. Os outros "(ignorar)" continuam fora, cada um por
+     motivo proprio: compra de estoque e giro, amortizacao e baixa de passivo,
+     desconto de vitrine nunca foi dinheiro. */
   let resultadoLiquido = 0;
   Object.keys(porGrupo).forEach(g => {
-    if (g.indexOf('ignorar') >= 0 || g === '(sem mapear)') return;
+    if (g === '(sem mapear)') return;
+    if (g.indexOf('ignorar') >= 0 && !ehRecebimento_(g)) return;
     resultadoLiquido += porGrupo[g];
   });
   return { porGrupo, receitaBruta, resultadoLiquido };
@@ -992,7 +1065,11 @@ function margemPorCanal_(rows) {
  *    filtrado, fosse ele de uma semana ou de um trimestre. Agora e
  *    proporcional aos dias selecionados.
  */
-function pontoEquilibrio_(rows) {
+/* Nao recebe mais `rows`: o que chegava ali era o recorte de CAIXA, e era
+   justamente lendo ele que a funcao respondia zero. Agora busca a propria base
+   por competencia em agregadoDre_. Param removido de proposito, pra ninguem
+   voltar a passar linha de caixa aqui achando que e a fonte. */
+function pontoEquilibrio_() {
   /* Custo fixo VIGENTE. O filtro antigo era `d.ativo !== false`, e o campo
      `ativo` nunca existiu no cadastro - entao ele nao filtrava nada e somava
      inclusive despesa ja encerrada. Agora usa `vigente`, que o backend calcula
@@ -1001,15 +1078,45 @@ function pontoEquilibrio_(rows) {
     .filter(d => d.vigente !== false)
     .reduce((s, d) => s + (Number(d.valorMensal || d.valor || 0)), 0);
 
-  const somaGrupo = (frag, tipo) => rows
-    .filter(r => r.tipo === tipo && String(r.grupoDRE).indexOf(frag) >= 0)
-    .reduce((s, r) => s + r.valor, 0);
+  /*
+   * MARGEM DE CONTRIBUICAO PELA BASE DA DRE (02/10/2026).
+   *
+   * O que estava aqui tinha QUATRO erros somados, e os quatro empurravam na
+   * mesma direcao - o cartao mostrava "-" e a tela culpava o custo fixo, que
+   * foi o que mandou a Karolyne procurar no lugar errado:
+   *
+   *   1. `somaGrupo('Receita Bruta')` sobre linhas de CAIXA = 0 sempre. Nenhuma
+   *      linha de caixa carrega esse grupo desde o remapeamento, entao
+   *      mcPct = 0 e faturamentoNecessario = 0, hoje e no historico.
+   *   2. subtraia 'Despesas Comerciais', que e grupo de custo FIXO na DRE
+   *      (ver CUSTO_FIXO_GRUPOS) - descontava dentro da margem o mesmo
+   *      dinheiro que depois voltava como fixasPeriodo. Contado duas vezes.
+   *      ESTE E O PIOR DOS SETE: erra nas duas pontas e ainda assim produz um
+   *      numero plausivel na tela. Nao aparece como "-", aparece como resposta.
+   *   3. NAO subtraia 'Despesas Variaveis de Venda' - taxa de canal e frete,
+   *      a maior despesa variavel que existe aqui (R$ 14.676 em agosto/2026).
+   *      Era justamente o que a margem de contribuicao precisa descontar.
+   *   4. `somaGrupo('Dedu')` pegava 'Deducoes da Receita' e deixava de fora o
+   *      'Imposto do Simples (competencia)', que vem da guia por fonte externa.
+   *
+   * Agora le o MESMO agregado da tabela da DRE e usa a MESMA lista de grupos
+   * (ATE_MC), entao a margem daqui e a margem de la por construcao. Nao ha
+   * mais como as duas telas discordarem.
+   *
+   * O custo fixo continua vindo do CADASTRO (_Despesas_Fixas) e nao do
+   * realizado: ponto de equilibrio e pergunta de frente ("quanto preciso
+   * vender"), e o aluguel do mes que vem nao depende de ter sido pago.
+   */
+  const pg = agregadoDre_(FILTER.start, FILTER.end);
+  const semFonte = !pg;
+  const g = (nome) => (pg && pg[nome]) || 0;
 
-  const receita = somaGrupo('Receita Bruta', 'entrada');
-  const deducoes = somaGrupo('Dedu', 'saida');
-  const cmv = somaGrupo('CMV', 'saida');
-  const comerciais = somaGrupo('Despesas Comerciais', 'saida');
-  const mc = receita - deducoes - cmv - comerciais;
+  const receita = g('Receita Bruta');
+  // os grupos de custo chegam NEGATIVOS do agregador; a tela mostra o modulo
+  const deducoes = -(g('Deduções da Receita') + g(GRUPO_IMPOSTO));
+  const cmv = -g('CMV');
+  const variaveis = -g('Despesas Variáveis de Venda');
+  const mc = receita - deducoes - cmv - variaveis;
   const mcPct = receita ? mc / receita : 0;
 
   /* Sem zerar a hora, 01/07 00:00 ate 31/07 23:59 da 30,99 dias, que
@@ -1039,7 +1146,8 @@ function pontoEquilibrio_(rows) {
 
   const faturamentoNecessario = mcPct > 0 ? fixasPeriodo / mcPct : 0;
   return {
-    fixasMes, fixasPeriodo, dias, meses, receita, deducoes, cmv, comerciais, mc, mcPct,
+    fixasMes, fixasPeriodo, dias, meses, receita, deducoes, cmv, variaveis, mc, mcPct,
+    semFonte,
     faturamentoNecessario,
     cobertura: faturamentoNecessario ? receita / faturamentoNecessario : 0
   };
@@ -1200,17 +1308,27 @@ function renderCruzamento_(rows) {
       .reduce((s, v) => s + v.total, 0);
 
     const doMesCaixa = rows.filter(r => chaveDe(r.date) === m.chave);
-    const recebi = doMesCaixa.filter(r => r.grupoDRE === 'Receita Bruta').reduce((s, r) => s + val(r), 0);
+    /* Era `r.grupoDRE === 'Receita Bruta'`, igualdade exata contra um nome que
+       nenhuma linha de caixa carrega desde o remapeamento - a coluna "Recebi"
+       respondia R$ 0,00 em todo mes. Pior aqui do que nos outros lugares: a
+       tabela existe justamente pra explicar por que vendi, recebi e resultado
+       sao diferentes, e com uma das colunas zerada ela ENSINAVA errado. */
+    const recebi = doMesCaixa.filter(r => ehRecebimento_(r.grupoDRE)).reduce((s, r) => s + val(r), 0);
 
     // caixa: tudo menos transferência entre contas (sai de um portador, entra em outro)
     const caixa = doMesCaixa
       .filter(r => !/transfer/i.test(r.categoria || ''))
       .reduce((s, r) => s + val(r), 0);
 
-    // resultado: competência, fora o não operacional e o que não tem grupo
+    /* resultado: competência, fora o não operacional e o que não tem grupo.
+       A exceção do recebimento é a mesma de totais_: o grupo tem "(ignorar na
+       DRE)" no nome e ainda assim é a receita. Sem ela, a coluna "Resultado"
+       somava despesa e nenhuma receita — todo mês dava prejuízo, inclusive os
+       que deram lucro. */
     const resultado = todasComp
       .filter(r => chaveDe(r.dateComp) === m.chave)
-      .filter(r => r.grupoDRE.indexOf('ignorar') < 0 && r.grupoDRE !== '(sem mapear)')
+      .filter(r => r.grupoDRE !== '(sem mapear)')
+      .filter(r => r.grupoDRE.indexOf('ignorar') < 0 || ehRecebimento_(r.grupoDRE))
       .reduce((s, r) => s + val(r), 0);
 
     return { ...m, vendi, recebi, resultado, caixa };
@@ -1272,6 +1390,21 @@ function renderCruzamento_(rows) {
   </div>`;
 }
 
+/*
+ * Por que o ponto de equilibrio nao tem numero. QUATRO causas, e antes de
+ * 02/10/2026 as quatro mostravam o mesmo texto: "Cadastre o custo fixo na aba
+ * Custo Fixo". A causa real era a receita zerada (ver pontoEquilibrio_), e a
+ * mensagem mandou a Karolyne conferir o cadastro de custo fixo, que estava
+ * certo - 23 linhas, todas vigentes. Mensagem de erro que acusa a coisa errada
+ * custa mais caro que mensagem nenhuma: ela gera trabalho no lugar errado.
+ */
+function motivoSemEquilibrio_(eq) {
+  if (eq.semFonte) return 'Receita e CMV vêm das abas _Receita_Pedidos e _CMV_Consumo — rode a carga do mês';
+  if (!eq.fixasMes) return 'Cadastre o custo fixo na aba Custo Fixo';
+  if (eq.receita <= 0) return 'Sem receita no período';
+  return 'Margem de contribuição zerada ou negativa — o preço não cobre o custo variável';
+}
+
 function renderKpis(el, rows) {
   const { receitaBruta, resultadoLiquido } = totais_(rows);
   const margem = receitaBruta ? resultadoLiquido / receitaBruta : 0;
@@ -1280,7 +1413,7 @@ function renderKpis(el, rows) {
   const anterior = totais_(rowsAnterior.filter(r => r.paga));
   const variacaoReceita = anterior.receitaBruta ? (receitaBruta / anterior.receitaBruta - 1) : null;
   const indPmr = pmr_(rows);
-  const eq = pontoEquilibrio_(rows);
+  const eq = pontoEquilibrio_();
   const canais = margemPorCanal_(rows);
   const fat = faturamento_(FILTER.start, FILTER.end);
   const fatAnterior = faturamento_(prevStart, prevEnd);
@@ -1332,7 +1465,7 @@ function renderKpis(el, rows) {
             + (eq.cobertura >= 1
               ? '. Passou em ' + fmtBRL(eq.receita - eq.faturamentoNecessario) + '.'
               : '. Faltam ' + fmtBRL(eq.faturamentoNecessario - eq.receita) + '.')
-          : 'Cadastre o custo fixo na aba Custo Fixo'}</div>
+          : motivoSemEquilibrio_(eq)}</div>
       </div>
     </div>
 
@@ -1340,12 +1473,12 @@ function renderKpis(el, rows) {
 
     <div class="panel">
       <h3>Ponto de equilíbrio</h3>
-      <div class="sub">Quanto precisa entrar pra pagar o custo fixo. A margem aqui já desconta o custo do produto, diferente da tabela por canal abaixo. <b>Só entra conta já baixada</b>, agrupada pelo mês do vencimento — conta em aberto fica de fora, e por isso o total daqui é menor que o das vendas na tabela abaixo, que conta tudo pela data da venda.</div>
+      <div class="sub">Quanto precisa entrar pra pagar o custo fixo. A margem aqui já desconta o custo do produto, diferente da tabela por canal abaixo. <b>Mesma base da aba DRE</b>: por competência, com receita e CMV vindos de <code>_Receita_Pedidos</code> e <code>_CMV_Consumo</code> — conta em aberto entra, porque competência é o fato e não o pagamento. Por isso a margem daqui é a mesma da DRE, e não a do Fluxo de Caixa.</div>
       <div style="overflow-x:auto;"><table class="simple">
-        <tr><td>Receita bruta recebida <small>contas baixadas, pelo mês do vencimento</small></td><td class="num val-in">${fmtBRL(eq.receita, 2)}</td></tr>
-        <tr><td>Deduções (impostos, taxas de canal)</td><td class="num val-out">−${fmtBRL(eq.deducoes, 2)}</td></tr>
+        <tr><td>Receita bruta <small>por competência, pela data do pedido</small></td><td class="num val-in">${fmtBRL(eq.receita, 2)}</td></tr>
+        <tr><td>Deduções (devolução, desconto) + imposto do Simples <small>pela guia, na competência</small></td><td class="num val-out">−${fmtBRL(eq.deducoes, 2)}</td></tr>
         <tr><td>CMV (tecido, aviamento, facção)</td><td class="num val-out">−${fmtBRL(eq.cmv, 2)}</td></tr>
-        <tr><td>Despesas comerciais (frete, marketing)</td><td class="num val-out">−${fmtBRL(eq.comerciais, 2)}</td></tr>
+        <tr><td>Despesas variáveis de venda (taxa de canal, frete, ads)</td><td class="num val-out">−${fmtBRL(eq.variaveis, 2)}</td></tr>
         <tr><th>Margem de contribuição <small>é isto que sobra pra pagar o custo fixo</small></th><th class="num val-in">${fmtBRL(eq.mc, 2)} · ${fmtPctSimples_(eq.mcPct)}</th></tr>
         <tr><td>Custo fixo no período <small>${fmtBRL(eq.fixasMes, 2)}/mês × ${eq.meses} mês(es) — cheio, não rateado por dia</small></td><td class="num val-out">−${fmtBRL(eq.fixasPeriodo, 2)}</td></tr>
         <tr><th>Resultado</th><th class="num ${eq.mc - eq.fixasPeriodo >= 0 ? 'val-in' : 'val-out'}">${fmtBRL(eq.mc - eq.fixasPeriodo, 2)}</th></tr>
