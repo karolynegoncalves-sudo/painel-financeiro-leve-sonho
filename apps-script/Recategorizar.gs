@@ -293,75 +293,6 @@ var GRUPO_CANONICO_ = {
   // receita outra vez - vai para "Venda já contada pelo pedido (ignorar na DRE)", que
   // existe so para isso. Em 12/09/2026 foram 247 contas, R$ 17.563,96, que sem
   // este mapeamento apareceriam como receita nova.
-  /* SEGURO DO IMOVEL: 6 parcelas que estavam em "Fretes e seguros".
-   *
-   * Categoria "Seguros" (14745745467, pai 14639321670 Despesas administrativas)
-   * criada em 24/09/2026 pela sessao "Contas a Pagar e Receber", que tambem
-   * moveu as 6 contas no Bling - entao painel e Bling nao divergem.
-   *
-   * POR QUE SAIU: seguro contra incendio do imovel nao varia com venda nenhuma.
-   * Estava em Despesas Variaveis de Venda so porque o nome da categoria
-   * 14639321667 tem a palavra "seguros". O dano nao era o valor (R$ 846,48 no
-   * ano), era o LUGAR: Despesas Variaveis alimenta a margem de contribuicao POR
-   * CANAL, que e a regua de decidir preco e canal. Custo fixo ali dentro faz
-   * todo canal parecer pior, e proporcionalmente ao faturamento - o contrario
-   * do que um seguro faz.
-   *
-   * ACHADO DE PASSAGEM, e maior que estas contas: eu li R$ 148,51 na parcela de
-   * julho e o GET no Bling devolveu R$ 141,08. As seis sao identicas. A planilha
-   * tem valor VELHO porque `atualizarContasEmAberto_` reconfere valor, situacao
-   * e vencimento SO de conta em situacao 1 - a de julho esta baixada (sit 2) e
-   * nunca foi reconferida. Ou seja: conta cujo valor muda no Bling DEPOIS de ser
-   * baixada guarda o valor antigo no painel para sempre. Sao R$ 7,43 aqui;
-   * ninguem sabe quanto no total. Mesma familia do congelamento de categoria. */
-  , '23531325615': 14745745467   // 2026-07  141,08  (planilha dizia 148,51)
-  , '23750121089': 14745745467   // 2026-08  141,08
-  , '23969868907': 14745745467   // 2026-09  141,08
-  , '24250682983': 14745745467   // 2026-10  141,08
-  , '24508098261': 14745745467   // 2026-11  141,08
-  , '24777468958': 14745745467   // 2026-12  141,08
-
-  /* FRETE DE COMPRA: as idas ao Bras que estavam em "Fretes e seguros".
-   *
-   * 14639321667 "Fretes e seguros" esta mapeada em Despesas Variaveis de Venda,
-   * que e o lugar do frete de SAIDA. Estas duas sao de ENTRADA - buscar tecido -
-   * e por isso vao para Estoque, onde voltam pelo CMV quando a peca vende.
-   *
-   * VARREDURA COMPLETA do contato Coco (16119049417) em 24/09/2026: 8 contas no
-   * total, todas baixadas. Seis em "Fretes e seguros" (R$ 1.427,00: R$ 887,00 em
-   * 2025 e R$ 540,00 em 2026) e duas em "Compra de insumos e materia prima"
-   * (R$ 525,50, ambas de 2025) - essas duas FICAM, porque ali ele comprou
-   * tecido, nao transporte, e Insumos ja e Estoque.
-   * A ida ao Bras custa R$ 60,00 TIPICAMENTE, nao invariavelmente: a conta mista
-   * tem uma ida a R$ 40,00. Nao inferir quantidade a partir de valor.
-   *
-   * A segunda foi apontada pela sessao "Contas a Pagar e Receber" em 24/09/2026,
-   * e ela corrige uma medicao minha: eu havia dito a Karolyne que so R$ 180,00
-   * de 2026 era frete de compra, medido no listarFretes. Estava certo na data e
-   * ficou errado no dia seguinte - o motoboy ("Coco", contato 16119049417) cobra
-   * R$ 60,00 por ida e acumula varias numa conta, e as contas dele caem nessa
-   * mesma categoria. Isso nao para de crescer.
-   *
-   * CUIDADO ao varrer por contato: nem tudo do Coco e frete. Quando a conta e do
-   * TECIDO comprado no Bras, ela cai em 14639321655 "Compra de insumos e materia
-   * prima" - que ja e Estoque e esta certa. Mover por nome de contato levaria
-   * compra de tecido junto. O que separa e a natureza da conta, nao quem recebeu. */
-  , '23421205283': 14745004500   // 2025-07  R$ 300,00  "5 Bras"
-  , '23783876158': 14745004500   // 2025-09  R$ 120,00  "2 bras"
-  , '24197341890': 14745004500   // 2025-10  R$ 240,00  "4 idas ao bras"
-  , '25267635131': 14745004500   // 2026-03  R$ 180,00  "Frete Bras 3 idas"
-  , '26879636213': 14745004500   // 2026-09  R$ 360,00  Coco, 6 idas discriminadas
-  /* A CONTA MISTA, e ela nao precisa ser dividida - foi o que me travou por um
-     dia e nao devia ter travado. Historico: "Bras 19/06 60,00 / Bras 23/06
-     40,00 / Bras 25/06 60,00 / Cetim 10,00 / Moletom 56,90" = R$ 160,00 de
-     frete + R$ 66,90 de material (mais R$ 0,10 de arredondamento).
-     Os DOIS pedacos vao para o MESMO GRUPO: frete de compra -> Estoque, e
-     compra de insumo -> Estoque. Categoria diferente, grupo igual. Entao mover
-     a conta inteira poe 100% dela no lugar certo da DRE, e a unica imprecisao e
-     de ROTULO: quem ler "Frete de compra" como medida de custo de transporte
-     esta lendo R$ 66,90 a mais. Dividir exigiria criar duas contas no Bling
-     para acertar um rotulo sem mudar nenhum numero do resultado. */
-  , '23194610781': 14745004500   // 2025-06  R$ 227,00  MISTA (160 frete + 66,90 material)
 
   /* FRETE DE COMPRA (criada em 16/09/2026, id do Bling 14745004500).
    *
@@ -558,7 +489,102 @@ var PENDENCIAS_ = {
   '24845641182': 14739931044, '24845762689': 14739931044, '24845769186': 14739931044, '24845780676': 14739931044,
   '24845785090': 14739931044, '24845797880': 14739931044, '24938959668': 14739931044, '24938964059': 14739931044,
   '24965150085': 14739931044, '24965305352': 14739931044, '24765285720': 14739931044, '24765524053': 14739931044,
-  '25628593327': 14739931044
+  '25628593327': 14739931044,
+
+  /* ------------------------------------------------------------------------
+     AS 24 LINHAS ABAIXO ESTAVAM EM GRUPO_CANONICO_ E NUNCA FORAM APLICADAS.
+     Movidas para ca em 27/09/2026 (achado da sessao "Queima de Estoque").
+
+     POR QUE ERA BUG E NAO ESTILO: as duas tabelas tem CHAVES DE COISAS
+     DIFERENTES. GRUPO_CANONICO_ e categoria -> nome de grupo, e o unico leitor
+     dela e fixarGrupoCanonico_(), que casa a chave contra a COLUNA A do
+     _DRE_Mapa - onde mora id de CATEGORIA. Estas 12 tem id de CONTA na chave,
+     entao nunca casavam: caiam no `faltando` e produziam o alarme "NAO ACHADAS
+     no mapa" todo mes, que e ruido que ensina a ignorar alarme.
+
+     E havia um risco pior que o ruido: se um id de conta coincidisse com um id
+     de categoria, fixarGrupoCanonico_ gravaria o NUMERO da categoria na coluna
+     `grupo` do mapa. Grupo numerico nao casa com grupo nenhum da DRE, e a
+     categoria inteira sumiria do resultado sem erro na tela.
+
+     O EFEITO PRATICO de nunca terem rodado: o seguro do imovel (R$ 846,48) e os
+     fretes do Bras (R$ 1.427,00) seguiam em Despesas Variaveis de Venda, que
+     alimenta a margem de contribuicao POR CANAL. Custo fixo e frete de entrada
+     ali dentro fazem todo canal parecer pior proporcionalmente ao faturamento.
+
+     Os dois mapeamentos categoria -> grupo que ESTES consertos dependem
+     ('14745745467' -> Despesas Administrativas e '14745004500' -> Estoque) ja
+     estao em GRUPO_CANONICO_ e ficaram la, que e o lugar deles.
+     ------------------------------------------------------------------------ */
+  /* SEGURO DO IMOVEL: 6 parcelas que estavam em "Fretes e seguros".
+   *
+   * Categoria "Seguros" (14745745467, pai 14639321670 Despesas administrativas)
+   * criada em 24/09/2026 pela sessao "Contas a Pagar e Receber", que tambem
+   * moveu as 6 contas no Bling - entao painel e Bling nao divergem.
+   *
+   * POR QUE SAIU: seguro contra incendio do imovel nao varia com venda nenhuma.
+   * Estava em Despesas Variaveis de Venda so porque o nome da categoria
+   * 14639321667 tem a palavra "seguros". O dano nao era o valor (R$ 846,48 no
+   * ano), era o LUGAR: Despesas Variaveis alimenta a margem de contribuicao POR
+   * CANAL, que e a regua de decidir preco e canal. Custo fixo ali dentro faz
+   * todo canal parecer pior, e proporcionalmente ao faturamento - o contrario
+   * do que um seguro faz.
+   *
+   * ACHADO DE PASSAGEM, e maior que estas contas: eu li R$ 148,51 na parcela de
+   * julho e o GET no Bling devolveu R$ 141,08. As seis sao identicas. A planilha
+   * tem valor VELHO porque `atualizarContasEmAberto_` reconfere valor, situacao
+   * e vencimento SO de conta em situacao 1 - a de julho esta baixada (sit 2) e
+   * nunca foi reconferida. Ou seja: conta cujo valor muda no Bling DEPOIS de ser
+   * baixada guarda o valor antigo no painel para sempre. Sao R$ 7,43 aqui;
+   * ninguem sabe quanto no total. Mesma familia do congelamento de categoria. */
+  '23531325615': 14745745467,   // 2026-07  141,08  (planilha dizia 148,51)
+  '23750121089': 14745745467,   // 2026-08  141,08
+  '23969868907': 14745745467,   // 2026-09  141,08
+  '24250682983': 14745745467,   // 2026-10  141,08
+  '24508098261': 14745745467,   // 2026-11  141,08
+  '24777468958': 14745745467,   // 2026-12  141,08
+
+  /* FRETE DE COMPRA: as idas ao Bras que estavam em "Fretes e seguros".
+   *
+   * 14639321667 "Fretes e seguros" esta mapeada em Despesas Variaveis de Venda,
+   * que e o lugar do frete de SAIDA. Estas duas sao de ENTRADA - buscar tecido -
+   * e por isso vao para Estoque, onde voltam pelo CMV quando a peca vende.
+   *
+   * VARREDURA COMPLETA do contato Coco (16119049417) em 24/09/2026: 8 contas no
+   * total, todas baixadas. Seis em "Fretes e seguros" (R$ 1.427,00: R$ 887,00 em
+   * 2025 e R$ 540,00 em 2026) e duas em "Compra de insumos e materia prima"
+   * (R$ 525,50, ambas de 2025) - essas duas FICAM, porque ali ele comprou
+   * tecido, nao transporte, e Insumos ja e Estoque.
+   * A ida ao Bras custa R$ 60,00 TIPICAMENTE, nao invariavelmente: a conta mista
+   * tem uma ida a R$ 40,00. Nao inferir quantidade a partir de valor.
+   *
+   * A segunda foi apontada pela sessao "Contas a Pagar e Receber" em 24/09/2026,
+   * e ela corrige uma medicao minha: eu havia dito a Karolyne que so R$ 180,00
+   * de 2026 era frete de compra, medido no listarFretes. Estava certo na data e
+   * ficou errado no dia seguinte - o motoboy ("Coco", contato 16119049417) cobra
+   * R$ 60,00 por ida e acumula varias numa conta, e as contas dele caem nessa
+   * mesma categoria. Isso nao para de crescer.
+   *
+   * CUIDADO ao varrer por contato: nem tudo do Coco e frete. Quando a conta e do
+   * TECIDO comprado no Bras, ela cai em 14639321655 "Compra de insumos e materia
+   * prima" - que ja e Estoque e esta certa. Mover por nome de contato levaria
+   * compra de tecido junto. O que separa e a natureza da conta, nao quem recebeu. */
+  '23421205283': 14745004500,   // 2025-07  R$ 300,00  "5 Bras"
+  '23783876158': 14745004500,   // 2025-09  R$ 120,00  "2 bras"
+  '24197341890': 14745004500,   // 2025-10  R$ 240,00  "4 idas ao bras"
+  '25267635131': 14745004500,   // 2026-03  R$ 180,00  "Frete Bras 3 idas"
+  '26879636213': 14745004500,   // 2026-09  R$ 360,00  Coco, 6 idas discriminadas
+  /* A CONTA MISTA, e ela nao precisa ser dividida - foi o que me travou por um
+     dia e nao devia ter travado. Historico: "Bras 19/06 60,00 / Bras 23/06
+     40,00 / Bras 25/06 60,00 / Cetim 10,00 / Moletom 56,90" = R$ 160,00 de
+     frete + R$ 66,90 de material (mais R$ 0,10 de arredondamento).
+     Os DOIS pedacos vao para o MESMO GRUPO: frete de compra -> Estoque, e
+     compra de insumo -> Estoque. Categoria diferente, grupo igual. Entao mover
+     a conta inteira poe 100% dela no lugar certo da DRE, e a unica imprecisao e
+     de ROTULO: quem ler "Frete de compra" como medida de custo de transporte
+     esta lendo R$ 66,90 a mais. Dividir exigiria criar duas contas no Bling
+     para acertar um rotulo sem mudar nenhum numero do resultado. */
+  '23194610781': 14745004500,   // 2025-06  R$ 227,00  MISTA (160 frete + 66,90 material)
 };
 
 /**
@@ -1381,3 +1407,542 @@ function resumoDeducoes(ano) {
   Logger.log(msg);
   return msg;
 }
+
+/* ============================================================================
+ * verTaxasCanais() - SO LEITURA da _Precificacao_Config.
+ *
+ * POR QUE EXISTE: em 27/09/2026 a tarefa era trocar a taxa da Shopee por
+ * 26,96% + R$ 0,00 (all-in 34,38%, decisao da Karol em 25/09). Mas o Setup.gs
+ * carrega TRES modelos diferentes de Shopee - 0.163+4.00 (linhas 395/1114/1182),
+ * 0.1429 + "Taxa de servico" 0.0998 (linha 1562) e, pior, aplicarFaixasShopee_
+ * (linha 1659, migracao de 25/08/2026) que SUBSTITUI a linha unica da Shopee por
+ * VARIAS linhas de faixa de preco.
+ *
+ * Entao nao se sabe, de fora, o que a aba tem hoje: uma linha ou faixas. Gravar
+ * 26,96% numa linha unica quando a aba esta em faixas apagaria o modelo por
+ * faixa; e gravar faixa por faixa quando ha uma linha so criaria linha morta.
+ * Ler custa um Run e evita as duas.
+ *
+ * Nao grava nada. Rode pelo seletor de funcao do editor e me mande o log.
+ * ========================================================================== */
+function verTaxasCanais() {
+  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_PRECIFICACAO_CONFIG);
+  if (!sh) { Logger.log('Aba ' + ABA_PRECIFICACAO_CONFIG + ' nao existe.'); return; }
+  var vals = sh.getDataRange().getValues();
+  if (!vals.length) { Logger.log('Aba vazia.'); return; }
+  var cab = vals[0].map(function (c) { return String(c).trim(); });
+  Logger.log('ABA: ' + ABA_PRECIFICACAO_CONFIG + ' | ' + (vals.length - 1) + ' linha(s) de dado');
+  Logger.log('COLUNAS: ' + cab.join(' | '));
+  Logger.log('');
+  var nShopee = 0;
+  for (var i = 1; i < vals.length; i++) {
+    var r = vals[i];
+    if (String(r[0]).trim() === '') continue;
+    var partes = [];
+    for (var c = 0; c < cab.length; c++) {
+      var v = r[c];
+      /* Mostra o valor CRU e o tipo. A escala e a duvida central: 0,163 e
+         16,3% mas 16,3 tambem pode ser 16,3% em pontos - e gravar na escala
+         errada erra a taxa por 100x sem dar erro. */
+      partes.push(cab[c] + '=' + (v === '' ? '(vazio)' : v) + '[' + (typeof v) + ']');
+    }
+    Logger.log((i + 1) + ': ' + partes.join('  '));
+    if (String(r[0]).indexOf('Shopee') === 0) nShopee++;
+  }
+  Logger.log('');
+  Logger.log('LINHAS DE SHOPEE: ' + nShopee + (nShopee > 1 ? '  -> a aba esta em FAIXAS DE PRECO' : '  -> linha unica'));
+}
+
+/* ============================================================================
+ * gravarTaxaShopee() - grava a linha da Shopee na _Precificacao_Config com a
+ * taxa MEDIDA em 28/09/2026.
+ *
+ * DE ONDE VEM CADA NUMERO (medicao de 3.417 pedidos liquidados, jan-ago/2026,
+ * get_escrow_detail um por um; ver [[base-taxas-custos-precificacao]]):
+ *
+ *   impostosPct   7,74%   aliquota de OUTUBRO informada pelo departamento
+ *                         fiscal (Karen) - nao e medicao nossa, e a guia.
+ *                         A config tinha 7,42%.
+ *   comissaoPct  16,71%   commission_fee do escrow, trimestre jun+jul+ago
+ *   extra1       11,41%   service_fee, mesmo trimestre
+ *   extra2        0,77%   ads 0,69 + frete da loja 0,08
+ *   taxaFixa      R$ 0    seller_order_processing_fee = 0 em 3.417 de 3.417
+ *   ------------------------------------------------------------------
+ *   plataforma   28,89%   all-in com imposto: 36,63%
+ *
+ * O ACELERA (5,06%) FICA FORA, DE PROPOSITO - e a correcao mais importante
+ * desta funcao. Ele JA esta classificado em "Resultado Financeiro" (categoria
+ * 14744322372 do Bling, decisao de 12/09/2026, ver a entrada dela em
+ * GRUPO_CANONICO_ neste mesmo arquivo). Antecipar recebivel e custo FINANCEIRO,
+ * nao taxa do canal: e escolha que se liga e desliga, e de fato so aparece em
+ * 57% dos pedidos.
+ *
+ * SE ELE ENTRASSE AQUI SERIA CONTADO DUAS VEZES: uma na margem de contribuicao
+ * (via esta taxa) e outra no resultado financeiro da DRE. A memoria
+ * espelho-shopee-v2-carteira registra o motivo com estas palavras: "Misturado,
+ * inflava a taxa que alimenta a Ficha de Preco". Eu quase repeti o erro que
+ * essa decisao ja tinha corrigido em agosto.
+ *
+ * Consequencia para quem for ler um numero de retencao: a retencao TOTAL do
+ * escrow e 33,95% e esta certa como retencao. Mas a taxa que vai na Ficha de
+ * Preco e 28,89%, porque os 5,06% de Acelera ja sao cobrados noutro lugar da
+ * DRE. Os dois numeros estao certos e medem coisas diferentes.
+ *
+ * POR QUE O TRIMESTRE E NAO O ANO: a taxa SUBIU de forma monotonica, 29,07% em
+ * marco para 34,50% em agosto - 5,43 pontos, ~0,5 ponto por mes. A media do ano
+ * (31,47%) descreve um passado que nao volta. Custou R$ 6.158 de jan a ago; o
+ * run-rate da alta e R$ 21.048/ano a volume constante.
+ *
+ * ENTAO ESTE NUMERO TEM PRAZO DE VALIDADE. Recalcular por TRIMESTRE e olhar a
+ * inclinacao, nao so o nivel. A serie mensal fica no comentario abaixo para a
+ * proxima pessoa comparar em vez de remedir do zero:
+ *   jan 31,14 · fev 29,96 · mar 29,07 · abr 30,55
+ *   mai 31,82 · jun 33,23 · jul 33,86 · ago 34,50
+ *
+ * O QUE ESTAVA GRAVADO E ERA ERRADO: comissao 14,29 + "Taxa de servico" 9,98 +
+ * "Frete e nao detalhado (medido)" 19,09 = 43,36% de plataforma. Os 19,09% eram
+ * erro de DENOMINADOR - a retencao foi medida sobre o preco cheio (ancora) em
+ * vez do que o cliente pagou, e o desconto da propria loja entrou como taxa da
+ * Shopee. Medir certo da residuo ZERO: (bruto - desconto) - taxa = escrow.
+ *
+ * NAO EXISTE LINHA DE FRETE na Shopee: a loja bancou R$ 75,62 em 3.417 pedidos
+ * (R$ 0,02/pedido). A Shopee subsidia 13,06% e o comprador paga 2,81%.
+ *
+ * So mexe na linha da Shopee. Mostra antes e depois e nao apaga coluna nenhuma.
+ * ========================================================================== */
+function gravarTaxaShopee() {
+  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_PRECIFICACAO_CONFIG);
+  if (!sh) { Logger.log('Aba ' + ABA_PRECIFICACAO_CONFIG + ' nao existe.'); return; }
+  var vals = sh.getDataRange().getValues();
+  var cab = vals[0].map(function (c) { return String(c).trim(); });
+  function col(nome) { var i = cab.indexOf(nome); if (i < 0) throw new Error('coluna ' + nome + ' nao existe'); return i; }
+  var iCanal = col('canal'), iImp = col('impostosPct'), iCom = col('comissaoPct'),
+      iE1n = col('extra1Nome'), iE1 = col('extra1Pct'), iE2n = col('extra2Nome'),
+      iE2 = col('extra2Pct'), iFix = col('taxaFixaReais'), iConf = col('confirmado');
+
+  var linha = -1;
+  for (var i = 1; i < vals.length; i++) {
+    if (String(vals[i][iCanal]).trim() === 'Shopee') {
+      /* Se houver MAIS de uma linha de Shopee, a aba esta no modelo por FAIXA
+         DE PRECO (aplicarFaixasShopee_ no Setup.gs) e gravar uma linha unica
+         apagaria o modelo mais detalhado. Para em vez de estragar. */
+      if (linha >= 0) { Logger.log('MAIS DE UMA linha de Shopee - a aba esta em FAIXAS. Nao vou gravar.'); return; }
+      linha = i;
+    }
+  }
+  if (linha < 0) { Logger.log('Nao achei a linha da Shopee.'); return; }
+
+  var antes = vals[linha].slice();
+  Logger.log('ANTES : imposto=' + antes[iImp] + ' comissao=' + antes[iCom] +
+             ' | ' + antes[iE1n] + '=' + antes[iE1] +
+             ' | ' + antes[iE2n] + '=' + antes[iE2] +
+             ' | taxaFixa=' + antes[iFix] + ' confirmado=' + antes[iConf]);
+
+  var r = linha + 1;
+  sh.getRange(r, iImp + 1).setValue(0.0774);
+  sh.getRange(r, iCom + 1).setValue(0.1671);
+  sh.getRange(r, iE1n + 1).setValue('Taxa de serviço');
+  sh.getRange(r, iE1 + 1).setValue(0.1141);
+  sh.getRange(r, iE2n + 1).setValue('Ads + frete (medido)');
+  sh.getRange(r, iE2 + 1).setValue(0.0077);
+  sh.getRange(r, iFix + 1).setValue(0);
+  sh.getRange(r, iConf + 1).setValue(true);
+  SpreadsheetApp.flush();
+
+  var d = sh.getRange(r, 1, 1, cab.length).getValues()[0];
+  Logger.log('DEPOIS: imposto=' + d[iImp] + ' comissao=' + d[iCom] +
+             ' | ' + d[iE1n] + '=' + d[iE1] +
+             ' | ' + d[iE2n] + '=' + d[iE2] +
+             ' | taxaFixa=' + d[iFix] + ' confirmado=' + d[iConf]);
+  var pl = Number(d[iCom]) + Number(d[iE1]) + Number(d[iE2]);
+  Logger.log('plataforma ' + (pl * 100).toFixed(2) + '%  |  all-in ' +
+             ((pl + Number(d[iImp])) * 100).toFixed(2) + '%');
+
+  /* O imposto e da EMPRESA, nao do canal: os 7,74% de outubro valem para todos.
+     Nao mexo nas outras linhas sem a Karolyne pedir, mas mostro para ela ver
+     que ficaram atras. */
+  Logger.log('');
+  Logger.log('impostosPct das OUTRAS linhas (a aliquota e da empresa, nao do canal):');
+  for (var j = 1; j < vals.length; j++) {
+    var c = String(vals[j][iCanal]).trim();
+    if (!c || c === 'Shopee' || c === '_GLOBAL') continue;
+    Logger.log('   ' + c + ': ' + vals[j][iImp] + (Number(vals[j][iImp]) !== 0.0774 ? '   <- atrasado' : ''));
+  }
+}
+
+/* ============================================================================
+ * receitaEDevolucaoPorMes() - SO LEITURA. Serve para responder UMA pergunta:
+ * o buraco entre a devolucao MEDIDA nas APIs e a linha "Devolucoes de vendas"
+ * da DRE e defasagem de data ou e buraco permanente?
+ *
+ * Medido nas APIs, jan-ago/2026 (sessao DRE, 28/09):
+ *   cancelamento  Shopee R$ 24.576,80 + ML R$ 11.052,11 = R$ 35.628,91
+ *   devolucao     Shopee R$ 14.867,27 + ML R$    290,10 = R$ 15.157,37
+ *   (no ML 191 dos 193 pedidos reembolsados sao CANCELAMENTO, nao devolucao)
+ *
+ * COMO A RESPOSTA SE LE:
+ *  - se o TOTAL do ano bate e so os meses individuais divergem -> e defasagem
+ *    de data (devolucao pedida no fim do mes sai no mes seguinte), e e benigna;
+ *  - se o total do ano fica CURTO -> ha devolucao que nunca chega ao Bling, e
+ *    ai importa saber se a receita correspondente chegou. Cancelamento do ML
+ *    nao chega ao Bling (o ML so importa pedido confirmado), e se a receita
+ *    tambem nao chegou, nao deduzir esta CERTO - as duas pernas faltam juntas.
+ *    Por isso esta funcao imprime RECEITA e DEVOLUCAO lado a lado: uma sozinha
+ *    nao responde.
+ *
+ * Descobre o layout da aba de receita pelo cabecalho em vez de assumir indice -
+ * o BlingSync enderessa por indice fixo e eu nao quero depender disso aqui.
+ * ========================================================================== */
+function receitaEDevolucaoPorMes() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var CAT_DEVOLUCAO = '14639321656';
+
+  // ---- 1) a aba de receita, com o cabecalho impresso para conferencia ----
+  var shR = ss.getSheetByName('_Receita_Pedidos');
+  if (!shR) { Logger.log('aba _Receita_Pedidos nao existe'); }
+  else {
+    var vr = shR.getDataRange().getValues();
+    var cr = vr[0].map(function (c) { return String(c).trim(); });
+    Logger.log('_Receita_Pedidos | ' + (vr.length - 1) + ' linhas');
+    Logger.log('  COLUNAS: ' + cr.join(' | '));
+    function ix(nomes) {
+      for (var k = 0; k < nomes.length; k++) { var i = cr.indexOf(nomes[k]); if (i >= 0) return i; }
+      return -1;
+    }
+    var iData = ix(['data', 'dataPedido', 'dataEmissao']);
+    var iVal = ix(['total', 'valor', 'receita', 'totalPedido']);
+    var iSit = ix(['situacao', 'situacaoId']);
+    var iLoja = ix(['loja', 'lojaNome', 'canal']);
+    Logger.log('  usando: data=' + cr[iData] + ' valor=' + cr[iVal] +
+               ' situacao=' + (iSit >= 0 ? cr[iSit] : '(nao tem)') +
+               ' loja=' + (iLoja >= 0 ? cr[iLoja] : '(nao tem)'));
+    var rec = {}, sits = {};
+    for (var i = 1; i < vr.length; i++) {
+      var d = vr[i][iData]; if (!d) continue;
+      var mes = Utilities.formatDate(new Date(d), 'America/Sao_Paulo', 'yyyy-MM');
+      if (mes < '2026-01' || mes > '2026-08') continue;
+      rec[mes] = (rec[mes] || 0) + (Number(vr[i][iVal]) || 0);
+      if (iSit >= 0) {
+        var s = String(vr[i][iSit]).trim();
+        sits[s] = (sits[s] || 0) + (Number(vr[i][iVal]) || 0);
+      }
+    }
+    Logger.log('  receita por mes:');
+    Object.keys(rec).sort().forEach(function (m) { Logger.log('    ' + m + '  R$ ' + rec[m].toFixed(2)); });
+    if (iSit >= 0) {
+      /* A pergunta que isto responde: a receita INCLUI pedido cancelado? Se
+         incluir, a deducao de devolucao/cancelamento e obrigatoria; se nao
+         incluir, deduzir seria contar o cancelamento duas vezes. */
+      Logger.log('  receita por SITUACAO (a de cancelado aparece aqui?):');
+      Object.keys(sits).sort().forEach(function (s) { Logger.log('    situacao "' + s + '"  R$ ' + sits[s].toFixed(2)); });
+    }
+  }
+
+  // ---- 2) a linha de devolucao, pelas duas datas ----
+  var shF = ss.getSheetByName(ABA_FLUXO_CAIXA);
+  if (!shF) { Logger.log('aba ' + ABA_FLUXO_CAIXA + ' nao existe'); return; }
+  var vf = shF.getDataRange().getValues();
+  var porData = {}, porComp = {}, qtd = {};
+  for (var j = 1; j < vf.length; j++) {
+    if (String(vf[j][3]).trim() !== CAT_DEVOLUCAO) continue;
+    if (String(vf[j][2]).trim() === '5') continue;   // 5 = cancelada, o painel ignora
+    var v = Math.abs(Number(vf[j][11]) || 0);
+    var dd = vf[j][0], dc = vf[j][14] || vf[j][0];
+    if (dd) { var m1 = Utilities.formatDate(new Date(dd), 'America/Sao_Paulo', 'yyyy-MM');
+              porData[m1] = (porData[m1] || 0) + v; qtd[m1] = (qtd[m1] || 0) + 1; }
+    if (dc) { var m2 = Utilities.formatDate(new Date(dc), 'America/Sao_Paulo', 'yyyy-MM');
+              porComp[m2] = (porComp[m2] || 0) + v; }
+  }
+  Logger.log('');
+  Logger.log('Devolucoes de vendas (categoria ' + CAT_DEVOLUCAO + '), 2026:');
+  Logger.log('mes       por DATA (caixa)   por COMPETENCIA   lanc.');
+  var tD = 0, tC = 0;
+  for (var m = 1; m <= 8; m++) {
+    var k = '2026-' + (m < 10 ? '0' + m : m);
+    var a = porData[k] || 0, b = porComp[k] || 0;
+    tD += a; tC += b;
+    Logger.log('  ' + k + '   ' + a.toFixed(2) + '   ' + b.toFixed(2) + '   ' + (qtd[k] || 0));
+  }
+  Logger.log('  TOTAL     ' + tD.toFixed(2) + '   ' + tC.toFixed(2));
+  Logger.log('');
+  Logger.log('MEDIDO nas APIs no mesmo periodo: devolucao R$ 15.157,37 | cancelamento R$ 35.628,91');
+  Logger.log('Se o total acima estiver perto de 15.157 -> defasagem de data, benigna.');
+  Logger.log('Se estiver muito abaixo -> conferir se a RECEITA tambem exclui esses pedidos.');
+}
+
+/* ============================================================================
+ * recategorizarJanAgo() - atalho para recategorizarPeriodo em jan-ago/2026.
+ *
+ * POR QUE EXISTE: a Karolyne reclassificou lancamentos de "Servicos de
+ * terceiros" para "Faccao" no Bling, de janeiro a agosto, e o editor do Apps
+ * Script nao deixa passar argumento no botao Run. Sem este atalho ela rodaria
+ * recategorizarPeriodo sem argumento, que cobre so 01/08 a 30/09 - e os meses
+ * de janeiro a julho ficariam com a categoria velha, calados.
+ *
+ * ROTAR ATE DAR "fila inteira". A funcao tem cursor e para no teto de tempo do
+ * Google; oito meses de conta e muita chamada ao Bling. O log termina em
+ * "parei por tempo, rode de novo pra continuar" ou "fila inteira".
+ *
+ * O QUE ELA MEXE NO RESULTADO, e nao e lucro novo: "Servicos de terceiros" esta
+ * em Despesas Administrativas, DENTRO do resultado. "Faccao" esta em
+ * "Estoque (ignorar na DRE)", FORA - o custo passa a entrar so pelo CMV, quando
+ * a peca vende. Entao o resultado do mes MELHORA, e o custo tem que reaparecer
+ * no CMV.
+ *
+ * CONFERIR DEPOIS com conferirCmvPorMes(). Se o resultado melhorou e o CMV NAO
+ * subiu, o custo desapareceu - e ai e o problema espelhado do que consertamos
+ * em 27/09, quando a faccao estava contada DUAS VEZES (Administrativas + CMV,
+ * R$ 24.593,20 em jan-abr).
+ *
+ * Nao disputa token com as sessoes de PowerShell: o Apps Script tem refresh
+ * token proprio em ScriptProperties (BLING_REFRESH_TOKEN), separado do
+ * bling_config.json.
+ * ========================================================================== */
+function recategorizarJanAgo() {
+  return recategorizarPeriodo('2026-01-01', '2026-08-31');
+}
+
+/* ============================================================================
+ * skusSemFicha() - SO LEITURA. Acha QUAIS produtos saem sem ficha tecnica.
+ *
+ * POR QUE IMPORTA: peca sem ficha entra no CMV com custo ZERO. Logo o CMV fica
+ * subestimado e o resultado da DRE sai OTIMISTA - em todo mes. Medido pelo
+ * conferirCmvPorMes de 29/09/2026:
+ *
+ *   mes    pecas  s/ficha    %     CMV que falta (ao custo medio do mes)
+ *   jan     1292      50    3,9%        700,37
+ *   fev     1243      60    4,8%      1.031,14
+ *   mar     1666     376   22,6%      6.735,36
+ *   abr     1390     150   10,8%      2.463,74
+ *   mai     1059     146   13,8%      2.295,26
+ *   jun      874      91   10,4%      1.408,74
+ *   jul     1320     346   26,2%      5.059,24
+ *   ago     1189      28    2,4%        383,16
+ *   set      621     267   43,0%      3.702,84
+ *   TOTAL                            23.779,85
+ *
+ * R$ 23.780 de custo que nao esta em DRE nenhuma. O prejuizo apurado de 2026 e
+ * R$ 11.576 - entao o real e mais perto de R$ 35 mil. E setembro, com 43%, e o
+ * mes corrente: esta piorando.
+ *
+ * ESTA FUNCAO NAO ASSUME O LAYOUT. Imprime o cabecalho e uma amostra crua,
+ * porque eu NAO ACHEI quem escreve a _CMV_Consumo - nem no repo do painel nem
+ * nos scripts do Drive. Pode ser colagem manual ou outro projeto. Sem saber
+ * quem escreve, chutar nome de coluna produziria uma lista errada com cara de
+ * certa. Primeiro ver, depois listar.
+ *
+ * Se a aba nao tiver coluna de SKU, o caminho e outro: cruzar as pecas vendidas
+ * contra _Precificacao_SKU e achar as que nao casam. Esta funcao tambem conta
+ * quantos SKU existem em _Precificacao_SKU, para dimensionar isso.
+ * ========================================================================== */
+function skusSemFicha() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName('_CMV_Consumo');
+  if (!sh || sh.getLastRow() < 2) { Logger.log('_CMV_Consumo vazia ou inexistente'); return; }
+
+  var nCol = sh.getLastColumn(), nLin = sh.getLastRow();
+  Logger.log('_CMV_Consumo: ' + (nLin - 1) + ' linhas x ' + nCol + ' colunas');
+  var cab = sh.getRange(1, 1, 1, nCol).getValues()[0];
+  Logger.log('CABECALHO: ' + cab.map(function (c, i) { return (i + 1) + '=' + String(c).trim(); }).join(' | '));
+  Logger.log('');
+
+  var d = sh.getRange(2, 1, nLin - 1, nCol).getValues();
+  Logger.log('AMOSTRA (3 primeiras linhas, valor cru e tipo):');
+  for (var i = 0; i < Math.min(3, d.length); i++) {
+    Logger.log('  linha ' + (i + 2) + ': ' + d[i].map(function (v) {
+      return (v === '' ? '(vazio)' : v) + '[' + (typeof v) + ']';
+    }).join('  '));
+  }
+  Logger.log('');
+
+  /* A coluna 5 e a que o conferirCmvPorMes soma como "sem ficha". Se a aba for
+     por SKU, cada linha com coluna5 > 0 nomeia um produto; se for agregada por
+     mes, vai ter ~9 linhas e nao ha SKU aqui. O numero de linhas ja diz qual e
+     o caso, e por isso imprimo antes de tentar listar. */
+  var semF = [];
+  for (var j = 0; j < d.length; j++) if ((Number(d[j][4]) || 0) > 0) semF.push(j + 2);
+  Logger.log('linhas com "sem ficha" > 0: ' + semF.length);
+  if (semF.length <= 40) {
+    for (var k = 0; k < semF.length; k++) {
+      var L = d[semF[k] - 2];
+      Logger.log('  L' + semF[k] + ': ' + L.map(function (v) { return v === '' ? '-' : v; }).join(' | '));
+    }
+  } else {
+    Logger.log('  (muitas - mostrando as 20 com mais pecas sem ficha)');
+    semF.sort(function (a, b) { return (Number(d[b-2][4])||0) - (Number(d[a-2][4])||0); });
+    for (var k2 = 0; k2 < 20; k2++) {
+      var L2 = d[semF[k2] - 2];
+      Logger.log('  L' + semF[k2] + ': ' + L2.map(function (v) { return v === '' ? '-' : v; }).join(' | '));
+    }
+  }
+
+  // dimensiona o outro caminho
+  var shS = ss.getSheetByName('_Precificacao_SKU');
+  if (shS && shS.getLastRow() > 1) {
+    Logger.log('');
+    Logger.log('_Precificacao_SKU tem ' + (shS.getLastRow() - 1) + ' linha(s) - e o catalogo de fichas.');
+    Logger.log('CABECALHO: ' + shS.getRange(1, 1, 1, shS.getLastColumn()).getValues()[0].join(' | '));
+  }
+}
+
+/* ============================================================================
+ * variaveisPorMes() - SO LEITURA. Por que agosto teve tanta Despesa Variavel
+ * de Venda, e se tem duplicidade.
+ *
+ * PERGUNTA DA KAROLYNE EM 04/10/2026: "em agosto tivemos muita despesa
+ * variavel em relacao aos outros meses, precisamos ver qual a diferenca pra
+ * ver se nao tem duplicidade tambem".
+ *
+ * POR QUE PELA PLANILHA E NAO PELA API DO BLING: a listagem de contas do Bling
+ * devolve categoria SEMPRE VAZIA (medido: 0 preenchidos em 584 registros) - so
+ * o detalhe conta por conta traz, e seriam milhares de chamadas. A planilha ja
+ * tem categoria e grupo em cada linha.
+ *
+ * O GRUPO TEM TRES CATEGORIAS, e elas misturam naturezas opostas:
+ *   14639321698 Taxas do marketplace   - comissao, servico, ads, e os ACERTOS
+ *   14639321695 Descontos concedidos   - comissao Shopee legada
+ *   14639321667 Fretes e seguros       - frete de VENDA e de COMPRA juntos
+ *
+ * O NUMERO CONTRA O QUAL ISTO TEM QUE BATER: medi taxa+frete+ads direto nas
+ * APIs da Shopee e do ML (jan-ago/2026). Agosto deu R$ 13.804,70 (taxa
+ * 10.787,76 + frete 2.836,86 + ads 180,08) e NAO foi o pico - abril deu
+ * R$ 16.853,11. Se a planilha mostrar agosto muito acima de 13.804, a
+ * diferenca nao veio do marketplace e nasceu aqui dentro.
+ *
+ * DUAS FONTES CONHECIDAS DE LANCAMENTO QUE NAO E TAXA DE PEDIDO, e as duas
+ * cairam nesta categoria de proposito no passado:
+ *   - ACERTO da carteira Shopee (o Acelera so aparece no extrato da carteira,
+ *     nunca no relatorio de vendas). Teve um de R$ 2.784,46 em 31/07/2026.
+ *   - FRETE DE COMPRA (Bras, Uber, coco) que mora em "Fretes e seguros".
+ * Por isso o relatorio separa por categoria E lista por descricao: acerto e
+ * frete de compra se denunciam pelo nome, nao pelo valor.
+ *
+ * COMO LER A DUPLICIDADE: agrupa por valor absoluto + descricao normalizada
+ * dentro do mes. Duas linhas com mesmo valor e mesma descricao sao CANDIDATAS,
+ * nao prova - taxa de dois pedidos do mesmo preco e legitima e comum. Por isso
+ * imprime data e situacao de cada uma: duplicata de verdade costuma ter a
+ * MESMA data; taxa de pedido diferente, nao. Ver tambem
+ * bling-retry-duplica-lancamento: retry em timeout grava 2x.
+ *
+ * Nao muda nada. Nenhuma escrita, nenhuma chamada ao Bling.
+ * ========================================================================== */
+function variaveisPorMes(mesFoco) {
+  var ALVO = 'despesas variaveis de venda';
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_FLUXO_CAIXA);
+  var ult = sheet.getLastRow();
+  if (ult < 2) { Logger.log('Fluxo de Caixa vazio'); return; }
+  var dados = sheet.getRange(2, 1, ult - 1, Math.max(sheet.getLastColumn(), 15)).getValues();
+
+  var porMes = {}, porMesCat = {}, linhasDoFoco = [];
+
+  dados.forEach(function (l) {
+    if (semAcento_(l[5]).indexOf(ALVO) < 0) return;
+    var sit = String(l[2] || '').trim();
+    if (sit === '5') return;                       // cancelada nao aconteceu
+    // COMPETENCIA, igual a DRE: coluna 14, com fallback no vencimento quando
+    // o sync nao gravou competencia.
+    var quando = l[14] || l[0];
+    var m = quando instanceof Date
+      ? Utilities.formatDate(quando, 'America/Sao_Paulo', 'yyyy-MM')
+      : String(quando || '').trim().slice(0, 7);
+    if (!m) return;
+
+    var v = Math.abs(Number(l[11]) || 0);
+    var cat = String(l[4] || '(sem categoria)');
+    porMes[m] = (porMes[m] || 0) + v;
+    porMesCat[m] = porMesCat[m] || {};
+    porMesCat[m][cat] = (porMesCat[m][cat] || 0) + v;
+
+    if (m === mesFoco) {
+      var dt = l[0] instanceof Date
+        ? Utilities.formatDate(l[0], 'America/Sao_Paulo', 'dd/MM')
+        : String(l[0] || '').slice(0, 10);
+      linhasDoFoco.push({
+        data: dt, v: v, cat: cat, sit: sit,
+        desc: [l[8], l[9], l[10]].filter(function (x) { return x; }).join(' ')
+      });
+    }
+  });
+
+  var meses = Object.keys(porMes).sort();
+  var cats = {};
+  meses.forEach(function (m) {
+    Object.keys(porMesCat[m]).forEach(function (c) { cats[c] = 1; });
+  });
+  var listaCats = Object.keys(cats).sort();
+
+  Logger.log('=== DESPESAS VARIAVEIS DE VENDA, por competencia ===');
+  Logger.log('mes      | ' + listaCats.map(function (c) { return c.slice(0, 20); }).join(' | ') + ' | TOTAL');
+  var soma = 0, pico = '', vpico = 0;
+  meses.forEach(function (m) {
+    var partes = listaCats.map(function (c) { return (porMesCat[m][c] || 0).toFixed(2); });
+    Logger.log(m + ' | ' + partes.join(' | ') + ' | ' + porMes[m].toFixed(2));
+    soma += porMes[m];
+    if (porMes[m] > vpico) { vpico = porMes[m]; pico = m; }
+  });
+  Logger.log('TOTAL do periodo: ' + soma.toFixed(2));
+  Logger.log('MES MAIS ALTO: ' + pico + ' com ' + vpico.toFixed(2));
+  Logger.log('');
+  Logger.log('REFERENCIA MEDIDA NAS APIs (Shopee + ML, taxa+frete+ads):');
+  Logger.log('  abr 16.853,11 / mai 13.060,44 / jun 10.235,19 / jul 13.013,15 / ago 13.804,70');
+  Logger.log('  Linha da planilha MUITO acima da referencia = sobra que nao e taxa de pedido.');
+
+  if (!mesFoco) {
+    Logger.log('');
+    Logger.log('Para abrir um mes: variaveisPorMes("' + pico + '")');
+    return;
+  }
+
+  // ------------------------------------------- o mes aberto, por descricao
+  Logger.log('');
+  Logger.log('=== ' + mesFoco + ' ABERTO (' + linhasDoFoco.length + ' lancamento(s)) ===');
+
+  var chave = {};
+  linhasDoFoco.forEach(function (x) {
+    var k = x.v.toFixed(2) + ' | ' + semAcento_(x.desc).slice(0, 60);
+    chave[k] = chave[k] || [];
+    chave[k].push(x);
+  });
+
+  var dups = Object.keys(chave).filter(function (k) { return chave[k].length > 1; });
+  dups.sort(function (a, b) {
+    return chave[b].length * chave[b][0].v - chave[a].length * chave[a][0].v;
+  });
+
+  Logger.log('');
+  Logger.log('--- CANDIDATAS A DUPLICIDADE (mesmo valor + mesma descricao) ---');
+  if (!dups.length) {
+    Logger.log('  nenhuma. Se o mes esta alto, nao e linha repetida - e valor grande.');
+  } else {
+    var suspeito = 0;
+    dups.forEach(function (k) {
+      var g = chave[k];
+      var datas = {};
+      g.forEach(function (x) { datas[x.data] = 1; });
+      var mesmaData = Object.keys(datas).length === 1;
+      if (mesmaData) { suspeito += g[0].v * (g.length - 1); }
+      Logger.log('  ' + (mesmaData ? '[MESMA DATA] ' : '[datas diferentes] ')
+                 + g.length + 'x ' + g[0].v.toFixed(2)
+                 + '  ' + g[0].cat.slice(0, 24)
+                 + '  ' + g[0].desc.slice(0, 50));
+      Logger.log('      datas: ' + Object.keys(datas).join(', ')
+                 + '   situacoes: ' + g.map(function (x) { return x.sit; }).join(','));
+    });
+    Logger.log('');
+    Logger.log('  SE todas as [MESMA DATA] forem duplicata, sobrariam ' + suspeito.toFixed(2));
+    Logger.log('  (nao apagar nada sem conferir no Bling: taxa de dois pedidos do');
+    Logger.log('   mesmo preco no mesmo dia e legitima.)');
+  }
+
+  // os maiores lancamentos do mes - e onde mora um acerto
+  linhasDoFoco.sort(function (a, b) { return b.v - a.v; });
+  Logger.log('');
+  Logger.log('--- OS 15 MAIORES DO MES (acerto e frete de compra aparecem aqui) ---');
+  linhasDoFoco.slice(0, 15).forEach(function (x) {
+    Logger.log('  ' + x.data + '  ' + x.v.toFixed(2) + '  ' + x.cat.slice(0, 22)
+               + '  ' + x.desc.slice(0, 55));
+  });
+}
+
+function variaveisResumo() { return variaveisPorMes(); }
+function variaveisAgosto() { return variaveisPorMes('2026-08'); }

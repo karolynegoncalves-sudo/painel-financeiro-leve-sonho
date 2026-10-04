@@ -235,11 +235,29 @@ function onOpen() {
        "Servicos de terceiros" antes de a categoria propria existir. */
     .addItem('Conferir CMV por mes (_CMV_Consumo)', 'conferirCmvPorMes')
     .addItem('Servicos de terceiros jan-abr (quem recebeu)', 'terceirosJanAbr')
+    /* RESINCRONIZAR A RECLASSIFICACAO FEITA NO BLING (04/10/2026).
+       Ela trocou "Servicos de terceiros" por "Faccao" no Bling, de janeiro a
+       agosto, e a planilha nao sabe: reclassificar no Bling NAO chega sozinho
+       na DRE (ver painel-categoria-congelada-fluxo-caixa). Enquanto nao rodar,
+       o custo esta contado DUAS VEZES - a conta em Despesas Administrativas
+       com a categoria velha, e a mesma peca outra vez no CMV pela ficha.
+       REPETIR ATE O LOG DIZER "fila inteira": a funcao tem cursor e para no
+       teto de tempo do Google. Entra pelo menu de proposito - pelo seletor de
+       funcao do editor ela rodaria sem argumento e cobriria so 01/08 a 30/09,
+       deixando janeiro a julho com a categoria velha, calados. */
+    .addItem('Resincronizar faccao jan-ago (repetir ate "fila inteira")',
+             'recategorizarJanAgo')
     /* Frete: a categoria guarda duas naturezas opostas - frete de COMPRA
        (estoque) e de VENDA (despesa variavel). Agrupado por quem recebeu, o
        nome separa: Uber/Lalamove/coco de um lado, Correios/transportadora do
        outro. */
     .addItem('Fretes e seguros 2026 (quem recebeu)', 'fretes2026')
+    /* A pergunta de 04/10/2026: agosto parece ter muita despesa variavel.
+       O resumo compara mes a mes contra a taxa que eu medi nas APIs da Shopee
+       e do ML; o "agosto aberto" lista as candidatas a duplicidade e os 15
+       maiores, que e onde mora acerto de carteira e frete de COMPRA. */
+    .addItem('Despesas variaveis mes a mes (comparar)', 'variaveisResumo')
+    .addItem('Despesas variaveis - abrir agosto/2026', 'variaveisAgosto')
     .addSeparator()
     .addItem('1) Configurar setup da planilha', 'setupWorkbook')
     .addItem('2) Importar produtos do NuvemShop (uma vez)', 'importarProdutosNuvemShop_')

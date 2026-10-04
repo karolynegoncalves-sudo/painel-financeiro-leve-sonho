@@ -392,6 +392,14 @@ function setupPrecificacaoConfig_(ss) {
     ['NuvemShop_Cartao', 0.0742, 0.0314, 'Antecipação 10x', 0.1018, '', 0, 0.50, '', true],
     ['NuvemShop_Pix', 0.0742, 0.0069, '', 0, '', 0, 0.25, '', true],
     ['MercadoLivre', 0.07, 0.181, 'Frete subsidiado', 0.056, '', 0, 0, '', true],
+    /* ATENCAO: a linha da Shopee abaixo (16,3% + R$ 4,00) e DERIVADA DE
+       PREMISSA, nao medida - os R$ 4,00 vieram da ficha FPV escrita a mao e
+       foram subtraidos de um all-in para "sobrar" os 16,3%. Em 27/09/2026 foi
+       medido que NAO HA cobranca fixa nesta conta (regressao em 2.628 pedidos
+       da b = -R$ 0,36, e seller_order_processing_fee = 0 em 481 de 481 pedidos
+       do escrow). Retencao real: 32,43% + 7,42% de imposto, taxa fixa ZERO.
+       Rodar este seed HOJE piora a aba. Ver o aviso grande na migracao de
+       24/08/2026 mais abaixo neste arquivo. */
     ['Shopee', 0.0742, 0.163, 'Acelera (antecipação)', 0.049, '', 0, 4.00, '', true],
     ['SHEIN', 0.07, 0.14, 'Antecipação', 0.038, '', 0, 0, '', false],
     ['TikTokShop', 0.07, 0.14, 'Antecipação', 0.038, '', 0, 0, '', false],
@@ -1527,19 +1535,74 @@ function _rodarCorrigirRendimentoMoletom() {
  * quatro marketplaces estavam errados - e todos na mesma direcao, fazendo
  * o painel achar que sobrava mais do que sobra:
  *
- *   Shopee          28,62% + R$ 4  ->  50,78%   (API da Shopee, 481 pedidos)
+ *   Shopee          28,62% + R$ 4  ->  50,78%   ERRADO, ver o aviso abaixo
  *   Mercado Livre   30,70%         ->  36,93%   (campo taxas do Bling, 232 pedidos)
  *   TikTok Shop     24,80%         ->  32,73%   (relatorio oficial, 24 liquidacoes)
  *   SHEIN           24,80%         ->  23,00%   (campo taxas do Bling, 10 pedidos)
  *
  * De onde vem cada numero:
  *
- *  - SHOPEE: escrow da propria Shopee. O cliente pagou R$ 34.728,87 e
- *    caiu na carteira R$ 19.671,82 - ela ficou com 43,36%. Comissao
- *    14,29%, taxa de servico 9,98%, frete nao coberto pelo comprador
- *    11,94% e 7,15% que a API nao detalha. A taxa fixa de R$ 4,00 vai a
- *    ZERO aqui de proposito: ela ja esta dentro do percentual medido, e
- *    manter as duas contaria duas vezes.
+ *  - SHOPEE: **ESTE NUMERO ESTA ERRADO. NAO USAR OS 50,78%.**
+ *    Medido de novo em 27/09/2026 no espelho v2 (199 pedidos liquidados de
+ *    ago+set, os que ja batem 0,00 com o Seller Centre) e o erro e de conta,
+ *    nao de amostra.
+ *
+ *    O QUE ESTAVA ESCRITO AQUI: "o cliente pagou R$ 34.728,87 e caiu na
+ *    carteira R$ 19.671,82 - ela ficou com 43,36%". Os R$ 34.728,87 sao o
+ *    BRUTO, nao o que o cliente pagou. A conta feita foi
+ *    (bruto - escrow) / bruto, que embute o DESCONTO DA PROPRIA LOJA como se
+ *    fosse taxa da Shopee. No espelho o desconto e 37,73% do bruto - e nao e
+ *    sujeira de cadastro, e a mecanica de ancora da casa: anuncio sobe ~40%
+ *    acima e vende por desconto, senao a Shopee entende promocao enganosa.
+ *
+ *    A CONTA CERTA, sobre o que o cliente pagou:
+ *      (bruto - desconto) - taxa = escrow
+ *      (21.739,65 - 8.201,74) - 4.390,75 = 9.147,16  = escrow, EXATO
+ *    Residuo: R$ 0,00. Entao os "7,15% que a API nao detalha" nao existem -
+ *    eram o resto de uma subtracao com o denominador errado. E os "11,94% de
+ *    frete nao coberto" foram derivados para fechar os 43,36%, nao medidos.
+ *
+ *    RETENCAO REAL: 32,43% de plataforma (ago 32,75%, set 32,02% - estavel)
+ *    + 7,42% de imposto = 39,85% all-in, taxa fixa R$ 0,00.
+ *
+ *    SUSPEITA NAS OUTRAS DUAS LINHAS "(medido)", pelo mesmo tipo de erro:
+ *    - NuvemShop_Cartao: MEDIDO em 28/09/2026 pela sessao Caixa, no relatorio
+ *      de recebiveis da Pagar.me, 120 transacoes de 2026 (R$ 61.673,46),
+ *      separado por metodo - porque a media de tudo junto NAO serve para a
+ *      linha do cartao:
+ *
+ *        Pix                     60 tx   R$ 18.232,26    0,81%
+ *        Cartao a vista (1x)     12 tx   R$  4.855,21    4,50%  (MDR 3,17 + antec 1,32)
+ *        Cartao parcelado (2x+)  48 tx   R$ 38.585,99   11,22%  (MDR 3,44 + antec 7,78)
+ *        --------------------------------------------------------------------
+ *        CARTAO ponderado                                10,47%   <- vai na linha
+ *        tudo junto, inclusive Pix                        7,61%   <- NAO usar
+ *
+ *      A config soma 3,14 de comissao + 10,18 de "Antecipacao 10x" = 13,32%.
+ *      Inflada em 2,85 pontos, nao muito mais - e vale dizer que a hipotese
+ *      inicial ("assumir 10x e absurdo") estava ERRADA: em VALOR o 10x e a
+ *      maioria, 60,9% do bruto do cartao, porque quem parcela em 10 e quem
+ *      compra caro. Parcelamento medio ponderado: 7,5x. O defeito real e mais
+ *      estreito: a config usa 10,18% de antecipacao quando o 10x real custa
+ *      12,69% cheio, e aplica isso tambem as 43 transacoes que nao sao 10x.
+ *
+ *      A LINHA DO PIX ESTA PRATICAMENTE CERTA: config 0,69%, medido 0,81%.
+ *
+ *      NAO FIXAR ESTE NUMERO. 17 transacoes carregam 61% da base, entao uma
+ *      venda grande em 10x num mes fraco move a ponderada varios pontos.
+ *      Recalcular por trimestre. Este e um erro de REPONDERACAO, diferente do
+ *      da Shopee acima, que e de conta e se conserta uma vez so.
+ *    - MERCADO LIVRE: esta tabela diz 36,93% e a base de memoria registra
+ *      30,70%. Divergencia nao resolvida.
+ *
+ *    PENDENTE: refazer as quatro medicoes em jan-ago inteiro pelo extrato
+ *    (8.376 lancamentos no espelho), nao pela tabela publicada. Enquanto isso
+ *    nao acontecer, tratar TODA linha "(medido)" desta migracao como suspeita.
+ *
+ *    POR QUE ISSO IMPORTA E NAO E COSMETICO: carga inflada levanta todo piso
+ *    de preco, reprova desconto que fecharia e empurra o ponto de equilibrio
+ *    para cima. Em 27/09/2026 eu subi o preco de um kit de saquinho em 33%
+ *    sem necessidade porque li os 50,78% daqui.
  *
  *  - MERCADO LIVRE: campo `taxas` do pedido no Bling. Comissao 13,08%
  *    (menor que os 18,1% da tabela) mas frete 16,84% (a tabela dizia
