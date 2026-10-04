@@ -1259,6 +1259,16 @@ function conferirCmvPorMes() {
 
 /** Atalhos sem argumento - o seletor do editor nao passa parametro. */
 function terceirosJanAbr() { return listarServicosTerceiros('2026-01', '2026-04'); }
+/* jan-ago: a janela da reclassificacao que ela fez no Bling. Em 04/10/2026 a
+   resincronizacao achou 93 contas AINDA em "Servicos de terceiros" - e o Bling
+   confirmou as 93, entao nao e atraso do painel: a troca nao chegou nelas.
+   Conferido no mesmo dia pela API: 14639321680 continua se chamando "Servicos
+   de terceiros" (pai 14639321670 -> Despesas Administrativas) e "Faccao / Mao
+   de obra terceirizada" e OUTRA categoria, id 14739931044, pai 14639321661 ->
+   grupo Estoque. As duas existem ao mesmo tempo, entao nao foi renomeacao.
+   Esta lista mostra QUEM recebeu, que e como se separa costureira de servico
+   de terceiro de verdade. */
+function terceirosJanAgo() { return listarServicosTerceiros('2026-01', '2026-08'); }
 function detalharAbril()    { return detalharMes('2026-04'); }
 function detalharJaneiro()  { return detalharMes('2026-01'); }
 function detalharAgosto()   { return detalharMes('2026-08'); }

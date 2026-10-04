@@ -235,6 +235,7 @@ function onOpen() {
        "Servicos de terceiros" antes de a categoria propria existir. */
     .addItem('Conferir CMV por mes (_CMV_Consumo)', 'conferirCmvPorMes')
     .addItem('Servicos de terceiros jan-abr (quem recebeu)', 'terceirosJanAbr')
+    .addItem('Servicos de terceiros jan-AGO (quem recebeu)', 'terceirosJanAgo')
     /* RESINCRONIZAR A RECLASSIFICACAO FEITA NO BLING (04/10/2026).
        Ela trocou "Servicos de terceiros" por "Faccao" no Bling, de janeiro a
        agosto, e a planilha nao sabe: reclassificar no Bling NAO chega sozinho
