@@ -245,8 +245,12 @@ function onOpen() {
        teto de tempo do Google. Entra pelo menu de proposito - pelo seletor de
        funcao do editor ela rodaria sem argumento e cobriria so 01/08 a 30/09,
        deixando janeiro a julho com a categoria velha, calados. */
+    /* Aponta para o wrapper, nao para a funcao: rodando pelo menu o
+       Logger.log nao aparece na tela, e ela clicou e achou que nada tinha
+       acontecido. O wrapper mostra o resultado num alert e diz se falta rodar
+       de novo. */
     .addItem('Resincronizar faccao jan-ago (repetir ate "fila inteira")',
-             'recategorizarJanAgo')
+             '_rodarRecategorizarJanAgo')
     /* Frete: a categoria guarda duas naturezas opostas - frete de COMPRA
        (estoque) e de VENDA (despesa variavel). Agrupado por quem recebeu, o
        nome separa: Uber/Lalamove/coco de um lado, Correios/transportadora do
@@ -258,6 +262,14 @@ function onOpen() {
        maiores, que e onde mora acerto de carteira e frete de COMPRA. */
     .addItem('Despesas variaveis mes a mes (comparar)', 'variaveisResumo')
     .addItem('Despesas variaveis - abrir agosto/2026', 'variaveisAgosto')
+    /* As tres abaixo existiam e nao estavam no menu, o que na pratica e o
+       mesmo que nao existirem: o seletor de funcao do editor reverte para a
+       escolha anterior entre execucoes e roda a funcao errada sem avisar.
+       skusSemFicha e a que importa agora - peca sem ficha entra no CMV com
+       custo ZERO, e e a lista dela que diz quais fichas montar. */
+    .addItem('Quais SKUs estao sem ficha tecnica', 'skusSemFicha')
+    .addItem('Receita e devolucao por mes', 'receitaEDevolucaoPorMes')
+    .addItem('Ver taxas por canal (_Precificacao_Config)', 'verTaxasCanais')
     .addSeparator()
     .addItem('1) Configurar setup da planilha', 'setupWorkbook')
     .addItem('2) Importar produtos do NuvemShop (uma vez)', 'importarProdutosNuvemShop_')

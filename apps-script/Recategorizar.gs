@@ -1702,6 +1702,36 @@ function recategorizarJanAgo() {
   return recategorizarPeriodo('2026-01-01', '2026-08-31');
 }
 
+/* ----------------------------------------------------------------------------
+ * _rodarRecategorizarJanAgo() - o que o MENU chama.
+ *
+ * POR QUE EXISTE (04/10/2026): ela clicou no menu e disse "rodei mas nao saiu
+ * log". O log saiu - em dois lugares que ela nao estava olhando. Rodando pelo
+ * MENU da planilha, `Logger.log` nao aparece em lugar nenhum da tela: so em
+ * Extensoes > Apps Script > Execucoes. E `logSync_` grava na aba _Sync_Log,
+ * que e oculta.
+ *
+ * Funcao que a pessoa dispara por botao tem que responder na tela do botao.
+ * Como `recategorizarPeriodo` ja DEVOLVE a mensagem pronta, basta mostra-la -
+ * e o alert ainda resolve a parte mais importante, que e saber se precisa
+ * rodar de novo: a mensagem termina em "parei por tempo, rode de novo pra
+ * continuar" ou em "fila inteira".
+ * -------------------------------------------------------------------------- */
+function _rodarRecategorizarJanAgo() {
+  var msg = recategorizarJanAgo();
+  var falta = String(msg).indexOf('fila inteira') < 0;
+  SpreadsheetApp.getUi().alert(
+    falta ? 'Ainda falta - rode de novo' : 'Terminou: fila inteira',
+    String(msg) + '\n\n'
+      + (falta
+         ? 'A fila nao acabou. Clique no mesmo item do menu outra vez, ate a\n'
+           + 'mensagem terminar em "fila inteira".'
+         : 'Pode seguir para "Conferir CMV por mes".')
+      + '\n\nEste mesmo texto fica gravado na aba _Sync_Log (oculta).',
+    SpreadsheetApp.getUi().ButtonSet.OK);
+  return msg;
+}
+
 /* ============================================================================
  * skusSemFicha() - SO LEITURA. Acha QUAIS produtos saem sem ficha tecnica.
  *
