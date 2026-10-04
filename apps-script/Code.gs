@@ -280,6 +280,10 @@ function onOpen() {
        lento abre com o aviso em vez de fechar com ele. */
     .addItem('FACCAO: trazer a troca feita no Bling',
              '_rodarResincronizarFaccao')
+    /* Diferenca sozinha nao da pra conferir contra nada. Esta mostra o valor
+       cheio de Despesas Administrativas antes e agora, mes a mes. */
+    .addItem('FACCAO: como estava e como ficou (mes a mes)',
+             'antesDepoisFaccao')
     .addItem('(lento - so se eu pedir) Conferir TODAS as contas jan-ago',
              '_rodarRecategorizarJanAgo')
     /* Frete: a categoria guarda duas naturezas opostas - frete de COMPRA

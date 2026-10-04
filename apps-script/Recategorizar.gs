@@ -1817,6 +1817,82 @@ function resincronizarFaccao() {
   return resincronizarCategoria('14639321680', '2026-01-01', '2026-08-31');
 }
 
+/* ============================================================================
+ * antesDepoisFaccao() - SO LEITURA. O valor CHEIO de cada mes, antes e depois
+ * de tirar a faccao de Despesas Administrativas.
+ *
+ * POR QUE EXISTE: eu mostrei a ela so a MELHORA por mes, e ela respondeu "me
+ * mostra como tava antes e como tem que ser agora, nao so a melhora". Ela esta
+ * certa: diferenca sozinha nao da pra conferir contra nada. Pra saber se o
+ * conserto pegou, a pessoa precisa do numero que estava na tela antes e do que
+ * tem que estar agora - a diferenca ela ve sozinha.
+ *
+ * O "antes" e RECONSTRUIDO, e tem que ser: as 61 contas ja foram trocadas no
+ * Bling em 04/10/2026, entao o valor antigo nao existe mais em lugar nenhum
+ * pra ser lido. A reconstrucao e exata porque a lista das 61 e exata - cada
+ * uma foi lida, trocada e RELIDA, com o antes e o depois gravados em
+ * faccao_troca_log_20261004_195106.csv.
+ *
+ * DEZ/2025 APARECE de proposito. R$ 4.091,00 das 61 tem competencia em
+ * dezembro, fora da janela jan-ago - quem procurar os R$ 30.289,80 dentro de
+ * jan-ago vai achar R$ 26.198,80 e pensar que faltou. Nao faltou: o trabalho
+ * foi feito em dezembro.
+ *
+ * O CMV entra na mesma tabela porque a pergunta "o custo sumiu?" so se
+ * responde vendo os dois lado a lado. E a resposta e que o CMV NAO muda: ele
+ * vem da ficha, que ja cobrava costura - era essa a duplicidade.
+ * ========================================================================== */
+var FACCAO_MOVIDA_ = {    // competencia -> valor das 61 contas, medido
+  '2025-12': 4091.00, '2026-01': 4434.00, '2026-02': 5108.00,
+  '2026-03': 6243.70, '2026-04': 3789.50, '2026-05': 2693.00,
+  '2026-06': 1300.60, '2026-07': 2630.00
+};
+
+function antesDepoisFaccao() {
+  var ADM = 'despesas administrativas';
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_FLUXO_CAIXA);
+  var ult = sheet.getLastRow();
+  if (ult < 2) { Logger.log('Fluxo de Caixa vazio'); return; }
+  var dados = sheet.getRange(2, 1, ult - 1, Math.max(sheet.getLastColumn(), 15)).getValues();
+
+  var adm = {};
+  dados.forEach(function (l) {
+    if (semAcento_(l[5]).indexOf(ADM) < 0) return;
+    if (String(l[2] || '').trim() === '5') return;          // cancelada
+    var q = l[14] || l[0];
+    var m = q instanceof Date
+      ? Utilities.formatDate(q, 'America/Sao_Paulo', 'yyyy-MM')
+      : String(q || '').trim().slice(0, 7);
+    if (!m) return;
+    adm[m] = (adm[m] || 0) + Math.abs(Number(l[11]) || 0);
+  });
+
+  var meses = Object.keys(FACCAO_MOVIDA_).sort();
+  Logger.log('=== DESPESAS ADMINISTRATIVAS: antes e depois da troca da faccao ===');
+  Logger.log('(por competencia. "antes" = o que estava na tela antes de 04/10/2026)');
+  Logger.log('');
+  Logger.log('mes       |        ANTES |      AGORA |   saiu (faccao)');
+  var tA = 0, tD = 0, tF = 0;
+  meses.forEach(function (m) {
+    var agora = adm[m] || 0;
+    var saiu = FACCAO_MOVIDA_[m] || 0;
+    var antes = agora + saiu;
+    tA += antes; tD += agora; tF += saiu;
+    Logger.log(m + '   | ' + antes.toFixed(2) + ' | ' + agora.toFixed(2) + ' | -' + saiu.toFixed(2));
+  });
+  Logger.log('TOTAL     | ' + tA.toFixed(2) + ' | ' + tD.toFixed(2) + ' | -' + tF.toFixed(2));
+  Logger.log('');
+  Logger.log('So jan-ago (a janela da DRE): saiu ' + (tF - (FACCAO_MOVIDA_['2025-12'] || 0)).toFixed(2));
+  Logger.log('O resto, ' + (FACCAO_MOVIDA_['2025-12'] || 0).toFixed(2) + ', tem competencia em dez/2025.');
+  Logger.log('');
+  Logger.log('CONFERENCIA: a coluna AGORA tem que bater com a linha "Despesas');
+  Logger.log('Administrativas" da aba DRE do painel, mes a mes.');
+  Logger.log('');
+  Logger.log('O CMV NAO MUDA e isso esta certo - ele vem da ficha, que ja cobra');
+  Logger.log('costura (robe 5,00 / pijama 11,00). Era essa a duplicidade: o');
+  Logger.log('mesmo dinheiro na ficha e na despesa. CMV mexendo seria o erro.');
+}
+
 function _rodarResincronizarFaccao() {
   var msg = resincronizarFaccao();
   var falta = String(msg).indexOf('fila inteira') < 0;
