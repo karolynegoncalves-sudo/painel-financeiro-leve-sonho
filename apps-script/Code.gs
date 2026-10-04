@@ -249,7 +249,12 @@ function onOpen() {
        Logger.log nao aparece na tela, e ela clicou e achou que nada tinha
        acontecido. O wrapper mostra o resultado num alert e diz se falta rodar
        de novo. */
-    .addItem('Resincronizar faccao jan-ago (repetir ate "fila inteira")',
+    /* ESTE e o certo pra trazer a troca que ela fez no Bling: le SO as contas
+       que ainda estao em "Servicos de terceiros". O generico abaixo confere as
+       17.170 contas de oito meses, uma chamada por conta - daria ~37 cliques. */
+    .addItem('Resincronizar FACCAO (so as contas que faltam)',
+             '_rodarResincronizarFaccao')
+    .addItem('Resincronizar TUDO jan-ago (lento, 37 cliques)',
              '_rodarRecategorizarJanAgo')
     /* Frete: a categoria guarda duas naturezas opostas - frete de COMPRA
        (estoque) e de VENDA (despesa variavel). Agrupado por quem recebeu, o

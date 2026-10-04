@@ -1702,6 +1702,126 @@ function recategorizarJanAgo() {
   return recategorizarPeriodo('2026-01-01', '2026-08-31');
 }
 
+/* ============================================================================
+ * resincronizarCategoria() - re-le no Bling SO as contas que ainda estao numa
+ * categoria especifica. Nasceu de um erro meu, em 04/10/2026.
+ *
+ * O QUE DEU ERRADO: mandei ela rodar recategorizarJanAgo pra trazer a troca de
+ * "Servicos de terceiros" -> "Faccao". A primeira rodada voltou
+ * "462/17170 conferidas, 0 categoria(s) corrigida(s)". 17.170 e TODA conta de
+ * oito meses - a funcao confere a planilha inteira, uma chamada ao Bling por
+ * conta, 300ms cada. Daria ~37 cliques e quase 3 horas pra achar algumas
+ * dezenas de linhas. A ferramenta certa pra "sincronizar tudo" e a errada pra
+ * "ela mudou UMA categoria".
+ *
+ * A LICAO, que vale alem daqui: quando se sabe O QUE mudou, varrer tudo nao e
+ * conservador, e desperdicio - e desperdicio que faz a pessoa desistir no meio
+ * e ficar com meia correcao aplicada, que e pior que nenhuma.
+ *
+ * O FILTRO: a conta que precisa ser relida e exatamente a que ainda esta com a
+ * categoria VELHA na planilha. Se o Bling ja diz outra coisa, grava; se diz a
+ * mesma, nao mexe. Quem ja foi corrigido nao volta pra fila.
+ *
+ * RATEIO continua de fora: conta com varias linhas tem a categoria do rateio e
+ * nao a da conta - sobrescrever apagaria a divisao. Elas sao contadas e
+ * avisadas, pra sumirem como numero e nao em silencio.
+ * ========================================================================== */
+function resincronizarCategoria(idCategoria, desde, ate) {
+  idCategoria = String(idCategoria || '').trim();
+  desde = desde || '2026-01-01';
+  ate = ate || '2026-08-31';
+  if (!idCategoria) return 'informe a categoria';
+
+  INICIO_SYNC_.t = Date.now();
+  const token = getBlingAccessToken_();
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_FLUXO_CAIXA);
+  const ultimaLinha = sheet.getLastRow();
+  if (ultimaLinha < 2) return 'planilha vazia';
+
+  const COL_DATA = 1, COL_CATEGORIA_ID = 4, COL_ORIGEM_ID = 13, COL_ORIGEM_TIPO = 14;
+  const dados = sheet.getRange(2, 1, ultimaLinha - 1, 14).getValues();
+
+  // Agrupa por CONTA, igual ao recategorizarPeriodo - mas so entra na fila a
+  // conta que tem pelo menos uma linha na categoria procurada.
+  const porConta = {}, alvo = {};
+  dados.forEach(function (linha, i) {
+    const d = linha[COL_DATA - 1];
+    const txt = d instanceof Date
+      ? Utilities.formatDate(d, 'America/Sao_Paulo', 'yyyy-MM-dd')
+      : String(d || '').trim().slice(0, 10);
+    if (txt < desde || txt > ate) return;
+    const chave = linha[COL_ORIGEM_TIPO - 1] + ':' + linha[COL_ORIGEM_ID - 1];
+    if (!porConta[chave]) porConta[chave] = [];
+    porConta[chave].push(i + 2);
+    if (String(linha[COL_CATEGORIA_ID - 1] || '').trim() === idCategoria) alvo[chave] = 1;
+  });
+
+  const fila = Object.keys(alvo).sort();
+  let corrigidas = 0, vistas = 0, pulouRateio = 0, parou = false, semId = 0;
+  const destinos = {};
+
+  for (let k = 0; k < fila.length; k++) {
+    if (tempoGasto_() > TETO_TOTAL_MS) { parou = true; break; }
+    const chave = fila[k];
+    const linhas = porConta[chave];
+    if (linhas.length > 1) { pulouRateio++; continue; }
+    const partes = chave.split(':');
+    if (!partes[0] || !partes[1]) { semId++; continue; }
+    vistas++;
+    const r = fetchBlingStatus_('https://api.bling.com.br/Api/v3/contas/' + partes[0] + '/' + partes[1], token);
+    Utilities.sleep(300);
+    const d = r.json && r.json.data;
+    if (!d || !d.categoria || !d.categoria.id) continue;
+    const nova = String(d.categoria.id);
+    const cel = sheet.getRange(linhas[0], COL_CATEGORIA_ID);
+    if (String(cel.getValue()).trim() === nova) continue;
+    cel.setValue(nova);
+    corrigidas++;
+    destinos[nova] = (destinos[nova] || 0) + 1;
+  }
+
+  if (corrigidas) {
+    reaplicarMapaDre_(sheet, getMapaCategoria_());
+    recalcularDre_();
+  }
+
+  let msg = 'categoria ' + idCategoria + ' em ' + desde + '..' + ate + ': '
+    + fila.length + ' conta(s) na fila, ' + vistas + ' lida(s) no Bling, '
+    + corrigidas + ' corrigida(s)';
+  if (pulouRateio) msg += ', ' + pulouRateio + ' com rateio (pulei - a categoria da linha e a do rateio)';
+  if (semId) msg += ', ' + semId + ' sem id de origem';
+  const ids = Object.keys(destinos);
+  if (ids.length) {
+    msg += '. Foram para: ' + ids.map(function (x) { return x + ' (' + destinos[x] + ')'; }).join(', ');
+  }
+  msg += parou ? ' - PAREI POR TEMPO, rode de novo' : ' - fila inteira';
+  logSync_('resincronizarCategoria', 'ok', msg);
+  Logger.log(msg);
+  return msg;
+}
+
+/* "Servicos de terceiros" = 14639321680. E a categoria que ela esvaziou no
+   Bling passando tudo para Faccao; por isso a fila sao exatamente as contas
+   que ainda estao nela aqui. */
+function resincronizarFaccao() {
+  return resincronizarCategoria('14639321680', '2026-01-01', '2026-08-31');
+}
+
+function _rodarResincronizarFaccao() {
+  var msg = resincronizarFaccao();
+  var falta = String(msg).indexOf('fila inteira') < 0;
+  SpreadsheetApp.getUi().alert(
+    falta ? 'Parei por tempo - rode de novo' : 'Terminou',
+    String(msg) + '\n\n'
+      + (falta
+         ? 'Clique no mesmo item outra vez.'
+         : 'Agora rode "Conferir CMV por mes". O resultado de jan-ago vai\n'
+           + 'MELHORAR (a faccao sai de Despesas Administrativas), e o CMV tem\n'
+           + 'que SUBIR junto. Se o CMV nao subir, o custo sumiu - me avise.'),
+    SpreadsheetApp.getUi().ButtonSet.OK);
+  return msg;
+}
+
 /* ----------------------------------------------------------------------------
  * _rodarRecategorizarJanAgo() - o que o MENU chama.
  *
