@@ -23,7 +23,7 @@
  * TROQUE ESTA STRING quando mexer no que o doGet devolve. O painel mostra o
  * valor e avisa em vermelho quando nao encontra a marca que ele espera.
  */
-const BACKEND_VERSAO_ = '2026-09-15 periodo-sob-demanda';
+const BACKEND_VERSAO_ = '2026-10-04 cronometro-por-fase';
 
 function doGet(e) {
   const params = (e && e.parameter) || {};
@@ -47,7 +47,16 @@ function doGet(e) {
       /* `de` e `ate` vem da tela: ela pede o periodo do filtro mais o
          anterior comparavel. Ausentes, cai na janela de 13 meses - cliente
          antigo continua funcionando. */
+      /* Os tres pesos do pacote, cronometrados separados (04/10/2026). Vem no
+         proprio carimbo porque o Logger nao chega a quem abre o painel, e
+         porque medir pelo relogio do navegador mistura servidor com rede. */
+      const tA_ = Date.now();
       const r = getFluxoCaixaRows_(params.de, params.ate);
+      const msFluxo_ = Date.now() - tA_;
+      const tB_ = Date.now();
+      const despesasFixas_ = getDespesasFixasList_();
+      const msDespesas_ = Date.now() - tB_;
+      const tC_ = Date.now();
       // dreFontes vem no mesmo pacote pelo mesmo motivo de despesasFixas: cada
       // chamada ao Web App custa ~2s de pedágio fixo, e a DRE precisa das duas
       // logo na primeira tela.
@@ -58,18 +67,30 @@ function doGet(e) {
          nao existe no projeto implantado, ou existe e o valor nao chega.
          Carimbo que so diz o proprio nome nao responde isso. */
       const fontes = getDreFontesV2_();
+      const msFontes_ = Date.now() - tC_;
+      const mf_ = (r.ms || {});
       const diag = BACKEND_VERSAO_ + ' fontesV2'
         + ' | das=' + (typeof DAS_POR_COMPETENCIA_ === 'undefined' ? 'UNDEF'
                        : Object.keys(DAS_POR_COMPETENCIA_).length)
         + ' imp=' + (fontes.imposto || []).length
         + ' prov=' + (fontes.provisao || []).length
         + ' rec=' + (fontes.receita || []).length;
-      return jsonResponse_({ email: email, rows: r, despesas: getDespesasFixasList_(),
+      /* `despesas` chamava getDespesasFixasList_() DE NOVO aqui, depois de ela
+         ja ter rodado acima - duas leituras da mesma aba por requisicao, o
+         tempo todo. Apareceu so porque eu precisei da variavel pra cronometrar:
+         medir achou o desperdicio antes de medir qualquer coisa. */
+      return jsonResponse_({ email: email, rows: r, despesas: despesasFixas_,
                              dreFontes: fontes,
                              backend: diag + ' | janela=' + r.desde
                                       + ' ' + (r.rows || []).length + '/' + r.total
                                       + ' (li ' + (r.lidas || 0) + ', '
-                                      + (r.cols || 0) + ' cols)',
+                                      + (r.cols || 0) + ' cols)'
+                                      + ' | ms: fluxo=' + msFluxo_
+                                      + ' (f1=' + (mf_.f1 || 0)
+                                      + ' f2=' + (mf_.f2 || 0)
+                                      + ' proj=' + (mf_.proj || 0) + ')'
+                                      + ' despesas=' + msDespesas_
+                                      + ' fontes=' + msFontes_,
                              janelaDesde: r.desde, linhasNaAba: r.total });
     }
     case 'dre': return jsonResponse_({ email: email, rows: getDreRows_(e && e.parameter && e.parameter.regime) });
@@ -447,6 +468,15 @@ function getFluxoCaixaRows_(pedidoDe, pedidoAte) {
     return String(v || '').trim().slice(0, 10);
   };
 
+  /* CRONOMETRO POR FASE (04/10/2026). A sessao Jobs mediu o fluxoCaixa em
+     32 s duas vezes seguidas, com a rota leve em 3-4 s - ou seja, ~28 s sao
+     trabalho aqui dentro, e nao o Apps Script acordando. Antes de otimizar
+     qualquer coisa, saber ONDE: a fase 1 le 3 colunas inteiras da aba, a
+     fase 2 le a faixa primeira..ultima com 15 colunas, e a projecao percorre
+     o bloco em JavaScript. Os tres sao candidatos e so a medicao separa. */
+  const T_ = { f1: 0, f2: 0, proj: 0 };
+  let tm_ = Date.now();
+
   // FASE 1: as duas colunas de data e a situacao, para achar a faixa de linhas
   const datas = sheet.getRange(2, 1, n, 1).getValues();
   const comps = sheet.getRange(2, iComp + 1, n, 1).getValues();
@@ -463,11 +493,15 @@ function getFluxoCaixaRows_(pedidoDe, pedidoAte) {
     dentro[i] = noPeriodo || emAberto;
     if (dentro[i]) { if (primeira < 0) primeira = i; ultimaLinha = i; }
   }
-  if (primeira < 0) return { headers: headers, rows: [], desde: desde, total: n };
+  T_.f1 = Date.now() - tm_;
+  if (primeira < 0) return { headers: headers, rows: [], desde: desde, total: n, ms: T_ };
 
   // FASE 2: as 15 colunas, so da faixa que interessa
+  tm_ = Date.now();
   const bloco = sheet.getRange(primeira + 2, 1, ultimaLinha - primeira + 1, COLS_FLUXO_)
                      .getValues();
+  T_.f2 = Date.now() - tm_;
+  tm_ = Date.now();
 
   /* SO AS COLUNAS QUE A TELA USA, e o motivo veio de uma medicao.
    *
@@ -518,8 +552,9 @@ function getFluxoCaixaRows_(pedidoDe, pedidoAte) {
     if (iCompOut >= 0) linha[iCompOut] = ymd(linha[iCompOut]);
     rows.push(linha);
   }
+  T_.proj = Date.now() - tm_;
   return { headers: hOut, rows: rows, desde: desde, ate: ate, total: n,
-           lidas: bloco.length, cols: hOut.length };
+           lidas: bloco.length, cols: hOut.length, ms: T_ };
 }
 
 /**
