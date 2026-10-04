@@ -29,7 +29,24 @@ const dayLabel = (d) => String(d.getDate()).padStart(2, '0') + '/' + String(d.ge
 
 const PALETTE = { entrada: '#2F6F4E', saida: '#C0392B', sage: '#557571', sageSoft: '#9DB8B5', terracotta: '#D49A89', terracottaDark: '#B97A67', peach: '#F7D1BA', brick: '#AB3B32', amber: '#B9791F', ink: '#2B2926', muted: '#C9BFB4' };
 
-let idToken = sessionStorage.getItem('id_token') || null;
+/* O token mora no localStorage, e nao mais no sessionStorage (04/10/2026).
+   sessionStorage e por ABA: cada aba nova e cada reabertura do app no tablet
+   pedia login de novo, mesmo com um token valido guardado na aba do lado. O
+   token continua durando 1 hora (isso e do Google); o que muda e que ele
+   passa a valer para todas as abas enquanto vive. Ler os dois lugares
+   aproveita quem ja estava logado antes desta versao. */
+const TOKEN_KEY_ = 'id_token';
+function lerTokenGuardado_() {
+  try { return localStorage.getItem(TOKEN_KEY_) || sessionStorage.getItem(TOKEN_KEY_) || null; }
+  catch (e) { return null; }
+}
+function guardarToken_(t) {
+  try { localStorage.setItem(TOKEN_KEY_, t); } catch (e) { /* sem storage: so esta aba */ }
+}
+function esquecerToken_() {
+  try { localStorage.removeItem(TOKEN_KEY_); sessionStorage.removeItem(TOKEN_KEY_); } catch (e) { /* idem */ }
+}
+let idToken = lerTokenGuardado_();
 const cache = {};
 let FLUXO_ROWS = null; // [{date, tipo, grupoDRE, categoria, contato, banco, valor}]
 /* Receita pela data do pedido e CMV por consumo, mensais, vindos das abas
@@ -110,16 +127,66 @@ function initGoogle() {
     document.getElementById('loginGate').innerHTML = '<p>Configuração pendente: preencha js/config.js com GOOGLE_CLIENT_ID e APPS_SCRIPT_URL.</p>';
     return;
   }
-  google.accounts.id.initialize({ client_id: CFG.GOOGLE_CLIENT_ID, callback: handleCredentialResponse });
+  /* auto_select: quem ja entrou neste aparelho e esta logado no Google
+     recebe token novo sem clicar. E o que deixa a renovacao de hora em hora
+     invisivel (ver renovarToken_). O botao continua como plano B. */
+  google.accounts.id.initialize({
+    client_id: CFG.GOOGLE_CLIENT_ID,
+    callback: handleCredentialResponse,
+    auto_select: true,
+    use_fedcm_for_prompt: true
+  });
   google.accounts.id.renderButton(document.getElementById('googleBtn'), { theme: 'outline', size: 'large' });
 
-  if (idToken) verificarESeguir_(idToken);
+  if (idToken && !tokenVencendo_(idToken)) verificarESeguir_(idToken);
+  else google.accounts.id.prompt();
 }
+
+/* Painel ja aberto? Entao o token novo e so renovacao: troca o token e
+   destrava quem estava esperando, sem refazer o login nem o setupTabs (que
+   religaria os ouvintes das abas em dobro). */
+let PAINEL_ABERTO = false;
+let ESPERANDO_TOKEN = [];
 
 async function handleCredentialResponse(response) {
   idToken = response.credential;
-  sessionStorage.setItem('id_token', idToken);
+  guardarToken_(idToken);
+  const esperando = ESPERANDO_TOKEN; ESPERANDO_TOKEN = [];
+  esperando.forEach(fn => fn(idToken));
+  if (PAINEL_ABERTO) return;
   await verificarESeguir_(idToken);
+}
+
+/* Vence em menos de 2 minutos conta como vencido: a chamada ao Web App leva
+   segundos e o token nao pode morrer no meio do caminho. */
+function tokenVencendo_(token) {
+  const p = decodeJwt_(token);
+  if (!p || !p.exp) return false;
+  return (p.exp * 1000) - Date.now() < 2 * 60 * 1000;
+}
+
+/* Pede token novo ao Google sem tela (auto_select). Se o Google nao
+   conseguir sozinho em 8s - outra conta, cookie bloqueado, saiu do Google -
+   devolve null e quem chamou segue com o fluxo de sessao expirada. Varias
+   chamadas ao mesmo tempo esperam o MESMO pedido. */
+function renovarToken_() {
+  return new Promise(resolve => {
+    const primeiro = ESPERANDO_TOKEN.length === 0;
+    const timer = setTimeout(() => {
+      ESPERANDO_TOKEN = ESPERANDO_TOKEN.filter(f => f !== fim);
+      resolve(null);
+    }, 8000);
+    const fim = (t) => { clearTimeout(timer); resolve(t); };
+    ESPERANDO_TOKEN.push(fim);
+    if (primeiro && window.google && google.accounts) google.accounts.id.prompt();
+  });
+}
+
+async function tokenFresco_(token) {
+  if (token && !tokenVencendo_(token)) return token;
+  /* Quem chamou pode ter guardado um token velho; o global pode ja ser novo. */
+  if (idToken && !tokenVencendo_(idToken)) return idToken;
+  return (await renovarToken_()) || token;
 }
 
 async function verificarESeguir_(token) {
@@ -129,8 +196,11 @@ async function verificarESeguir_(token) {
     const [s0, e0] = computeRange_(FILTER.preset);
     FILTER.start = s0; FILTER.end = e0;
   }
+  /* Token guardado de outra visita pode estar vencido: tenta renovar
+     sozinho antes de mandar a pessoa clicar no botao. */
+  if (tokenVencendo_(token)) token = await tokenFresco_(token);
   if (tokenExpirado_(token)) {
-    sessionStorage.removeItem('id_token');
+    esquecerToken_();
     idToken = null;
     document.getElementById('loginGate').style.display = 'block';
     const g = document.getElementById('loginGate');
@@ -151,7 +221,7 @@ async function verificarESeguir_(token) {
   if (data && data.error === 'not_authorized') {
     document.getElementById('deniedEmail').textContent = decodeJwtEmail(token);
     document.getElementById('loginDenied').style.display = 'block';
-    sessionStorage.removeItem('id_token');
+    esquecerToken_();
     idToken = null;
     return;
   }
@@ -182,12 +252,15 @@ async function verificarESeguir_(token) {
   document.getElementById('userEmail').textContent = data.email || '';
   document.getElementById('loginGate').style.display = 'none';
   document.getElementById('app').style.display = 'block';
+  PAINEL_ABERTO = true;
   setupTabs();
   safeRenderTab('hoje');
 }
 
 document.getElementById('btnSair').addEventListener('click', () => {
-  sessionStorage.removeItem('id_token');
+  esquecerToken_();
+  /* Sem isto o auto_select entra de novo sozinho no reload e o Sair nao sai. */
+  if (window.google && google.accounts) google.accounts.id.disableAutoSelect();
   location.reload();
 });
 
@@ -207,6 +280,9 @@ async function apiFetch_(view, token, tentativas, extra) {
   const qsExtra = Object.keys(extra || {})
     .map(function (k) { return '&' + k + '=' + encodeURIComponent(extra[k]); }).join('');
   let ultimoErro = '';
+  /* Token de 1 hora vencendo no meio do uso: renova antes de chamar, senao o
+     servidor responde not_authorized e a aba mostra erro sem motivo. */
+  token = await tokenFresco_(token);
   for (let t = 1; t <= max; t++) {
     try {
       /* `_` quebra cache. O /exec do Apps Script redireciona para
@@ -256,6 +332,7 @@ async function carregarEmLotes_(views, token, porLote) {
  * Apps Script Web App não responde direito.
  */
 async function apiPost_(action, payload) {
+  idToken = await tokenFresco_(idToken);
   try {
     const resp = await fetch(CFG.APPS_SCRIPT_URL, {
       method: 'POST',
@@ -4542,8 +4619,9 @@ async function recarregarConfiguracoes_() {
 }
 
 /* ---------------- Boot ---------------- */
-window.addEventListener('load', () => {
-  const check = setInterval(() => {
-    if (window.google && google.accounts) { clearInterval(check); initGoogle(); }
-  }, 100);
-});
+/* Comeca ja, e nao no 'load': o load espera Chart.js e as fontes, e o botao
+   de login aparecia so em 2,2s (medido em 04/10/2026). O app.js roda no fim
+   do body, entao o DOM ja existe aqui. */
+const checkGoogle_ = setInterval(() => {
+  if (window.google && google.accounts) { clearInterval(checkGoogle_); initGoogle(); }
+}, 50);
