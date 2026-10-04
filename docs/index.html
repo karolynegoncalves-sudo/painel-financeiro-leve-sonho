@@ -10,7 +10,19 @@
      nao quebra se a pasta mudar de lugar. Pra trocar, basta mudar o
      emoji dentro do <text> - e so ele. -->
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌙</text></svg>">
-<link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌙</text></svg>">
+
+<!-- INSTALAR COMO APP (04/10/2026). O emoji inline acima continua servindo a
+     aba do navegador; ele NAO serve para instalar, porque data URI nao vale
+     como icone de manifest. Dai os PNG em icons/.
+     O apple-touch-icon passou a apontar para o PNG: no iPad o data URI as
+     vezes vira icone cinza na tela de inicio. -->
+<link rel="manifest" href="manifest.json?v=20261004a">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<meta name="theme-color" content="#3E5754">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Painel LS">
 <!-- ?v= NOS NOSSOS ARQUIVOS: o GitHub Pages serve css e js com cache longo, e
      sem a query o navegador segura a versao antiga por horas. Em 14/09/2026 a
      Karolyne viu a DRE errada DEPOIS de eu corrigir e publicar - a correcao
@@ -26,7 +38,7 @@
      chegar na tela em vez de ficar no servidor. -->
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
-<link rel="stylesheet" href="css/style.css?v=20261002b">
+<link rel="stylesheet" href="css/style.css?v=20261004a">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.5.0/chart.umd.min.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
@@ -90,8 +102,8 @@
   </footer>
 </div>
 
-<script src="js/config.js?v=20261002b"></script>
-<script src="js/precificacao-calc.js?v=20261002b"></script>
+<script src="js/config.js?v=20261004a"></script>
+<script src="js/precificacao-calc.js?v=20261004a"></script>
 <!-- GAVETA DE DETALHE DA DRE. Fica fora das abas de proposito: a aba e
      redesenhada inteira a cada render, e a gaveta sobreviveria a isso com o
      conteudo de outro periodo. Aqui ela e independente e o render a fecha. -->
@@ -105,6 +117,19 @@
 <div id="gvFundo" hidden style="display:none"></div>
 <aside id="gaveta" hidden style="display:none" aria-live="polite"></aside>
 
-<script src="js/app.js?v=20261002b"></script>
+<script src="js/app.js?v=20261004a"></script>
+
+<!-- REGISTRO DO SERVICE WORKER. Depois do app.js de proposito: se o registro
+     falhar (navegador antigo, http sem s, modo anonimo), o painel tem de abrir
+     igual. Por isso o try/catch mudo - nao instalar como app e um incomodo;
+     derrubar a tela do dinheiro por causa disso nao. -->
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function () {
+    navigator.serviceWorker.register('sw.js?v=20261004a')
+      .catch(function () { /* sem app instalavel; o painel segue normal */ });
+  });
+}
+</script>
 </body>
 </html>
