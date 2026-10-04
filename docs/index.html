@@ -16,7 +16,7 @@
      como icone de manifest. Dai os PNG em icons/.
      O apple-touch-icon passou a apontar para o PNG: no iPad o data URI as
      vezes vira icone cinza na tela de inicio. -->
-<link rel="manifest" href="manifest.json?v=20261004b">
+<link rel="manifest" href="manifest.json?v=20261004c">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <meta name="theme-color" content="#3E5754">
 <meta name="mobile-web-app-capable" content="yes">
@@ -31,15 +31,15 @@
      AO PUBLICAR MUDANCA EM js/ OU css/, TROQUE O VALOR DE v EM TODAS as linhas
      abaixo. Se esquecer, a mudanca existe e ninguem ve. -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,500&family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <!-- O ?v= protege js e css, mas nao protege ESTE arquivo: index.html vindo do
      cache aponta para a versao antiga de tudo. Estas metas pedem revalidacao a
      cada carga - o custo e um request condicional, e o beneficio e a correcao
      chegar na tela em vez de ficar no servidor. -->
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
-<link rel="stylesheet" href="css/style.css?v=20261004b">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.5.0/chart.umd.min.js"></script>
+<link rel="stylesheet" href="css/style.css?v=20261004c">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.5.0/chart.umd.min.js" defer></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
@@ -102,8 +102,8 @@
   </footer>
 </div>
 
-<script src="js/config.js?v=20261004b"></script>
-<script src="js/precificacao-calc.js?v=20261004b"></script>
+<script src="js/config.js?v=20261004c"></script>
+<script src="js/precificacao-calc.js?v=20261004c"></script>
 <!-- GAVETA DE DETALHE DA DRE. Fica fora das abas de proposito: a aba e
      redesenhada inteira a cada render, e a gaveta sobreviveria a isso com o
      conteudo de outro periodo. Aqui ela e independente e o render a fecha. -->
@@ -117,7 +117,7 @@
 <div id="gvFundo" hidden style="display:none"></div>
 <aside id="gaveta" hidden style="display:none" aria-live="polite"></aside>
 
-<script src="js/app.js?v=20261004b"></script>
+<script src="js/app.js?v=20261004c"></script>
 
 <!-- REGISTRO DO SERVICE WORKER. Depois do app.js de proposito: se o registro
      falhar (navegador antigo, http sem s, modo anonimo), o painel tem de abrir
@@ -126,7 +126,7 @@
 <script>
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', function () {
-    navigator.serviceWorker.register('sw.js?v=20261004b')
+    navigator.serviceWorker.register('sw.js?v=20261004c')
       .catch(function () { /* sem app instalavel; o painel segue normal */ });
   });
 }

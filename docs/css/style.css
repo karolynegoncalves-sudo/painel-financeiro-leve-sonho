@@ -184,6 +184,23 @@ table.simple tr:last-child td{border-bottom:none;}
 }
 
 .state-msg{background:var(--panel); border-radius:14px; box-shadow:var(--shadow); padding:40px; text-align:center; color:var(--muted); font-size:14px;}
+/* Esqueleto de carregamento (04/10/2026). So para "Carregando": estado real
+   como "Sem lancamentos nesse periodo" continua state-msg puro, porque vazio
+   e diferente de esperando. As barras imitam linhas de tabela e o brilho
+   corre por cima - a tela parece viva durante os ~20s do Apps Script em vez
+   de travada. O texto fica em cima, pequeno, para dizer O QUE esta vindo. */
+.state-msg.carregando{text-align:left; padding:22px 24px 26px; font-size:12px;
+  font-family:'IBM Plex Mono',monospace; text-transform:uppercase; letter-spacing:.06em;}
+.state-msg.carregando::after{content:''; display:block; height:132px; margin-top:14px; border-radius:8px;
+  background:
+    linear-gradient(90deg, transparent 0, rgba(255,255,255,.55) 50%, transparent 100%) no-repeat,
+    repeating-linear-gradient(to bottom, var(--line) 0 14px, transparent 14px 30px);
+  background-size:40% 100%, 100% 100%;
+  background-position:-60% 0, 0 0;
+  animation:esqueleto-brilho 1.3s ease-in-out infinite;
+  opacity:.75;}
+@keyframes esqueleto-brilho{to{background-position:160% 0, 0 0;}}
+@media (prefers-reduced-motion: reduce){.state-msg.carregando::after{animation:none;}}
 
 /* ---------- Login gate ---------- */
 #loginGate{

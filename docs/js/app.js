@@ -451,7 +451,7 @@ async function garantirFluxo_(el) {
   if (chave === FLUXO_CHAVE) return;
   if (FLUXO_CACHE[chave]) { FLUXO_ROWS = FLUXO_CACHE[chave]; FLUXO_CHAVE = chave; return; }
 
-  if (el) el.innerHTML = '<div class="state-msg">Carregando o período…</div>';
+  if (el) el.innerHTML = '<div class="state-msg carregando">Carregando o período…</div>';
   const d = await apiFetch_('fluxoCaixa', idToken, 3, { de: de, ate: ate });
   if (!d || d.error || d._falhou) {
     /* Nao apaga o que ja estava na tela: periodo que falhou com FLUXO_ROWS
@@ -621,7 +621,7 @@ function rerenderAbaAtiva_() {
    pedidos, entao segurar isso ate ser necessario tira 7,6s do login. */
 async function garantirVendas_(el) {
   if (VENDAS_ROWS !== null) return;
-  if (el) el.innerHTML = '<div class="state-msg">Carregando vendas...</div>';
+  if (el) el.innerHTML = '<div class="state-msg carregando">Carregando vendas...</div>';
   const dv = await apiFetch_('vendas', idToken);
   VENDAS_ROWS = (dv && !dv.error) ? parseVendasRows_(dv) : [];
 }
@@ -639,18 +639,34 @@ async function garantirVendas_(el) {
  */
 async function garantirConfigCanais_(el) {
   if (precifConfig !== null) return;
-  if (el) el.innerHTML = '<div class="state-msg">Carregando taxas por canal...</div>';
+  if (el) el.innerHTML = '<div class="state-msg carregando">Carregando taxas por canal...</div>';
   const dc = await apiFetch_('precificacaoConfig', idToken);
   precifConfig = (dc && dc.config) || { despesasFixasPctPadrao: 0, canais: {} };
+}
+
+/* O Chart.js carrega com defer (nao trava a primeira tela). Os new Chart so
+   rodam dentro dos render*, bem depois do login, mas numa rede muito lenta
+   o CDN poderia chegar depois da primeira aba: sem esta espera seria
+   "Chart is not defined" e um grafico em branco que parece dado que nao
+   veio. Espera ate 15s; passado isso desenha o resto e o erro aparece. */
+function chartPronto_() {
+  if (window.Chart) return Promise.resolve();
+  return new Promise(resolve => {
+    const t0 = Date.now();
+    const iv = setInterval(() => {
+      if (window.Chart || Date.now() - t0 > 15000) { clearInterval(iv); resolve(); }
+    }, 50);
+  });
 }
 
 async function safeRenderTab(view) {
   const el = document.getElementById('tab-' + view);
   const gen = ++RENDER_GEN;   // ver RENDER_GEN
+  await chartPronto_();
   try {
     if (view === 'precificacao') {
       if (precifProdutos === null || precifConfig === null) {
-        el.innerHTML = '<div class="state-msg">Carregando...</div>';
+        el.innerHTML = '<div class="state-msg carregando">Carregando...</div>';
         /* Uma chamada em vez de doze. Enquanto a versao implantada do
            Apps Script nao tiver a rota nova, cai no jeito antigo - assim
            o painel funciona antes e depois de republicar. */
@@ -697,7 +713,7 @@ async function safeRenderTab(view) {
     }
     if (view === 'configuracoes') {
       if (precifDespesasFixas === null || precifConfig === null) {
-        el.innerHTML = '<div class="state-msg">Carregando...</div>';
+        el.innerHTML = '<div class="state-msg carregando">Carregando...</div>';
         const [dataDespesas, dataConfig] = await Promise.all([
           apiFetch_('despesasFixas', idToken),
           apiFetch_('precificacaoConfig', idToken)
@@ -707,7 +723,7 @@ async function safeRenderTab(view) {
       }
       return renderConfiguracoes(el);
     }
-    if (!FLUXO_ROWS) { el.innerHTML = '<div class="state-msg">Carregando...</div>'; return; }
+    if (!FLUXO_ROWS) { el.innerHTML = '<div class="state-msg carregando">Carregando...</div>'; return; }
     if (view === 'hoje') return renderHoje(el);
 
     /* Recorta na hora de desenhar, nunca antes do await: o FILTER pode ter
