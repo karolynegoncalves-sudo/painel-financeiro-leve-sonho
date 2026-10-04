@@ -1825,9 +1825,11 @@ function _rodarResincronizarFaccao() {
     String(msg) + '\n\n'
       + (falta
          ? 'Clique no mesmo item outra vez.'
-         : 'Agora rode "Conferir CMV por mes". O resultado de jan-ago vai\n'
-           + 'MELHORAR (a faccao sai de Despesas Administrativas), e o CMV tem\n'
-           + 'que SUBIR junto. Se o CMV nao subir, o custo sumiu - me avise.'),
+         : 'O resultado de jan-ago vai MELHORAR: a faccao sai de Despesas\n'
+           + 'Administrativas, onde estava DUPLICADA.\n\n'
+           + 'O CMV NAO muda, e isso esta certo. Ele ja vinha da ficha, que ja\n'
+           + 'cobra costura (robe 5,00, pijama 11,00). Era justamente por isso\n'
+           + 'que havia duplicidade. CMV mexendo aqui seria o sinal ruim.'),
     SpreadsheetApp.getUi().ButtonSet.OK);
   return msg;
 }

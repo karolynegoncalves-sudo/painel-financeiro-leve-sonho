@@ -271,12 +271,16 @@ function onOpen() {
        Logger.log nao aparece na tela, e ela clicou e achou que nada tinha
        acontecido. O wrapper mostra o resultado num alert e diz se falta rodar
        de novo. */
-    /* ESTE e o certo pra trazer a troca que ela fez no Bling: le SO as contas
-       que ainda estao em "Servicos de terceiros". O generico abaixo confere as
-       17.170 contas de oito meses, uma chamada por conta - daria ~37 cliques. */
-    .addItem('Resincronizar FACCAO (so as contas que faltam)',
+    /* DOIS ITENS QUE NAO PODEM PARECER O MESMO (renomeados em 04/10/2026).
+       Eles se chamavam "Resincronizar FACCAO..." e "Resincronizar TUDO...",
+       colados um no outro no menu. Ela clicou no errado e esperou a varredura
+       de 17.170 contas achando que estava trazendo a troca da faccao.
+       Item de menu nao se distingue pelo que vem DEPOIS do prefixo comum: o
+       olho pega a primeira palavra e a posicao. Agora comecam diferente, e o
+       lento abre com o aviso em vez de fechar com ele. */
+    .addItem('FACCAO: trazer a troca feita no Bling',
              '_rodarResincronizarFaccao')
-    .addItem('Resincronizar TUDO jan-ago (lento, 37 cliques)',
+    .addItem('(lento - so se eu pedir) Conferir TODAS as contas jan-ago',
              '_rodarRecategorizarJanAgo')
     /* Frete: a categoria guarda duas naturezas opostas - frete de COMPRA
        (estoque) e de VENDA (despesa variavel). Agrupado por quem recebeu, o
