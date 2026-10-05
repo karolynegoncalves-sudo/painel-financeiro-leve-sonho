@@ -265,6 +265,16 @@ var GRUPO_CANONICO_ = {
   '14639321667': 'Despesas Variaveis de Venda',   // Fretes e seguros
   '14744250501': 'Despesas Administrativas',      // IPTU e taxas municipais
 
+  /* FACCAO fica FORA do resultado, e nao em CMV. Confirmado por ela na aba
+     _DRE_Mapa em 04/10/2026: a linha 14739931044 esta em "Estoque (ignorar na
+     DRE)". Estava so na planilha; o seed do Setup.gs dizia 'CMV', e enquanto a
+     verdade morasse so na aba, o seed podia sobrescrever numa planilha nova.
+     POR QUE FORA: o custo da costura ja entra pelo CMV atraves da FICHA
+     (robe 5,00, pijama 11,00). O pagamento a costureira e a mesma despesa pela
+     outra ponta - em CMV ou em Administrativas ela conta duas vezes. Foi essa
+     duplicidade que tirou R$ 30.289,80 do resultado de dez/2025 a jul/2026. */
+  '14739931044': 'Estoque (ignorar na DRE)',      // Faccao / Mao de obra terceirizada
+
   // "Cartao a ratear": a fatura de cartao entra no Bling como UM lancamento
   // generico no vencimento, e o rateio por categoria e feito a mao por volta do
   // dia 18 - a fatura fechada e o extrato so existem depois de vencer. Antes
