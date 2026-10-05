@@ -553,3 +553,14 @@ table.dre tr.dre-resultado td, table.dre tr.dre-resultado th{color:#EAF2EE;}
   background:#2F4F43; color:#fff;}
 #tblDre tr.dre-subtotal th:first-child, #tblDre tr.dre-subtotal td:first-child{
   background:var(--sage-bg, #EEF3EE); color:var(--ink, #1a1a1a);}
+
+/* Faixa de dado guardado (05/10/2026) - ver SNAP_DIAS_ no app.js. Amarela e
+   grudada no topo de proposito: enquanto ela existir, o numero na tela e de
+   antes, e isso nao pode passar despercebido. */
+.faixa-velho{position:sticky; top:0; z-index:60; display:flex; align-items:center; gap:12px; flex-wrap:wrap;
+  justify-content:space-between; padding:9px 16px; background:#FBE7B5; color:#5C3D00;
+  border-bottom:1px solid #E2C27A; font-size:13px; line-height:1.35;}
+.faixa-velho .faixa-trava{opacity:.8;}
+.faixa-velho button{flex:none; border:1px solid #B98A2A; background:#fff8e6; color:#5C3D00; border-radius:16px;
+  padding:5px 14px; font-family:'IBM Plex Mono',monospace; font-size:11px; text-transform:uppercase;
+  letter-spacing:.03em; cursor:pointer;}

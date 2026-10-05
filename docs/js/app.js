@@ -47,6 +47,122 @@ function esquecerToken_() {
   try { localStorage.removeItem(TOKEN_KEY_); sessionStorage.removeItem(TOKEN_KEY_); } catch (e) { /* idem */ }
 }
 let idToken = lerTokenGuardado_();
+
+/* ---------------- Dado guardado no aparelho (05/10/2026) ----------------
+   O login leva ~30s (o Apps Script varre a aba inteira). Para a tela abrir
+   na hora, a ultima resposta de cada rota fica no IndexedDB e e desenhada
+   JA, com a faixa amarela "Dados de HH:MM · atualizando…", enquanto a busca
+   de verdade corre por tras. Quando o fresco chega, substitui e a faixa some.
+
+   As regras, todas por causa da licao do dashboard de producao (numero velho
+   com cara de novo e pior que tela lenta - a lentidao a pessoa percebe, o
+   numero velho nao):
+   - a faixa fica na tela ENQUANTO houver qualquer dado guardado em uso;
+   - salvar (apiPost_) fica travado enquanto a faixa existir;
+   - F5 / recarregar e o botao "Atualizar agora" NUNCA leem o guardado;
+   - 7 dias sem abrir o painel apagam o guardado e o login juntos (um
+     aparelho esquecido nao mostra o financeiro).
+   Precificacao nao usa o guardado: ali se decide preco. */
+const SNAP_DIAS_ = 7;
+const SNAP_RELOAD_ = (function () {
+  try { const n = performance.getEntriesByType('navigation')[0]; return !!n && n.type === 'reload'; }
+  catch (e) { return false; }
+})();
+let SNAP_DB_ = null;
+function snapDb_() {
+  if (SNAP_DB_) return SNAP_DB_;
+  SNAP_DB_ = new Promise(function (res) {
+    try {
+      const r = indexedDB.open('painel-ls', 1);
+      r.onupgradeneeded = function () { r.result.createObjectStore('snap'); };
+      r.onsuccess = function () { res(r.result); };
+      r.onerror = function () { res(null); };
+    } catch (e) { res(null); }
+  });
+  return SNAP_DB_;
+}
+async function snapLer_(chave) {
+  if (SNAP_RELOAD_) return null;
+  const db = await snapDb_();
+  if (!db) return null;
+  return new Promise(function (res) {
+    try {
+      const q = db.transaction('snap').objectStore('snap').get(chave);
+      q.onsuccess = function () {
+        const v = q.result;
+        res(v && v.data && (Date.now() - v.ts) < SNAP_DIAS_ * 864e5 ? v : null);
+      };
+      q.onerror = function () { res(null); };
+    } catch (e) { res(null); }
+  });
+}
+/* Periodos do fluxo: guarda so os 8 mais recentes, para o aparelho nao
+   acumular um mes por clique no filtro. */
+async function snapGravar_(chave, data) {
+  const db = await snapDb_();
+  if (!db) return;
+  try {
+    const st = db.transaction('snap', 'readwrite').objectStore('snap');
+    st.put({ ts: Date.now(), data: data }, chave);
+    if (chave.indexOf('fluxoCaixa|') === 0) {
+      let lista = [];
+      try { lista = JSON.parse(localStorage.getItem('snap_fluxo') || '[]'); } catch (e) { lista = []; }
+      lista = lista.filter(function (k) { return k !== chave; });
+      lista.unshift(chave);
+      lista.slice(8).forEach(function (k) { st.delete(k); });
+      try { localStorage.setItem('snap_fluxo', JSON.stringify(lista.slice(0, 8))); } catch (e) { /* so nao poda */ }
+    }
+  } catch (e) { /* sem guardado: so fica mais lento na proxima */ }
+}
+async function snapApagarTudo_() {
+  const db = await snapDb_();
+  if (!db) return;
+  try { db.transaction('snap', 'readwrite').objectStore('snap').clear(); } catch (e) { /* idem */ }
+  try { localStorage.removeItem('snap_fluxo'); } catch (e) { /* idem */ }
+}
+
+/* 7 dias sem abrir: esquece token e guardado, e pede clique no proximo
+   login (initGoogle desliga o auto_select quando ve 'exigir_clique'). */
+(function limiteInatividade_() {
+  try {
+    const ult = +localStorage.getItem('ultimo_uso') || 0;
+    if (ult && Date.now() - ult > SNAP_DIAS_ * 864e5) {
+      esquecerToken_();
+      idToken = null;
+      snapApagarTudo_();
+      localStorage.setItem('exigir_clique', '1');
+    }
+    localStorage.setItem('ultimo_uso', String(Date.now()));
+  } catch (e) { /* sem storage: nada guardado, nada a expirar */ }
+})();
+
+/* Fontes em uso que vieram do guardado: fonte -> carimbo de quando foram
+   baixadas. Vazio = tudo fresco = sem faixa. */
+const VELHOS_ = new Map();
+let FAIXA_ERRO_ = '';
+function dadoVelho_() { return VELHOS_.size > 0; }
+function marcarVelho_(fonte, ts) { VELHOS_.set(fonte, ts); desenharFaixa_(); }
+function marcarFresco_(fonte) { VELHOS_.delete(fonte); if (!dadoVelho_()) FAIXA_ERRO_ = ''; desenharFaixa_(); }
+function desenharFaixa_() {
+  let f = document.getElementById('faixaVelho');
+  if (!dadoVelho_()) { if (f) f.remove(); return; }
+  if (!f) {
+    f = document.createElement('div');
+    f.id = 'faixaVelho';
+    f.className = 'faixa-velho';
+    f.setAttribute('role', 'status');
+    const app = document.getElementById('app');
+    app.insertBefore(f, app.firstChild);
+  }
+  const d = new Date(Math.min.apply(null, Array.from(VELHOS_.values())));
+  const hora = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  const dia = ymdLocal_(d) === ymdLocal_(new Date()) ? 'hoje' : fmtDataBR(d);
+  f.innerHTML = '<span><b>Dados de ' + dia + ' às ' + hora + '</b> · '
+    + (FAIXA_ERRO_ || 'atualizando com a planilha…')
+    + ' <span class="faixa-trava">Salvar fica travado até atualizar.</span></span>'
+    + '<button type="button">Atualizar agora</button>';
+  f.querySelector('button').onclick = function () { location.reload(); };
+}
 const cache = {};
 let FLUXO_ROWS = null; // [{date, tipo, grupoDRE, categoria, contato, banco, valor}]
 /* Receita pela data do pedido e CMV por consumo, mensais, vindos das abas
@@ -137,6 +253,12 @@ function initGoogle() {
     use_fedcm_for_prompt: true
   });
   google.accounts.id.renderButton(document.getElementById('googleBtn'), { theme: 'outline', size: 'large' });
+  try {
+    if (localStorage.getItem('exigir_clique')) {
+      google.accounts.id.disableAutoSelect();
+      localStorage.removeItem('exigir_clique');
+    }
+  } catch (e) { /* segue */ }
 
   if (idToken && !tokenVencendo_(idToken)) verificarESeguir_(idToken);
   else google.accounts.id.prompt();
@@ -217,8 +339,17 @@ async function verificarESeguir_(token) {
      troca de aba nao rebuscar o mesmo intervalo. */
   const [ps0] = periodoAnterior_(FILTER.start, FILTER.end);
   const de0 = ymdLocal_(ps0), ate0 = ymdLocal_(FILTER.end);
+  const chave0 = de0 + '|' + ate0;
+  /* Abre JA com o guardado deste periodo, se houver (ver SNAP_DIAS_). */
+  const guardado = await snapLer_('fluxoCaixa|' + chave0);
+  if (guardado) {
+    aplicarLogin_(guardado.data, chave0);
+    marcarVelho_('login', guardado.ts);
+  }
   const data = await apiFetch_('fluxoCaixa', token, 3, { de: de0, ate: ate0 });
   if (data && data.error === 'not_authorized') {
+    document.getElementById('app').style.display = 'none';
+    snapApagarTudo_();
     document.getElementById('deniedEmail').textContent = decodeJwtEmail(token);
     document.getElementById('loginDenied').style.display = 'block';
     esquecerToken_();
@@ -226,14 +357,30 @@ async function verificarESeguir_(token) {
     return;
   }
   if (data && data.error) {
+    if (guardado) {
+      /* Fica no guardado, com a faixa dizendo que nao atualizou. */
+      FAIXA_ERRO_ = 'não consegui atualizar agora (' + data.error + ').';
+      desenharFaixa_();
+      return;
+    }
     document.getElementById('loginGate').innerHTML = '<p>Erro ao conectar com o painel: ' + data.error + '</p>';
     return;
   }
+  aplicarLogin_(data, chave0);
+  snapGravar_('fluxoCaixa|' + chave0, data);
+  marcarFresco_('login');
+}
+
+/* Aplica a resposta do login - a guardada ou a fresca, o mesmo caminho para
+   as duas, para a tela nao ter dois jeitos de interpretar o mesmo dado. */
+function aplicarLogin_(data, chave0) {
   if (data && data.janelaDesde) JANELA_DESDE = data.janelaDesde;
   LINHAS_NA_ABA = (data && data.linhasNaAba) || 0;
-  FLUXO_ROWS = parseFluxoRows_(data);
-  FLUXO_CHAVE = de0 + '|' + ate0;
-  FLUXO_CACHE[FLUXO_CHAVE] = FLUXO_ROWS;
+  const rows = parseFluxoRows_(data);
+  FLUXO_CACHE[chave0] = rows;
+  /* Se a pessoa trocou de periodo enquanto o fresco vinha, nao pisa no
+     periodo que ela esta olhando. */
+  if (!FLUXO_CHAVE || FLUXO_CHAVE === chave0) { FLUXO_ROWS = rows; FLUXO_CHAVE = chave0; }
   /* Vendas NAO entra no login. Sao 8.824 pedidos e 7,6 segundos - o
      login inteiro esperava por eles mesmo quando a pessoa ia direto pra
      precificacao, que nem usa vendas. Quem precisa e a aba KPIs, e ela
@@ -250,11 +397,23 @@ async function verificarESeguir_(token) {
      sem resposta - pode ser codigo, dado ou implantacao. */
   BACKEND_VERSAO = data.backend || '(sem carimbo)';
   document.getElementById('userEmail').textContent = data.email || '';
-  document.getElementById('loginGate').style.display = 'none';
-  document.getElementById('app').style.display = 'block';
-  PAINEL_ABERTO = true;
-  setupTabs();
-  safeRenderTab('hoje');
+  if (!PAINEL_ABERTO) {
+    document.getElementById('loginGate').style.display = 'none';
+    document.getElementById('app').style.display = 'block';
+    PAINEL_ABERTO = true;
+    setupTabs();
+    safeRenderTab('hoje');
+  } else {
+    rerenderSeUsa_(['hoje', 'kpis', 'fluxoCaixa', 'dre', 'balanco', 'vendas', 'configuracoes']);
+  }
+}
+
+/* Redesenha a aba ativa so se ela le o dado que acabou de chegar. A
+   Precificacao fica de fora de proposito: redesenhar no meio de uma
+   edicao apagaria o que a pessoa esta digitando. */
+function rerenderSeUsa_(views) {
+  const ativa = document.querySelector('#tabNav button.active');
+  if (ativa && views.indexOf(ativa.dataset.tab) >= 0) safeRenderTab(ativa.dataset.tab);
 }
 
 document.getElementById('btnSair').addEventListener('click', () => {
@@ -332,6 +491,10 @@ async function carregarEmLotes_(views, token, porLote) {
  * Apps Script Web App não responde direito.
  */
 async function apiPost_(action, payload) {
+  if (dadoVelho_()) {
+    return { ok: false, error: 'o painel ainda está mostrando dados guardados (faixa amarela no topo). '
+      + 'Espere atualizar, ou toque em "Atualizar agora", e salve de novo.' };
+  }
   idToken = await tokenFresco_(idToken);
   try {
     const resp = await fetch(CFG.APPS_SCRIPT_URL, {
@@ -451,6 +614,27 @@ async function garantirFluxo_(el) {
   if (chave === FLUXO_CHAVE) return;
   if (FLUXO_CACHE[chave]) { FLUXO_ROWS = FLUXO_CACHE[chave]; FLUXO_CHAVE = chave; return; }
 
+  /* Periodo ja visto neste aparelho: desenha o guardado e busca o fresco por
+     tras. Quando chegar, so redesenha se a pessoa ainda estiver nele. */
+  const guardado = await snapLer_('fluxoCaixa|' + chave);
+  if (guardado) {
+    usarFluxo_(guardado.data, chave, true);
+    marcarVelho_('fluxo|' + chave, guardado.ts);
+    apiFetch_('fluxoCaixa', idToken, 3, { de: de, ate: ate }).then(function (d) {
+      if (!d || d.error || d._falhou) {
+        FAIXA_ERRO_ = 'não consegui atualizar esse período agora.';
+        desenharFaixa_();
+        return;
+      }
+      snapGravar_('fluxoCaixa|' + chave, d);
+      const atual = FLUXO_CHAVE === chave;
+      usarFluxo_(d, chave, atual);
+      marcarFresco_('fluxo|' + chave);
+      if (atual) rerenderSeUsa_(['hoje', 'kpis', 'fluxoCaixa', 'dre', 'balanco', 'vendas']);
+    });
+    return;
+  }
+
   if (el) el.innerHTML = '<div class="state-msg carregando">Carregando o período…</div>';
   const d = await apiFetch_('fluxoCaixa', idToken, 3, { de: de, ate: ate });
   if (!d || d.error || d._falhou) {
@@ -460,10 +644,14 @@ async function garantirFluxo_(el) {
       + 'Tente de novo em alguns segundos.</div>';
     return;
   }
+  snapGravar_('fluxoCaixa|' + chave, d);
+  usarFluxo_(d, chave, true);
+}
+
+function usarFluxo_(d, chave, tornarAtual) {
   const rows = parseFluxoRows_(d);
   FLUXO_CACHE[chave] = rows;
-  FLUXO_CHAVE = chave;
-  FLUXO_ROWS = rows;
+  if (tornarAtual) { FLUXO_CHAVE = chave; FLUXO_ROWS = rows; }
   if (d.janelaDesde) JANELA_DESDE = d.janelaDesde;
   if (d.backend) BACKEND_VERSAO = d.backend;
   if (d.linhasNaAba) LINHAS_NA_ABA = d.linhasNaAba;
@@ -621,9 +809,27 @@ function rerenderAbaAtiva_() {
    pedidos, entao segurar isso ate ser necessario tira 7,6s do login. */
 async function garantirVendas_(el) {
   if (VENDAS_ROWS !== null) return;
+  const guardado = await snapLer_('vendas');
+  if (guardado) {
+    VENDAS_ROWS = parseVendasRows_(guardado.data);
+    marcarVelho_('vendas', guardado.ts);
+    apiFetch_('vendas', idToken).then(function (dv) {
+      if (!dv || dv.error || dv._falhou) {
+        FAIXA_ERRO_ = 'não consegui atualizar as vendas agora.';
+        desenharFaixa_();
+        return;
+      }
+      snapGravar_('vendas', dv);
+      VENDAS_ROWS = parseVendasRows_(dv);
+      marcarFresco_('vendas');
+      rerenderSeUsa_(['kpis', 'dre', 'vendas']);
+    });
+    return;
+  }
   if (el) el.innerHTML = '<div class="state-msg carregando">Carregando vendas...</div>';
   const dv = await apiFetch_('vendas', idToken);
   VENDAS_ROWS = (dv && !dv.error) ? parseVendasRows_(dv) : [];
+  if (dv && !dv.error && !dv._falhou) snapGravar_('vendas', dv);
 }
 
 /*
@@ -639,9 +845,27 @@ async function garantirVendas_(el) {
  */
 async function garantirConfigCanais_(el) {
   if (precifConfig !== null) return;
+  const guardado = await snapLer_('precificacaoConfig');
+  if (guardado && guardado.data.config) {
+    precifConfig = guardado.data.config;
+    marcarVelho_('config', guardado.ts);
+    apiFetch_('precificacaoConfig', idToken).then(function (dc) {
+      if (!dc || !dc.config) {
+        FAIXA_ERRO_ = 'não consegui atualizar as taxas por canal agora.';
+        desenharFaixa_();
+        return;
+      }
+      snapGravar_('precificacaoConfig', dc);
+      precifConfig = dc.config;
+      marcarFresco_('config');
+      rerenderSeUsa_(['kpis']);
+    });
+    return;
+  }
   if (el) el.innerHTML = '<div class="state-msg carregando">Carregando taxas por canal...</div>';
   const dc = await apiFetch_('precificacaoConfig', idToken);
   precifConfig = (dc && dc.config) || { despesasFixasPctPadrao: 0, canais: {} };
+  if (dc && dc.config) snapGravar_('precificacaoConfig', dc);
 }
 
 /* O Chart.js carrega com defer (nao trava a primeira tela). Os new Chart so
