@@ -843,6 +843,27 @@ function agregadoDre_(start, end) {
   pg['CMV'] = -soma(fontes.cmv);
   pg[GRUPO_IMPOSTO] = -soma(fontes.imposto);
   pg[GRUPO_PROVISAO] = -soma(fontes.provisao);
+
+  /* QUAIS MESES DO PERIODO A FONTE AINDA NAO TEM (05/10/2026).
+   *
+   * `_Receita_Pedidos` e `_CMV_Consumo` sao alimentadas por fora e param no
+   * ultimo mes fechado. Em 05/10 elas iam ate 2026-09, e o ponto de equilibrio
+   * respondia "Sem receita no periodo" para outubro - dizendo que a loja nao
+   * vendeu, quando ela tinha vendido R$ 6.775,01 em 81 pedidos (a aba Vendas
+   * mostrava, no cartao ao lado, na MESMA tela).
+   *
+   * "Sem receita" e afirmacao sobre o NEGOCIO; "mes ainda nao agregado" e
+   * afirmacao sobre o DADO. A tela estava fazendo a primeira com base na
+   * segunda, que e a mesma familia de erro que custou o dia inteiro aqui: a
+   * ausencia do dado se disfarcando de fato medido.
+   *
+   * Guardo os meses sem fonte pra mensagem poder dizer QUAL mes falta, em vez
+   * de concluir pela loja. */
+  const semFonteMeses = [];
+  const temRec = {};
+  (fontes.receita || []).forEach(r => { temRec[r.mes] = 1; });
+  Object.keys(mesesChave).forEach(m => { if (!temRec[m]) semFonteMeses.push(m); });
+  pg.__mesesSemFonte = semFonteMeses.sort();
   return pg;
 }
 
@@ -1202,6 +1223,7 @@ function pontoEquilibrio_() {
    */
   const pg = agregadoDre_(FILTER.start, FILTER.end);
   const semFonte = !pg;
+  const mesesSemFonte = (pg && pg.__mesesSemFonte) || [];
   const g = (nome) => (pg && pg[nome]) || 0;
 
   const receita = g('Receita Bruta');
@@ -1240,7 +1262,7 @@ function pontoEquilibrio_() {
   const faturamentoNecessario = mcPct > 0 ? fixasPeriodo / mcPct : 0;
   return {
     fixasMes, fixasPeriodo, dias, meses, receita, deducoes, cmv, variaveis, mc, mcPct,
-    semFonte,
+    semFonte, mesesSemFonte,
     faturamentoNecessario,
     cobertura: faturamentoNecessario ? receita / faturamentoNecessario : 0
   };
@@ -1494,8 +1516,34 @@ function renderCruzamento_(rows) {
 function motivoSemEquilibrio_(eq) {
   if (eq.semFonte) return 'Receita e CMV vêm das abas _Receita_Pedidos e _CMV_Consumo — rode a carga do mês';
   if (!eq.fixasMes) return 'Cadastre o custo fixo na aba Custo Fixo';
+
+  /* ANTES DE DIZER "sem receita", conferir se o mes FOI AGREGADO. As fontes
+     param no ultimo mes fechado, e em 05/10/2026 a tela respondia "Sem receita
+     no periodo" para outubro enquanto o cartao ao lado, na mesma tela, mostrava
+     R$ 6.775,01 em 81 pedidos. "Sem receita" fala do NEGOCIO; "nao agregado"
+     fala do DADO - e so o segundo era verdade. */
+  const falta = eq.mesesSemFonte || [];
+  if (eq.receita <= 0 && falta.length) {
+    return falta.length === 1
+      ? 'O mês ' + monthLabel(falta[0]) + ' ainda não foi agregado em _Receita_Pedidos — a venda existe, o total do mês não'
+      : falta.length + ' meses do período ainda não foram agregados em _Receita_Pedidos (' + falta.join(', ') + ')';
+  }
   if (eq.receita <= 0) return 'Sem receita no período';
-  return 'Margem de contribuição zerada ou negativa — o preço não cobre o custo variável';
+
+  return 'Margem de contribuição zerada ou negativa — o preço não cobre o custo variável'
+    + (falta.length ? ' (e ' + falta.join(', ') + ' ainda não agregado)' : '');
+}
+
+/* Aviso para o periodo PARCIALMENTE agregado - o caso perigoso, porque aqui o
+   ponto de equilibrio TEM numero e ele parece completo. Mes faltando puxa a
+   receita pra baixo e o custo fixo nao cai junto, entao a cobertura sai pior do
+   que a realidade e a meta sai inatingivel sem motivo. */
+function avisoParcial_(eq) {
+  const falta = (eq && eq.mesesSemFonte) || [];
+  if (!falta.length || !eq.faturamentoNecessario) return '';
+  return '<div class="kpi-foot" style="color:#b26a00;">⚠ '
+    + falta.map(monthLabel).join(', ')
+    + ' ainda não agregado em <code>_Receita_Pedidos</code> — este número cobre só o resto do período.</div>';
 }
 
 function renderKpis(el, rows) {
@@ -1559,6 +1607,7 @@ function renderKpis(el, rows) {
               ? '. Passou em ' + fmtBRL(eq.receita - eq.faturamentoNecessario) + '.'
               : '. Faltam ' + fmtBRL(eq.faturamentoNecessario - eq.receita) + '.')
           : motivoSemEquilibrio_(eq)}</div>
+        ${avisoParcial_(eq)}
       </div>
     </div>
 
