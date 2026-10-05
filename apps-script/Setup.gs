@@ -293,6 +293,52 @@ function setupDreMapa_(ss) {
     ['14739989237', 'A Classificar (revisar)', '1', '0', '(sem mapear)'],
     ['14741903825', 'Retirada de socio', '1', '0', 'Não Operacional (ignorar na DRE)']
   ];
+  /* O SEED NAO MANDA NO GRUPO. O GRUPO_CANONICO_ manda. (04/10/2026)
+   *
+   * A lista acima tinha a propria copia do mapa categoria->grupo, e as duas
+   * copias divergiram em OITO categorias. Em CINCO delas a divergencia cruza a
+   * fronteira do resultado, que e a unica que muda numero:
+   *
+   *   14639321643/44/45  Vendas de produtos/mercadorias/servicos
+   *      seed: "Receita Bruta" (DENTRO)  ·  certo: "Venda ja contada pelo
+   *      pedido (ignorar na DRE)" (FORA). Esta e a pior: a receita da DRE vem
+   *      de _Receita_Pedidos, entao por o lancamento de volta em Receita Bruta
+   *      DOBRA o faturamento. So em abril sao 888 contas e R$ 90.799,53.
+   *   14639321657  Descontos incondicionais
+   *      seed: "Deducoes da Receita" (DENTRO)  ·  certo: "Desconto de vitrine
+   *      (ignorar na DRE)" (FORA). R$ 17.693,27 so em agosto.
+   *   14639321658  Impostos sobre vendas
+   *      seed: "Deducoes da Receita" (DENTRO)  ·  certo: "Imposto pago
+   *      (ignorar na DRE)" (FORA). O imposto da DRE vem da GUIA por
+   *      competencia; esta categoria de volta ao resultado conta duas vezes.
+   *
+   * As outras tres (Fretes e seguros, Descontos concedidos, Taxas do
+   * marketplace) divergem de grupo mas ficam dentro do resultado nas duas
+   * versoes - mudam a LINHA, nao o resultado.
+   *
+   * Achado pela sessao Caixa em 04/10/2026, varrendo o export de caixa: ela
+   * viu R$ 17.693,27 de "Descontos incondicionais" em agosto e perguntou onde
+   * caiam. A varredura do seed inteiro, depois, achou as outras sete.
+   *
+   * POR QUE ISSO E PERIGOSO MESMO COM O `jaTinhaDados` ACIMA: o guard protege
+   * a aba JA PREENCHIDA, e so ela. Aba limpa, planilha nova, restauracao de
+   * backup ou alguem apagando as linhas pra "recriar o mapa" fazem o seed
+   * valer - e aí cinco categorias trocam de lado de uma vez, sem nenhum
+   * lancamento novo, o que e o sintoma mais dificil de diagnosticar que existe.
+   *
+   * O CONSERTO NAO E ACERTAR AS OITO. Duas listas da mesma verdade divergem de
+   * novo na proxima vez que uma mudar sozinha - ja aconteceu duas vezes neste
+   * arquivo. O seed passa a LER o GRUPO_CANONICO_, que e a fonte unica, e a
+   * coluna de grupo da lista acima vira valor de partida para categoria que o
+   * canonico nao conhece.
+   */
+  if (typeof GRUPO_CANONICO_ === 'object' && GRUPO_CANONICO_) {
+    categorias.forEach(function (linha) {
+      var g = GRUPO_CANONICO_[String(linha[0])];
+      if (g) { linha[4] = g; }
+    });
+  }
+
   sheet.getRange(2, 1, categorias.length, categorias[0].length).setValues(categorias);
   sheet.autoResizeColumns(1, 5);
 }
