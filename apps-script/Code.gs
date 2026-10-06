@@ -259,6 +259,7 @@ function onOpen() {
        CONFERIR PRIMEIRO: o calculo tem que reproduzir os meses que ja estao
        la antes de alguem confiar nele no mes novo. */
     .addItem('Receita: conferir calculo x o que ja esta na aba', '_rodarConferirReceita')
+    .addItem('Tecidos do site: gravar preco por metro', 'gravarTecidosDoSite')
     .addItem('Receita: gravar o mes corrente', 'gravarReceitaMesCorrente')
     .addItem('Conferir CMV por mes (_CMV_Consumo)', 'conferirCmvPorMes')
     .addItem('Servicos de terceiros jan-abr (quem recebeu)', 'terceirosJanAbr')
@@ -939,37 +940,68 @@ function corrigirDreMapa_() {
  */
 const CACHE_PRECIF_ = 'precif_tudo_v1';
 
+/* CRONOMETRO E DIAGNOSTICO DE CACHE (06/10/2026).
+ *
+ * A sessao Jobs mediu o app de Precificacao: 9,2 s nesta rota mesmo "quente",
+ * contra 3-4 s da precificacaoConfig, que devolve 2 KB. Levantou a hipotese
+ * certa: ou o cache nao acerta, ou algo antes do switch pesa.
+ *
+ * O cache tem teto de 100 KB por CHAVE e esta funcao so grava se o JSON ficar
+ * abaixo de 95.000 caracteres - silenciosamente. Se o catalogo cresceu e
+ * passou disso, TODA abertura remonta os dez getters e ninguem fica sabendo:
+ * o `if` nao reclama, so nao guarda. Cache que nunca acerta se parece com
+ * cache lento.
+ *
+ * `_diag` responde as duas perguntas de uma vez - se veio do cache, e, quando
+ * nao veio, quanto cada getter custou e qual o tamanho do JSON contra o teto.
+ * Vai no proprio payload porque o Logger nao chega a quem abre o app. */
 function precificacaoTudo_(email) {
+  const t0 = Date.now();
   const cache = CacheService.getScriptCache();
   const guardado = cache.get(CACHE_PRECIF_);
   if (guardado) {
     try {
       const d = JSON.parse(guardado);
       d.email = email;
+      d._diag = 'cache HIT | ' + guardado.length + ' chars | ' + (Date.now() - t0) + 'ms';
       return d;
     } catch (e) { /* cache corrompido: refaz abaixo */ }
   }
 
+  const ms = {};
+  const cronometrar = function (nome, fn) {
+    const t = Date.now();
+    const r = fn();
+    ms[nome] = Date.now() - t;
+    return r;
+  };
+
   const d = {
-    config: getPrecificacaoConfig_(),
-    materiais: getPrecificacaoMateriaisCatalogo_(),
-    rendimento: getPrecificacaoRendimentoCatalogo_(),
-    maoDeObraPecas: getPrecificacaoMaoDeObraPecasCatalogo_(),
-    corte: getPrecificacaoCorteCatalogo_(),
-    producao: getPrecificacaoProducao_(),
-    aviamentos: getPrecificacaoAviamentosTamanhoCatalogo_(),
-    acabamentos: getPrecificacaoAcabamentosCatalogo_(),
-    modelos: getPrecificacaoModelosCatalogo_(),
-    ficha: getPrecificacaoFichaCatalogo_()
+    config: cronometrar('config', getPrecificacaoConfig_),
+    materiais: cronometrar('materiais', getPrecificacaoMateriaisCatalogo_),
+    rendimento: cronometrar('rendimento', getPrecificacaoRendimentoCatalogo_),
+    maoDeObraPecas: cronometrar('maoObra', getPrecificacaoMaoDeObraPecasCatalogo_),
+    corte: cronometrar('corte', getPrecificacaoCorteCatalogo_),
+    producao: cronometrar('producao', getPrecificacaoProducao_),
+    aviamentos: cronometrar('aviamentos', getPrecificacaoAviamentosTamanhoCatalogo_),
+    acabamentos: cronometrar('acabamentos', getPrecificacaoAcabamentosCatalogo_),
+    modelos: cronometrar('modelos', getPrecificacaoModelosCatalogo_),
+    ficha: cronometrar('ficha', getPrecificacaoFichaCatalogo_)
   };
 
   // O cache tem teto de 100 KB por chave; se estourar, segue sem cache.
+  let tam = 0, guardou = false;
   try {
     const txt = JSON.stringify(d);
-    if (txt.length < 95000) cache.put(CACHE_PRECIF_, txt, 300);
+    tam = txt.length;
+    if (tam < 95000) { cache.put(CACHE_PRECIF_, txt, 300); guardou = true; }
   } catch (e) { /* sem cache, so mais lento */ }
 
   d.email = email;
+  d._diag = 'cache MISS | ' + tam + '/95000 chars | '
+    + (guardou ? 'GUARDOU' : 'NAO GUARDOU (estourou o teto - toda abertura remonta)')
+    + ' | total ' + (Date.now() - t0) + 'ms | '
+    + Object.keys(ms).map(function (k) { return k + '=' + ms[k]; }).join(' ');
   return d;
 }
 

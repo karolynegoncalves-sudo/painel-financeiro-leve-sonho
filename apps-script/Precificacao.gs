@@ -594,3 +594,92 @@ function excluirPrecificacaoProduto_(id, email) {
     lock.releaseLock();
   }
 }
+
+/* ============================================================================
+ * gravarTecidosDoSite() - os tres tecidos que faltavam preco por metro.
+ *
+ * Valores passados pela Karolyne em 06/10/2026:
+ *   Crepe Amanda   R$  9,90/m
+ *   Seda Mista     R$ 49,90/m
+ *   Viscolinho     R$ 10,50/m
+ *
+ * POR QUE IMPORTA: 6 dos 29 robes do site usam esses tecidos e saiam do CMV
+ * com custo ZERO - nao por falta de SKU, mas porque a formula nao tinha preco
+ * por metro pra multiplicar. Nenhum esquema de codigo resolveria isso.
+ *
+ * ATENCAO NA SEDA MISTA: R$ 49,90/m e 16x o Cetim Poliester (2,99) e 7x o
+ * Cetim Elastano (6,99). Nao parece erro de digitacao - e tecido de outra
+ * faixa, e o Robe Bela vende a R$ 689,90. Mas o custo de tecido dele sozinho
+ * passa dos R$ 70, entao desconto nesse produto come margem muito mais rapido
+ * que nos de cetim.
+ *
+ * Unidade 'm' de proposito: o getter divide pelo rendimento quando a unidade
+ * NAO e metro - foi assim que o moletom comprado por quilo apareceu a
+ * R$ 0,33/m. Com 'm', o valor entra direto.
+ *
+ * NAO SOBRESCREVE material existente. Preco de material move o custo de todo
+ * produto que o usa; trocar um por engano desloca a margem do catalogo
+ * inteiro sem aparecer em lugar nenhum.
+ * ========================================================================== */
+function gravarTecidosDoSite() {
+  const NOVOS = [
+    { material: 'Crepe Amanda', valor: 9.90 },
+    { material: 'Seda Mista', valor: 49.90 },
+    { material: 'Viscolinho', valor: 10.50 }
+  ];
+  const L = [];
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_PRECIFICACAO_MATERIAIS);
+  if (!sheet) { mostrarRelatorio_('Tecidos', ['aba ' + ABA_PRECIFICACAO_MATERIAIS + ' nao existe']); return; }
+
+  const cab = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  const iMat = cab.indexOf('material'), iValor = cab.indexOf('valor'), iUnid = cab.indexOf('unidade');
+  if (iMat < 0 || iValor < 0) {
+    mostrarRelatorio_('Tecidos', ['cabecalho inesperado: ' + cab.join(' | ')]);
+    return;
+  }
+
+  const existentes = {};
+  if (sheet.getLastRow() > 1) {
+    sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).getValues()
+      .forEach(function (l) {
+        const nome = String(l[iMat] || '').trim();
+        if (nome) existentes[semAcento_(nome)] = Number(l[iValor]) || 0;
+      });
+  }
+
+  L.push('TECIDOS DO SITE - preco por metro');
+  L.push('');
+  const linhas = [];
+  NOVOS.forEach(function (t) {
+    const ja = existentes[semAcento_(t.material)];
+    if (ja !== undefined) {
+      L.push('  JA EXISTE  ' + t.material + ' a R$ ' + ja.toFixed(2) + ' - nao mexi.');
+      return;
+    }
+    const linha = [];
+    for (let i = 0; i < cab.length; i++) linha.push('');
+    linha[iMat] = t.material;
+    linha[iValor] = t.valor;
+    if (iUnid >= 0) linha[iUnid] = 'm';
+    linhas.push(linha);
+    L.push('  GRAVANDO   ' + t.material + ' a R$ ' + t.valor.toFixed(2) + '/m');
+  });
+
+  if (linhas.length) {
+    sheet.getRange(sheet.getLastRow() + 1, 1, linhas.length, cab.length).setValues(linhas);
+    limparCachePrecificacao_();
+  }
+
+  L.push('');
+  L.push('Gravados: ' + linhas.length + ' de ' + NOVOS.length);
+  L.push('');
+  L.push('REFERENCIA: Cetim Poliester 2,99 - Cetim Elastano 6,99.');
+  L.push('A Seda Mista a 49,90 e 16x o cetim comum. Nao e erro, e outra faixa');
+  L.push('de tecido - mas o Robe Bela passa de R$ 70 so de tecido, e desconto');
+  L.push('nele come margem muito mais rapido. Vale conferir o preco dele.');
+  L.push('');
+  L.push('ISSO NAO BASTA pro CMV do site: falta o RENDIMENTO - quantos metros');
+  L.push('cada modelo consome, por tamanho. Preco por metro sem metragem nao');
+  L.push('calcula custo nenhum.');
+  mostrarRelatorio_('Tecidos do site', L);
+}
