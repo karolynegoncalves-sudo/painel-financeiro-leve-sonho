@@ -261,6 +261,10 @@ function onOpen() {
     .addItem('Receita: conferir calculo x o que ja esta na aba', '_rodarConferirReceita')
     .addItem('Tecidos do site: gravar preco por metro', 'gravarTecidosDoSite')
     .addItem('Receita: gravar o mes corrente', 'gravarReceitaMesCorrente')
+    /* Setembro foi preenchido a mao no meio do mes: R$ 24.534,07 na aba contra
+       R$ 67.554,29 calculado. Porta separada de proposito - o gravar normal
+       recusa sobrescrever, e deve continuar recusando. */
+    .addItem('Receita: REFAZER setembro/2026 (estava pela metade)', 'refazerReceitaSetembro')
     .addItem('Conferir CMV por mes (_CMV_Consumo)', 'conferirCmvPorMes')
     .addItem('Servicos de terceiros jan-abr (quem recebeu)', 'terceirosJanAbr')
     .addItem('Servicos de terceiros jan-AGO (quem recebeu)', 'terceirosJanAgo')

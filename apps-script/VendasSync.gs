@@ -344,6 +344,112 @@ function gravarReceitaPedidos(mes) {
   Logger.log('OTIMISTA ate ela ser preenchida: receita sem o custo do produto.');
 }
 
+/* ============================================================================
+ * refazerReceitaMes(mes) - APAGA as linhas de um mes e regrava pelo calculo.
+ *
+ * Existe porque a conferencia de 06/10/2026 achou setembro com
+ * R$ 24.534,07 na aba contra R$ 67.554,29 calculado - R$ 43.020,22 de receita
+ * faltando na DRE. O calculo bateu ao CENTAVO em jan-jul e em outubro, e
+ * errou 0,16% em agosto; errado era o mes, nao o metodo. A causa provavel e
+ * setembro ter sido preenchido a mao no MEIO do mes e nunca refeito no
+ * fechamento - a Shopee aparecia com R$ 12.725 quando faz o triplo.
+ *
+ * O `gravarReceitaPedidos` recusa sobrescrever de proposito, e continua
+ * recusando. Esta e a porta separada, que exige dizer o mes e mostra o que
+ * esta substituindo - a diferenca entre as duas e a confirmacao.
+ *
+ * O RELATORIO TRAZ O ANTES, linha a linha, pra dar pra desfazer na mao se o
+ * numero novo nao convencer. Apagar sem guardar o que havia e o unico jeito
+ * de transformar um conserto em perda.
+ *
+ * Apaga de baixo pra cima: apagar de cima desloca as linhas seguintes e os
+ * indices seguintes passam a apontar pra linha errada.
+ * ========================================================================== */
+function refazerReceitaMes(mes) {
+  mes = String(mes || '').trim();
+  if (!/^\d{4}-\d{2}$/.test(mes)) {
+    mostrarRelatorio_('Receita', ['informe o mes: refazerReceitaMes("2026-09")']);
+    return;
+  }
+  const L = [];
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_RECEITA_PEDIDOS_);
+  if (!sheet) { mostrarRelatorio_('Receita', ['aba nao existe']); return; }
+
+  const mesDaLinha = function (v) {
+    return v instanceof Date
+      ? Utilities.formatDate(v, 'America/Sao_Paulo', 'yyyy-MM')
+      : String(v || '').trim().slice(0, 7);
+  };
+
+  // --- o ANTES, guardado no relatorio antes de qualquer escrita
+  const alvo = [];
+  let antesTotal = 0;
+  if (sheet.getLastRow() > 1) {
+    const dados = sheet.getRange(2, 1, sheet.getLastRow() - 1, 5).getValues();
+    dados.forEach(function (l, i) {
+      if (mesDaLinha(l[0]) !== mes) return;
+      alvo.push(i + 2);
+      antesTotal += Number(l[2]) || 0;
+      L.push('  ANTES  ' + String(l[1]) + ': R$ ' + (Number(l[2]) || 0).toFixed(2)
+             + ' em ' + (l[3] || '?') + ' pedido(s)   [gravado ' + (l[4] || '?') + ']');
+    });
+  }
+
+  L.unshift('');
+  L.unshift('REFAZENDO ' + mes + ' - ' + alvo.length + ' linha(s) serao substituidas');
+  L.unshift('');
+
+  // --- o DEPOIS, calculado da aba Vendas
+  const calc = agregarReceitaDeVendas_();
+  const agora = Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'yyyy-MM-dd HH:mm');
+  const linhas = [];
+  let depoisTotal = 0, pedidos = 0;
+  Object.keys(calc).sort().forEach(function (k) {
+    const r = calc[k];
+    if (r.mes !== mes) return;
+    linhas.push([r.mes, r.canal, r.valor, r.pedidos, agora]);
+    depoisTotal += r.valor; pedidos += r.pedidos;
+  });
+
+  if (!linhas.length) {
+    L.push('');
+    L.push('A aba Vendas NAO tem venda nenhuma em ' + mes + '. Nao apaguei nada.');
+    L.push('Rode syncVendas e tente de novo - apagar o que ha pra gravar vazio');
+    L.push('seria trocar um numero errado por nenhum numero.');
+    mostrarRelatorio_('Receita: refazer ' + mes, L);
+    return;
+  }
+
+  // apaga de baixo pra cima
+  alvo.sort(function (a, b) { return b - a; }).forEach(function (linha) {
+    sheet.deleteRow(linha);
+  });
+  sheet.getRange(sheet.getLastRow() + 1, 1, linhas.length, 5).setValues(linhas);
+  recalcularDre_();
+
+  L.push('');
+  linhas.forEach(function (l) {
+    L.push('  DEPOIS ' + l[1] + ': R$ ' + Number(l[2]).toFixed(2) + ' em ' + l[3] + ' pedido(s)');
+  });
+  L.push('');
+  L.push('TOTAL ANTES ..: R$ ' + antesTotal.toFixed(2));
+  L.push('TOTAL DEPOIS .: R$ ' + depoisTotal.toFixed(2) + '  (' + pedidos + ' pedidos)');
+  L.push('DIFERENCA ....: R$ ' + (depoisTotal - antesTotal).toFixed(2));
+  L.push('');
+  L.push('A DRE de ' + mes + ' foi recalculada. A receita sobe nesse valor.');
+  L.push('');
+  L.push('O CMV de ' + mes + ' NAO mudou - _CMV_Consumo e outra aba e ainda nao');
+  L.push('tem quem a escreva. Entao o lucro bruto do mes sobe junto com a');
+  L.push('receita, e parte dessa melhora e custo que ainda falta aparecer.');
+  L.push('');
+  L.push('Se o numero novo nao convencer, as linhas ANTES estao ai em cima.');
+  logSync_('refazerReceitaMes', 'ok', mes + ': ' + antesTotal.toFixed(2)
+           + ' -> ' + depoisTotal.toFixed(2));
+  mostrarRelatorio_('Receita: refazer ' + mes, L);
+}
+
+function refazerReceitaSetembro() { return refazerReceitaMes('2026-09'); }
+
 function _rodarConferirReceita() { return conferirReceitaPedidos(); }
 function gravarReceitaMesCorrente() {
   return gravarReceitaPedidos(Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'yyyy-MM'));
