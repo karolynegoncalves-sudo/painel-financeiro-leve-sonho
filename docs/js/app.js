@@ -62,7 +62,7 @@ const MODO_PRECIF_ = new URLSearchParams(location.search).get('app') === 'precif
   if (!MODO_PRECIF_) return;
   document.title = 'Leve Sonho — Precificação';
   const man = document.querySelector('link[rel="manifest"]');
-  if (man) man.href = 'manifest-precificacao.json?v=20261006a';
+  if (man) man.href = 'manifest-precificacao.json?v=20261006b';
   const tit = document.querySelector('meta[name="apple-mobile-web-app-title"]');
   if (tit) tit.content = 'Preço LS';
   const h1Gate = document.querySelector('#loginGate h1');
@@ -4285,6 +4285,14 @@ function linhasVenda_(r, preco, taxaRs, sobra, p15, dfx, fixasRs, lucro) {
 
 function avisosFicha_(r, preco, p15) {
   const a = r.avisos.slice();
+  /* Custo fixo 0% nao e "sem custo fixo": e config que veio vazio (o
+     fallback de precifConfig poe 0). Sem este aviso o lucro sai plausivel e
+     nao paga aluguel nem salario - e no app so de Precificacao (06/10/2026)
+     ninguem esta a uma aba do Custo Fixo para estranhar. */
+  if (!(precifConfig && precifConfig.despesasFixasPctPadrao > 0)) {
+    a.unshift('ATENÇÃO: o custo fixo veio 0% da planilha, então o lucro abaixo NÃO desconta aluguel, '
+      + 'salários e demais despesas fixas. Não decida preço com esta tela até isso aparecer preenchido.');
+  }
   if (preco && p15 && preco < p15) a.push('A R$ ' + fmtNum_(preco) + ' este produto está abaixo do piso de queima (R$ ' + fmtNum_(p15) + ').');
   return a.length ? '<div class="fp-aviso">' + a.map(escapeHtml_).join(' ') + '</div>' : '';
 }
