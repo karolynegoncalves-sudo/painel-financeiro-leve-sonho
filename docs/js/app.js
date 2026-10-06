@@ -48,6 +48,49 @@ function esquecerToken_() {
 }
 let idToken = lerTokenGuardado_();
 
+/* ---------------- App so de Precificacao (06/10/2026) ----------------
+   O mesmo painel, aberto por ./?app=precificacao (ou precificacao.html, que
+   redireciona para ca). NAO e uma copia: copiar 4.600 linhas faria cada
+   correcao ser feita duas vezes, e as duas versoes acabariam mostrando
+   numeros diferentes.
+   Neste modo o boot pula o fluxoCaixa (~30s, ver verificarESeguir_) e abre
+   direto na Precificacao, que vive inteira do precificacaoTudo - nao le
+   FLUXO_ROWS, VENDAS_ROWS nem DRE_FONTES. Tem manifest proprio para
+   instalar como segundo icone no celular. */
+const MODO_PRECIF_ = new URLSearchParams(location.search).get('app') === 'precificacao';
+(function prepararModoPrecif_() {
+  if (!MODO_PRECIF_) return;
+  document.title = 'Leve Sonho — Precificação';
+  const man = document.querySelector('link[rel="manifest"]');
+  if (man) man.href = 'manifest-precificacao.json?v=20261006a';
+  const tit = document.querySelector('meta[name="apple-mobile-web-app-title"]');
+  if (tit) tit.content = 'Preço LS';
+  const h1Gate = document.querySelector('#loginGate h1');
+  if (h1Gate) h1Gate.textContent = 'Precificação';
+  const brand = document.querySelector('.brand');
+  if (brand) brand.textContent = 'Precificação';
+  const sub = document.querySelector('.brand-sub');
+  if (sub) sub.innerHTML = 'Ficha de preço: custo, taxa por canal e margem. '
+    + '<a href="./" style="color:inherit;">Abrir o painel completo →</a>';
+  const nav = document.getElementById('tabNav');
+  if (nav) nav.style.display = 'none';
+})();
+
+function abrirModoPrecificacao_(token) {
+  document.getElementById('userEmail').textContent = decodeJwtEmail(token);
+  document.getElementById('loginGate').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+  PAINEL_ABERTO = true;
+  setupTabs();
+  document.querySelectorAll('#tabNav button').forEach(function (b) {
+    b.classList.toggle('active', b.dataset.tab === 'precificacao');
+  });
+  document.querySelectorAll('.tab-panel').forEach(function (p) {
+    p.classList.toggle('active', p.id === 'tab-precificacao');
+  });
+  safeRenderTab('precificacao');
+}
+
 /* ---------------- Dado guardado no aparelho (05/10/2026) ----------------
    O login leva ~30s (o Apps Script varre a aba inteira). Para a tela abrir
    na hora, a ultima resposta de cada rota fica no IndexedDB e e desenhada
@@ -334,6 +377,8 @@ async function verificarESeguir_(token) {
     }
     return;
   }
+
+  if (MODO_PRECIF_) { abrirModoPrecificacao_(token); return; }
 
   /* O login ja pede o periodo, e registra a chave no cache para a primeira
      troca de aba nao rebuscar o mesmo intervalo. */
@@ -895,6 +940,11 @@ async function safeRenderTab(view) {
            Apps Script nao tiver a rota nova, cai no jeito antigo - assim
            o painel funciona antes e depois de republicar. */
         let d = await apiFetch_('precificacaoTudo', idToken);
+        if (d && d.error === 'not_authorized') {
+          el.innerHTML = '<div class="state-msg">A conta ' + decodeJwtEmail(idToken)
+            + ' não está na lista de acesso do painel (aba _Acesso da planilha).</div>';
+          return;
+        }
         if (!d || d.error) {
           const partes = await Promise.all([
             'precificacaoConfig', 'precificacaoMateriais', 'precificacaoRendimento',
