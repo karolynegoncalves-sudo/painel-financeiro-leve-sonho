@@ -205,10 +205,35 @@ function agregarReceitaDeVendas_() {
  * Gravar primeiro e conferir depois seria inverter o unico momento em que a
  * verificacao e barata.
  * -------------------------------------------------------------------------- */
+/* ----------------------------------------------------------------------------
+ * mostrarRelatorio_(titulo, linhas) - relatorio que aparece na TELA.
+ *
+ * POR QUE (06/10/2026, segunda vez): ela clicou no menu e disse "rodei porem
+ * nao saiu log". Rodando pelo MENU da planilha o `Logger.log` nao aparece em
+ * lugar nenhum visivel - so em Extensoes > Apps Script > Execucoes. Eu ja
+ * tinha batido nisso em 04/10 com o recategorizarJanAgo, consertei COM alert,
+ * e dois dias depois escrevi outra funcao de relatorio sem o mesmo cuidado.
+ *
+ * Alert nao serve aqui: relatorio de comparacao tem dezenas de linhas e
+ * alinhamento em colunas. Dialogo modal com <pre> serve, e ainda da pra
+ * selecionar e copiar o texto - que e como ela me manda o resultado.
+ *
+ * Continua gravando no Logger tambem: quem rodar pelo editor ainda ve.
+ * -------------------------------------------------------------------------- */
+function mostrarRelatorio_(titulo, linhas) {
+  const txt = linhas.join('\n');
+  Logger.log(txt);
+  const html = '<pre style="font:12px/1.45 Menlo,Consolas,monospace;white-space:pre;'
+             + 'overflow:auto;margin:0;">' + txt.replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</pre>';
+  SpreadsheetApp.getUi().showModalDialog(
+    HtmlService.createHtmlOutput(html).setWidth(900).setHeight(560), titulo);
+}
+
 function conferirReceitaPedidos() {
+  const L = [];
   const calc = agregarReceitaDeVendas_();
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_RECEITA_PEDIDOS_);
-  if (!sheet) { Logger.log('aba ' + ABA_RECEITA_PEDIDOS_ + ' nao existe'); return; }
+  if (!sheet) { mostrarRelatorio_('Receita', ['aba ' + ABA_RECEITA_PEDIDOS_ + ' nao existe']); return; }
 
   const atual = {};
   if (sheet.getLastRow() > 1) {
@@ -226,29 +251,36 @@ function conferirReceitaPedidos() {
   Object.keys(calc).forEach(function (k) { meses[calc[k].mes] = 1; });
   Object.keys(atual).forEach(function (k) { meses[atual[k].mes] = 1; });
 
-  Logger.log('=== RECEITA: o que a aba tem x o que a aba Vendas calcula ===');
-  Logger.log('(so leitura - nada foi gravado)');
-  Logger.log('');
-  Logger.log('mes      |      NA ABA |    CALCULADO |    DIFERENCA');
+  L.push('RECEITA: o que a aba tem  x  o que a aba Vendas calcula');
+  L.push('(so leitura - nada foi gravado)');
+  L.push('');
+  L.push('mes       |        NA ABA |     CALCULADO |     DIFERENCA');
+  L.push('----------+---------------+---------------+--------------');
+  const pad = function (n) { const s = Number(n).toFixed(2); return '              '.slice(s.length) + s; };
+  let faltando = 0, divergindo = 0;
   Object.keys(meses).sort().forEach(function (m) {
     let a = 0, c = 0;
     Object.keys(atual).forEach(function (k) { if (atual[k].mes === m) a += atual[k].valor; });
     Object.keys(calc).forEach(function (k) { if (calc[k].mes === m) c += calc[k].valor; });
     const d = c - a;
-    const marca = (a === 0) ? '  <- SO CALCULADO (aba nao tem este mes)'
-                : (Math.abs(d) < 0.01) ? '  OK'
-                : (Math.abs(d) / (a || 1) < 0.01) ? '  ~ (menos de 1%)'
-                : '  <<< DIVERGE';
-    Logger.log(m + '  | ' + a.toFixed(2) + ' | ' + c.toFixed(2) + ' | ' + d.toFixed(2) + marca);
+    let marca;
+    if (a === 0) { marca = '   <- A ABA NAO TEM ESTE MES'; faltando++; }
+    else if (Math.abs(d) < 0.01) { marca = '   OK'; }
+    else if (Math.abs(d) / (a || 1) < 0.01) { marca = '   ~ (menos de 1%)'; }
+    else { marca = '   <<< DIVERGE'; divergindo++; }
+    L.push(m + '   |' + pad(a) + ' |' + pad(c) + ' |' + pad(d) + marca);
   });
 
-  Logger.log('');
-  Logger.log('COMO LER: mes que fecha OK prova que o calculo reproduz o criterio');
-  Logger.log('de quem preencheu antes. Mes marcado DIVERGE precisa de explicacao');
-  Logger.log('ANTES de gravar - pode ser desconto, data ou situacao contados de');
-  Logger.log('outro jeito, e eu nao escrevo por cima de historico sem saber.');
-  Logger.log('');
-  Logger.log('Para gravar um mes que a aba nao tem: gravarReceitaPedidos("2026-10")');
+  L.push('');
+  L.push('VEREDITO: ' + divergindo + ' mes(es) divergindo, ' + faltando + ' mes(es) faltando na aba.');
+  L.push('');
+  L.push('COMO LER: mes que fecha OK prova que o calculo reproduz o criterio de');
+  L.push('quem preencheu antes, a mao. Mes marcado DIVERGE precisa de explicacao');
+  L.push('ANTES de gravar - pode ser desconto, data ou situacao contados de outro');
+  L.push('jeito, e eu nao escrevo por cima de historico sem saber o porque.');
+  L.push('');
+  L.push('Se nenhum divergir: menu > "Receita: gravar o mes corrente".');
+  mostrarRelatorio_('Receita: conferencia', L);
 }
 
 /* ----------------------------------------------------------------------------
