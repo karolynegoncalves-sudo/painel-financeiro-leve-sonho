@@ -254,6 +254,12 @@ function onOpen() {
     .addSeparator()
     /* A investigacao da faccao: onde o CMV existe, e quem recebeu como
        "Servicos de terceiros" antes de a categoria propria existir. */
+    /* A receita da DRE vem de _Receita_Pedidos, e ate 06/10/2026 ninguem
+       escrevia essa aba - ela parava no ultimo mes que alguem calculou a mao.
+       CONFERIR PRIMEIRO: o calculo tem que reproduzir os meses que ja estao
+       la antes de alguem confiar nele no mes novo. */
+    .addItem('Receita: conferir calculo x o que ja esta na aba', '_rodarConferirReceita')
+    .addItem('Receita: gravar o mes corrente', 'gravarReceitaMesCorrente')
     .addItem('Conferir CMV por mes (_CMV_Consumo)', 'conferirCmvPorMes')
     .addItem('Servicos de terceiros jan-abr (quem recebeu)', 'terceirosJanAbr')
     .addItem('Servicos de terceiros jan-AGO (quem recebeu)', 'terceirosJanAgo')

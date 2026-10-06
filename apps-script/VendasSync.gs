@@ -153,3 +153,166 @@ function getVendasRows_() {
     };
   });
 }
+
+/* ============================================================================
+ * _Receita_Pedidos: quem preenche passa a ser ESTE codigo (06/10/2026).
+ *
+ * POR QUE EXISTE: a aba alimenta a RECEITA da DRE inteira, e ate hoje ninguem
+ * a escrevia. O Setup.gs so cria o cabecalho e diz "quem preenche e o script de
+ * custo de fabricacao, fora deste projeto" - e esse script nao existe. Varri
+ * o G:, o H: e o C:\Claude filtrando arquivos de script: as 8 ocorrencias das
+ * duas abas sao leitura ou comentario. Elas vinham sendo preenchidas a mao,
+ * e por isso paravam no ultimo mes que alguem calculou (2026-09, com outubro
+ * ja vendendo R$ 6.775,01 em 81 pedidos).
+ *
+ * O sintoma era o ponto de equilibrio dizer "Sem receita no periodo" no mes
+ * corrente - todo mes, justamente quando ele seria mais util.
+ *
+ * NAO PRECISA DA API DO BLING. A aba Vendas ja tem pedido, data, canal,
+ * situacao e total, sincronizada de 2 em 2 horas pelo syncVendas. Receita por
+ * mes e canal e agregacao dela. Sem chamada externa, sem teto de 3 req/s, sem
+ * disputa de token com as outras sessoes - roda em segundos.
+ *
+ * O FILTRO E `contaReceita`, que o syncVendas ja resolve: exclui Cancelado
+ * (12) e Financeiro Auxiliar (890573). O segundo e o pedido-CLONE, copia
+ * financeira de uma venda real - conta-lo dobraria a receita. Em julho/2026
+ * eram 383 clones e R$ 27.223,94, 31% a mais de faturamento.
+ * ========================================================================== */
+function agregarReceitaDeVendas_() {
+  const porMesCanal = {};
+  getVendasRows_().forEach(function (v) {
+    if (!v.contaReceita) return;
+    const mes = String(v.data || '').slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(mes)) return;
+    const k = mes + '|' + v.canal;
+    if (!porMesCanal[k]) porMesCanal[k] = { mes: mes, canal: v.canal, valor: 0, pedidos: 0 };
+    porMesCanal[k].valor += v.total;
+    porMesCanal[k].pedidos += 1;
+  });
+  return porMesCanal;
+}
+
+/* ----------------------------------------------------------------------------
+ * conferirReceitaPedidos() - SO LEITURA, e e a funcao que importa.
+ *
+ * Antes de qualquer gravacao, provar que o calculo REPRODUZ os meses que ja
+ * estao na aba. Esses meses vieram de outro processo, feito a mao, e podem ter
+ * criterio diferente do meu - liquido de desconto, outra data, outro filtro de
+ * situacao. Se os meses antigos baterem, o metodo esta validado e outubro pode
+ * ser gravado com confianca. Se nao baterem, a diferenca aparece ANTES de eu
+ * escrever por cima de historico que sustenta a DRE do ano.
+ *
+ * Gravar primeiro e conferir depois seria inverter o unico momento em que a
+ * verificacao e barata.
+ * -------------------------------------------------------------------------- */
+function conferirReceitaPedidos() {
+  const calc = agregarReceitaDeVendas_();
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_RECEITA_PEDIDOS_);
+  if (!sheet) { Logger.log('aba ' + ABA_RECEITA_PEDIDOS_ + ' nao existe'); return; }
+
+  const atual = {};
+  if (sheet.getLastRow() > 1) {
+    sheet.getRange(2, 1, sheet.getLastRow() - 1, 4).getValues().forEach(function (l) {
+      const mes = l[0] instanceof Date
+        ? Utilities.formatDate(l[0], 'America/Sao_Paulo', 'yyyy-MM')
+        : String(l[0] || '').trim().slice(0, 7);
+      if (!mes) return;
+      const k = mes + '|' + String(l[1] || '').trim();
+      atual[k] = { mes: mes, canal: String(l[1] || '').trim(), valor: Number(l[2]) || 0 };
+    });
+  }
+
+  const meses = {};
+  Object.keys(calc).forEach(function (k) { meses[calc[k].mes] = 1; });
+  Object.keys(atual).forEach(function (k) { meses[atual[k].mes] = 1; });
+
+  Logger.log('=== RECEITA: o que a aba tem x o que a aba Vendas calcula ===');
+  Logger.log('(so leitura - nada foi gravado)');
+  Logger.log('');
+  Logger.log('mes      |      NA ABA |    CALCULADO |    DIFERENCA');
+  Object.keys(meses).sort().forEach(function (m) {
+    let a = 0, c = 0;
+    Object.keys(atual).forEach(function (k) { if (atual[k].mes === m) a += atual[k].valor; });
+    Object.keys(calc).forEach(function (k) { if (calc[k].mes === m) c += calc[k].valor; });
+    const d = c - a;
+    const marca = (a === 0) ? '  <- SO CALCULADO (aba nao tem este mes)'
+                : (Math.abs(d) < 0.01) ? '  OK'
+                : (Math.abs(d) / (a || 1) < 0.01) ? '  ~ (menos de 1%)'
+                : '  <<< DIVERGE';
+    Logger.log(m + '  | ' + a.toFixed(2) + ' | ' + c.toFixed(2) + ' | ' + d.toFixed(2) + marca);
+  });
+
+  Logger.log('');
+  Logger.log('COMO LER: mes que fecha OK prova que o calculo reproduz o criterio');
+  Logger.log('de quem preencheu antes. Mes marcado DIVERGE precisa de explicacao');
+  Logger.log('ANTES de gravar - pode ser desconto, data ou situacao contados de');
+  Logger.log('outro jeito, e eu nao escrevo por cima de historico sem saber.');
+  Logger.log('');
+  Logger.log('Para gravar um mes que a aba nao tem: gravarReceitaPedidos("2026-10")');
+}
+
+/* ----------------------------------------------------------------------------
+ * gravarReceitaPedidos(mes) - grava UM mes, e so se a aba ainda nao o tiver.
+ *
+ * Recusa sobrescrever mes existente de proposito. Esses meses sustentam a
+ * receita da DRE do ano inteiro; trocar um deles por engano seria estragar
+ * historico fechado. Para refazer um mes de verdade, apagar a linha na mao
+ * primeiro - o gesto manual e a confirmacao.
+ * -------------------------------------------------------------------------- */
+function gravarReceitaPedidos(mes) {
+  mes = String(mes || '').trim();
+  if (!/^\d{4}-\d{2}$/.test(mes)) { Logger.log('informe o mes: gravarReceitaPedidos("2026-10")'); return; }
+
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_RECEITA_PEDIDOS_);
+  if (!sheet) { Logger.log('aba ' + ABA_RECEITA_PEDIDOS_ + ' nao existe'); return; }
+
+  if (sheet.getLastRow() > 1) {
+    const existentes = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getValues();
+    const jaTem = existentes.some(function (l) {
+      const m = l[0] instanceof Date
+        ? Utilities.formatDate(l[0], 'America/Sao_Paulo', 'yyyy-MM')
+        : String(l[0] || '').trim().slice(0, 7);
+      return m === mes;
+    });
+    if (jaTem) {
+      Logger.log('A aba JA TEM ' + mes + '. Nao sobrescrevo historico.');
+      Logger.log('Rode conferirReceitaPedidos() pra ver se o calculo bate com o que esta la.');
+      Logger.log('Para refazer mesmo assim, apague as linhas desse mes na mao antes.');
+      return;
+    }
+  }
+
+  const calc = agregarReceitaDeVendas_();
+  const linhas = [];
+  const agora = Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'yyyy-MM-dd HH:mm');
+  let total = 0, pedidos = 0;
+  Object.keys(calc).sort().forEach(function (k) {
+    const r = calc[k];
+    if (r.mes !== mes) return;
+    linhas.push([r.mes, r.canal, r.valor, r.pedidos, agora]);
+    total += r.valor; pedidos += r.pedidos;
+  });
+
+  if (!linhas.length) {
+    Logger.log('Nenhuma venda em ' + mes + ' na aba Vendas. Rode syncVendas primeiro.');
+    return;
+  }
+
+  sheet.getRange(sheet.getLastRow() + 1, 1, linhas.length, 5).setValues(linhas);
+  recalcularDre_();
+
+  Logger.log('GRAVADO ' + mes + ': ' + linhas.length + ' canal(is), '
+             + pedidos + ' pedido(s), R$ ' + total.toFixed(2));
+  linhas.forEach(function (l) {
+    Logger.log('   ' + l[1] + ': R$ ' + Number(l[2]).toFixed(2) + ' em ' + l[3] + ' pedido(s)');
+  });
+  Logger.log('');
+  Logger.log('O CMV deste mes continua faltando - _CMV_Consumo e outra aba e');
+  Logger.log('ainda nao tem quem a escreva. Entao o lucro bruto de ' + mes + ' sai');
+  Logger.log('OTIMISTA ate ela ser preenchida: receita sem o custo do produto.');
+}
+
+function _rodarConferirReceita() { return conferirReceitaPedidos(); }
+function gravarReceitaMesCorrente() {
+  return gravarReceitaPedidos(Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'yyyy-MM'));
+}
