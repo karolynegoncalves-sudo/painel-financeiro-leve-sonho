@@ -519,6 +519,73 @@ function testarRotas() {
  * Roda os dois jeitos nas linhas de verdade, conta DIVERGENCIAS e cronometra
  * cada um. Divergencia tem que dar ZERO.
  * ========================================================================== */
+/* ============================================================================
+ * verRendimento() - SO LEITURA. O que a tabela de metros ja tem, e qual o
+ * degrau entre tamanhos.
+ *
+ * POR QUE (06/10/2026): a Karolyne esclareceu que o rendimento NAO depende do
+ * tecido - "se usa 1,40 P manga curta no cetim, no Amanda tambem". A tabela ja
+ * e assim, indexada por (tipoProduto, tamanho), sem coluna de material. Isso
+ * significa que os tres tecidos novos do site NAO precisam de medicao nenhuma:
+ * so os CORTES que ainda nao existem precisam.
+ *
+ * Antes de pedir numero a ela, saber o que ja esta medido - e, principalmente,
+ * se o degrau de um tamanho pro outro e regular. Se for, basta ela medir UM
+ * tamanho de cada corte novo e eu derivo os outros aplicando o mesmo degrau.
+ * Se nao for regular, derivar seria inventar, e aí nao da pra encurtar.
+ *
+ * Imprime o degrau em metros e em % de um tamanho para o seguinte, dentro de
+ * cada tipoProduto, justamente pra essa pergunta ter resposta medida.
+ * ========================================================================== */
+function verRendimento() {
+  const L = [];
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_PRECIFICACAO_RENDIMENTO);
+  if (!sheet || sheet.getLastRow() < 2) {
+    mostrarRelatorio_('Rendimento', ['aba ' + ABA_PRECIFICACAO_RENDIMENTO + ' vazia ou inexistente']);
+    return;
+  }
+  const cab = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  const iTipo = cab.indexOf('tipoProduto'), iTam = cab.indexOf('tamanho'), iM = cab.indexOf('metros');
+  if (iTipo < 0 || iTam < 0 || iM < 0) {
+    mostrarRelatorio_('Rendimento', ['cabecalho inesperado: ' + cab.join(' | ')]);
+    return;
+  }
+
+  const porTipo = {};
+  sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).getValues().forEach(function (l) {
+    const t = String(l[iTipo] || '').trim();
+    if (!t) return;
+    if (!porTipo[t]) porTipo[t] = [];
+    porTipo[t].push({ tam: String(l[iTam] || '').trim(), m: Number(l[iM]) || 0 });
+  });
+
+  L.push('RENDIMENTO - metros de tecido por peca, por modelo e tamanho');
+  L.push('(nao depende do tecido: o mesmo corte gasta o mesmo em cetim ou crepe)');
+  L.push('');
+  Object.keys(porTipo).sort().forEach(function (t) {
+    const linhas = porTipo[t];
+    L.push(t + '   (' + linhas.length + ' tamanho(s))');
+    let ant = null;
+    linhas.forEach(function (r) {
+      let degrau = '';
+      if (ant !== null && ant > 0 && r.m > 0) {
+        degrau = '   degrau +' + (r.m - ant).toFixed(3) + ' m  (+'
+               + (100 * (r.m - ant) / ant).toFixed(1) + '%)';
+      }
+      L.push('    ' + ('     ' + r.tam).slice(-5) + ' : ' + r.m.toFixed(3) + ' m' + degrau);
+      ant = r.m;
+    });
+    L.push('');
+  });
+
+  L.push('COMO ISSO ENCURTA O TRABALHO: se o degrau entre tamanhos for parecido');
+  L.push('dentro de cada modelo, ela mede UM tamanho de cada corte novo e eu');
+  L.push('derivo os outros aplicando o mesmo degrau. Se os degraus forem');
+  L.push('irregulares, derivar seria inventar - e aí tem que medir tamanho a');
+  L.push('tamanho mesmo.');
+  mostrarRelatorio_('Rendimento: o que ja esta medido', L);
+}
+
 function conferirFormatDate() {
   const L = [];
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_FLUXO_CAIXA);

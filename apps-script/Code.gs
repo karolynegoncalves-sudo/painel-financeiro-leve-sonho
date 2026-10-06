@@ -264,6 +264,7 @@ function onOpen() {
        la antes de alguem confiar nele no mes novo. */
     .addItem('Receita: conferir calculo x o que ja esta na aba', '_rodarConferirReceita')
     .addItem('Tecidos do site: gravar preco por metro', 'gravarTecidosDoSite')
+    .addItem('Rendimento: o que ja esta medido (metros por peca)', 'verRendimento')
     .addItem('Receita: gravar o mes corrente', 'gravarReceitaMesCorrente')
     /* Setembro foi preenchido a mao no meio do mes: R$ 24.534,07 na aba contra
        R$ 67.554,29 calculado. Porta separada de proposito - o gravar normal
