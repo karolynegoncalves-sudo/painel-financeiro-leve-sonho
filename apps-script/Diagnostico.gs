@@ -494,3 +494,90 @@ function testarRotas() {
 
   Logger.log(L.join('\n'));
 }
+
+/* ============================================================================
+ * conferirFormatDate() - SO LEITURA. O Utilities.formatDate e o gargalo do
+ * login, e trocar por getter nativo do Date da o MESMO texto?
+ *
+ * A HIPOTESE, da sessao Jobs em 06/10/2026, e boa porque explica um numero que
+ * nao fechava: a fase 1 do getFluxoCaixaRows_ le 3 colunas e leva 15-22 s; a
+ * fase 2 le as mesmas 21.821 linhas com 15 colunas e leva 3 s. Ler MENOS nao
+ * pode demorar 5 a 7 vezes mais - entao o peso nao esta na leitura de celula,
+ * esta no que o laco faz depois. E o laco chama texto() duas vezes por linha,
+ * cada uma com um Utilities.formatDate: ~44 mil chamadas de SERVICO por login,
+ * que a ~0,4 ms dao ~18 s. Bate com o f1.
+ *
+ * MEDIR ANTES DE TROCAR, por dois motivos:
+ *   1. a hipotese pode estar certa na direcao e errada no tamanho - e trocar
+ *      codigo por 2 s nao vale o risco que trocar por 18 s vale;
+ *   2. o getter nativo so devolve o mesmo texto se o fuso do script valer para
+ *      o Date no V8. O appsscript.json esta em America/Sao_Paulo, mas isso e
+ *      premissa, nao medicao. Se divergir num unico dia, o painel passa a
+ *      jogar linha pro mes errado, calado - e dado no mes errado e pior que
+ *      login lento.
+ *
+ * Roda os dois jeitos nas linhas de verdade, conta DIVERGENCIAS e cronometra
+ * cada um. Divergencia tem que dar ZERO.
+ * ========================================================================== */
+function conferirFormatDate() {
+  const L = [];
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_FLUXO_CAIXA);
+  if (!sheet || sheet.getLastRow() < 2) {
+    mostrarRelatorio_('formatDate', ['Fluxo de Caixa vazio']);
+    return;
+  }
+  const n = sheet.getLastRow() - 1;
+  const datas = sheet.getRange(2, 1, n, 1).getValues();
+
+  const p2 = function (x) { return x < 10 ? '0' + x : String(x); };
+  const nativo = function (v) {
+    if (v instanceof Date) return v.getFullYear() + '-' + p2(v.getMonth() + 1) + '-' + p2(v.getDate());
+    return String(v || '').trim().slice(0, 10);
+  };
+  const servico = function (v) {
+    if (v instanceof Date) return Utilities.formatDate(v, 'America/Sao_Paulo', 'yyyy-MM-dd');
+    return String(v || '').trim().slice(0, 10);
+  };
+
+  let t = Date.now();
+  const a = [];
+  for (let i = 0; i < n; i++) a.push(servico(datas[i][0]));
+  const msServico = Date.now() - t;
+
+  t = Date.now();
+  const b = [];
+  for (let i = 0; i < n; i++) b.push(nativo(datas[i][0]));
+  const msNativo = Date.now() - t;
+
+  let dif = 0;
+  const exemplos = [];
+  for (let i = 0; i < n; i++) {
+    if (a[i] !== b[i]) {
+      dif++;
+      if (exemplos.length < 10) {
+        exemplos.push('  linha ' + (i + 2) + ': servico=' + a[i] + '  nativo=' + b[i]);
+      }
+    }
+  }
+
+  L.push('Utilities.formatDate   x   getter nativo do Date');
+  L.push('');
+  L.push('linhas conferidas .....: ' + n);
+  L.push('DIVERGENCIAS ..........: ' + dif + (dif === 0 ? '    <- pode trocar' : '    <<< NAO TROCAR'));
+  L.push('');
+  L.push('Utilities.formatDate ..: ' + msServico + ' ms   (' + (msServico / n).toFixed(3) + ' ms/linha)');
+  L.push('getter nativo .........: ' + msNativo + ' ms   (' + (msNativo / n).toFixed(3) + ' ms/linha)');
+  L.push('ganho por passada .....: ' + (msServico - msNativo) + ' ms');
+  L.push('');
+  L.push('A fase 1 faz DUAS passadas (data e competencia), entao o ganho no');
+  L.push('login seria por volta de ' + (2 * (msServico - msNativo) / 1000).toFixed(1) + ' s.');
+  if (exemplos.length) {
+    L.push('');
+    L.push('PRIMEIRAS DIVERGENCIAS:');
+    exemplos.forEach(function (e) { L.push(e); });
+    L.push('');
+    L.push('Divergencia aqui significa que o fuso do script NAO vale para o');
+    L.push('Date no V8. Trocar jogaria linha pro mes errado, em silencio.');
+  }
+  mostrarRelatorio_('formatDate: medir antes de trocar', L);
+}

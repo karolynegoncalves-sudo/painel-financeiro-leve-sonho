@@ -242,6 +242,10 @@ function onOpen() {
              '_rodarReprocessarSemCategoria')
     .addItem('Manutencao da DRE (mapa + pendencias + recalculo)', 'manutencaoDre')
     .addItem('O que ainda esta (sem mapear)', 'semMapearAno')
+    /* Mede se o Utilities.formatDate e o gargalo do login (hipotese da sessao
+       Jobs) E se o getter nativo da o mesmo texto. So leitura; a troca so
+       acontece se as divergencias derem ZERO. */
+    .addItem('Medir: formatDate x getter nativo (login lento)', 'conferirFormatDate')
     /* Conta apagada no Bling que ficou na planilha. O syncBling nao alcanca:
        ele so reconfere conta EM ABERTO, e devolucao entra baixada. */
     .addItem('Limpar devolucoes apagadas no Bling (ago-set)',
