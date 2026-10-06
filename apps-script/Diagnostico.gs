@@ -578,6 +578,13 @@ function verRendimento() {
     L.push('');
   });
 
+  L.push('JA CONFERIDO, NAO E ERRO (06/10/2026): nos tres modelos "longo", os');
+  L.push('valores de G pra cima sao iguais entre modelos diferentes, e o G1 sai');
+  L.push('MENOR que o GG. Parece copiado e nao e - a Karolyne confirmou que foi');
+  L.push('medido na mesa. Nas grades grandes o encaixe muda, e a manga sai da');
+  L.push('sobra do mesmo comprimento de tecido; por isso dois modelos podem');
+  L.push('consumir igual e um tamanho maior pode consumir menos. Nao alterar.');
+  L.push('');
   L.push('COMO ISSO ENCURTA O TRABALHO: se o degrau entre tamanhos for parecido');
   L.push('dentro de cada modelo, ela mede UM tamanho de cada corte novo e eu');
   L.push('derivo os outros aplicando o mesmo degrau. Se os degraus forem');
