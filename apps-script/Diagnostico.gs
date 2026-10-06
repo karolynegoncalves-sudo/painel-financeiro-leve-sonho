@@ -593,6 +593,87 @@ function verRendimento() {
   mostrarRelatorio_('Rendimento: o que ja esta medido', L);
 }
 
+/* ============================================================================
+ * verSaquinho() - SO LEITURA. As DUAS pontas do custo do saquinho.
+ *
+ * POR QUE AS DUAS JUNTAS (06/10/2026): a memoria registra que o painel esta
+ * desatualizado em DOIS numeros do saquinho, e eles andam em sentidos
+ * OPOSTOS:
+ *
+ *   rendimento   painel 0,250 m   certo 0,170 m   -> custo CAI  R$ 0,24
+ *   costura      painel 0,30      certo 1,00      -> custo SOBE R$ 0,70
+ *                                                    liquido:  +R$ 0,46
+ *
+ * Corrigir so o rendimento, que foi o que eu levantei e ela autorizou, deixa
+ * o saquinho ainda mais BARATO do que ja esta errado - move o numero na
+ * direcao contraria da verdade e ainda por cima parece conserto. Fonte do
+ * valor certo: "Tabela Medidas Saquinhos" da FPV Shopee 2026, e o custo do
+ * Bling ja foi acertado em 05/09 para R$ 1,55/saquinho (cetim 0,17 x 2,99 =
+ * 0,51 + costura 1,00 + fitilho 0,04).
+ *
+ * Esta funcao so MOSTRA as duas pontas e o efeito de cada conserto isolado,
+ * pra decisao ser sobre o par e nao sobre a metade que eu por acaso achei
+ * primeiro.
+ * ========================================================================== */
+function verSaquinho() {
+  const L = [];
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  const achar = function (aba, colChave, alvo, colValor) {
+    const sh = ss.getSheetByName(aba);
+    if (!sh || sh.getLastRow() < 2) return null;
+    const cab = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
+    const iC = cab.indexOf(colChave), iV = cab.indexOf(colValor);
+    if (iC < 0 || iV < 0) return null;
+    const dados = sh.getRange(2, 1, sh.getLastRow() - 1, sh.getLastColumn()).getValues();
+    const achados = [];
+    dados.forEach(function (l, i) {
+      const chave = semAcento_(String(l[iC] || ''));
+      if (chave.indexOf('saquinho') >= 0) {
+        achados.push({ linha: i + 2, chave: String(l[iC]), valor: Number(l[iV]) || 0 });
+      }
+    });
+    return achados;
+  };
+
+  L.push('SAQUINHO DE CETIM - as duas pontas do custo');
+  L.push('');
+  L.push('RENDIMENTO (metros de tecido por peca)');
+  const rend = achar(ABA_PRECIFICACAO_RENDIMENTO, 'tipoProduto', 'saquinho', 'metros');
+  if (!rend || !rend.length) L.push('   nao achei linha de saquinho');
+  else rend.forEach(function (r) {
+    L.push('   linha ' + r.linha + ': ' + r.chave + ' = ' + r.valor.toFixed(3) + ' m'
+           + (Math.abs(r.valor - 0.250) < 0.001 ? '   <- o valor antigo' : ''));
+  });
+
+  L.push('');
+  L.push('COSTURA (mao de obra por peca)');
+  const prod = achar(ABA_PRECIFICACAO_PRODUCAO, 'tipoPeca', 'saquinho', 'costuraValor');
+  if (!prod || !prod.length) L.push('   nao achei linha de saquinho em ' + ABA_PRECIFICACAO_PRODUCAO);
+  else prod.forEach(function (r) {
+    L.push('   linha ' + r.linha + ': ' + r.chave + ' = R$ ' + r.valor.toFixed(2)
+           + (Math.abs(r.valor - 0.30) < 0.001 ? '   <- o valor antigo' : ''));
+  });
+
+  L.push('');
+  L.push('O QUE A FONTE DIZ (Tabela Medidas Saquinhos, FPV Shopee 2026, e o');
+  L.push('custo do Bling acertado em 05/09):');
+  L.push('   tecido .: 0,170 m  x  R$ 2,99  =  R$ 0,51');
+  L.push('   costura :                         R$ 1,00');
+  L.push('   fitilho :  0,5     x  R$ 0,08  =  R$ 0,04');
+  L.push('   TOTAL   :                         R$ 1,55 por saquinho');
+  L.push('');
+  L.push('EFEITO DE CADA CONSERTO, SOZINHO:');
+  L.push('   so o rendimento (0,250 -> 0,170) ...: custo CAI   R$ 0,24');
+  L.push('   so a costura    (0,30  -> 1,00) ....: custo SOBE  R$ 0,70');
+  L.push('   os dois juntos .....................: custo SOBE  R$ 0,46');
+  L.push('');
+  L.push('CORRIGIR SO O RENDIMENTO deixa o saquinho mais barato do que ja esta');
+  L.push('errado - move o numero pro lado contrario da verdade, e com cara de');
+  L.push('conserto. Os dois andam juntos ou nenhum anda.');
+  mostrarRelatorio_('Saquinho: as duas pontas', L);
+}
+
 function conferirFormatDate() {
   const L = [];
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_FLUXO_CAIXA);
