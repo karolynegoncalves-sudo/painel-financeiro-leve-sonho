@@ -191,8 +191,57 @@ var DAS_POR_COMPETENCIA_ = {
   // agosto: ESTIMADO. Aliquota de 7,72% sobre a receita do painel menos a
   // venda do site (que nao entra na base declarada): 56.860 - 6.999 = 49.861.
   // TROCAR pelo valor da guia quando sair.
-  '2026-08': 3849.28
+  '2026-08': 3849.28,
+  /* setembro: ESTIMADO, mesma formula, com a receita JA CORRIGIDA de 07/10
+     (o mes estava pela metade na _Receita_Pedidos ate hoje):
+        67.554,29 - 9.623,69 (site) = 57.930,60  x  7,72%  =  4.472,24
+     TROCAR pelo valor da guia quando o boleto sair. */
+  '2026-09': 4472.24
 };
+
+/* ----------------------------------------------------------------------------
+ * QUAIS COMPETENCIAS SAO ESTIMATIVA, e nao guia lida.
+ *
+ * POR QUE VIROU DADO (07/10/2026): agosto estava estimado desde setembro e a
+ * unica marca disso era um COMENTARIO no codigo. Na tela, estimativa e guia
+ * sao o mesmo numero preto - a Karolyne nao sabia que agosto nao tinha guia, e
+ * pediu setembro "so pra nao sujar dado", que e exatamente o risco que o
+ * comentario nao cobre.
+ *
+ * Comentario avisa quem le o codigo. Quem olha a DRE nao le o codigo.
+ *
+ * Com a lista aqui, "qual imposto e chute?" tem resposta de um clique
+ * (verImpostoEstimado) em vez de depender de alguem lembrar.
+ * -------------------------------------------------------------------------- */
+var DAS_ESTIMADO_ = { '2026-08': 1, '2026-09': 1 };
+
+function verImpostoEstimado() {
+  var L = [];
+  L.push('IMPOSTO DO SIMPLES - guia lida  x  estimativa');
+  L.push('');
+  L.push('competencia |        valor | origem');
+  var tg = 0, te = 0;
+  Object.keys(DAS_POR_COMPETENCIA_).sort().forEach(function (m) {
+    var v = Number(DAS_POR_COMPETENCIA_[m]) || 0;
+    var est = !!DAS_ESTIMADO_[m];
+    if (est) { te += v; } else { tg += v; }
+    L.push('  ' + m + '   | ' + ('            ' + v.toFixed(2)).slice(-12)
+           + ' | ' + (est ? 'ESTIMADO  <<<' : 'guia'));
+  });
+  L.push('');
+  L.push('de guia ....: R$ ' + tg.toFixed(2));
+  L.push('estimado ...: R$ ' + te.toFixed(2));
+  L.push('');
+  L.push('A ESTIMATIVA e 7,72% sobre a receita do painel MENOS a venda do site,');
+  L.push('que nao entra na base declarada. A aliquota foi medida nas seis guias');
+  L.push('de 2026 (7,61% a 7,81%) e sobe conforme o faturamento dos 12 meses.');
+  L.push('');
+  L.push('Trocar pela guia assim que o boleto sair: o numero estimado acerta a');
+  L.push('ordem de grandeza e nao acerta o centavo - em julho a minha');
+  L.push('estimativa bateu o total por ACIDENTE, somando juros de mora que nao');
+  L.push('sao imposto.');
+  mostrarRelatorio_('Imposto: guia x estimativa', L);
+}
 
 /**
  * Juros de mora e multa das guias pagas em atraso, por competencia da

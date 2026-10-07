@@ -273,6 +273,7 @@ function onOpen() {
        R$ 67.554,29 calculado. Porta separada de proposito - o gravar normal
        recusa sobrescrever, e deve continuar recusando. */
     .addItem('Receita: REFAZER setembro/2026 (estava pela metade)', 'refazerReceitaSetembro')
+    .addItem('Imposto: guia lida x estimativa', 'verImpostoEstimado')
     .addItem('Conferir CMV por mes (_CMV_Consumo)', 'conferirCmvPorMes')
     /* Setembro foi preenchido a mao no dia 9 e ficou em 7,3% da receita,
        contra 23-28% dos outros meses. Repetir ate dizer que fechou. */
