@@ -17,7 +17,16 @@ const fmtDataBR = (d) => d.toLocaleDateString('pt-BR');
  *
  * TROCAR JUNTO com o ?v= do index.html. Sao os dois lados da mesma versao.
  */
-const PAINEL_VERSAO = '20260926a';
+/* Lida do proprio ?v= do app.js (07/10/2026): o valor fixo ficou parado em
+   20260926a por duas semanas porque ninguem lembrava de trocar junto - e um
+   carimbo errado e pior que nenhum. Assim ele nunca desencontra. */
+const PAINEL_VERSAO = (function () {
+  try {
+    const sc = Array.from(document.scripts).find(function (x) { return /js\/app\.js/.test(x.src); });
+    const m = sc && sc.src.match(/[?&]v=([^&]+)/);
+    return m ? m[1] : '(sem ?v=)';
+  } catch (e) { return '(sem ?v=)'; }
+})();
 
 const escapeHtml_ = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const monthLabel = (p) => {
@@ -62,7 +71,7 @@ const MODO_PRECIF_ = new URLSearchParams(location.search).get('app') === 'precif
   if (!MODO_PRECIF_) return;
   document.title = 'Leve Sonho — Precificação';
   const man = document.querySelector('link[rel="manifest"]');
-  if (man) man.href = 'manifest-precificacao.json?v=20261007c';
+  if (man) man.href = 'manifest-precificacao.json?v=20261007d';
   const tit = document.querySelector('meta[name="apple-mobile-web-app-title"]');
   if (tit) tit.content = 'Preço LS';
   const h1Gate = document.querySelector('#loginGate h1');
@@ -3225,9 +3234,13 @@ function renderDreCaixa_(corpo, rows, porCompetencia) {
        <code>das=13 imp=0</code> ela existe e o valor não sai do
        <code>getDreFontes_</code>; <code>imp=13</code> o problema está nesta
        tela, não no backend. Tela <code>${PAINEL_VERSAO}</code>.</p>`
-    : `<p class="dre-nota" style="font-size:11px;">backend
+    /* Tudo certo: o carimbo fica recolhido (07/10/2026, a Karol perguntou se
+       "isso precisa aparecer"). Continua a um clique para conferir implantacao;
+       o aviso vermelho acima segue aberto quando o imposto nao chega. */
+    : `<details class="dre-carimbo"><summary>versão do painel</summary>
+       <p class="dre-nota" style="font-size:11px;">backend
        <code>${escapeHtml_(BACKEND_VERSAO)}</code> · tela
-       <code>${PAINEL_VERSAO}</code></p>`;
+       <code>${PAINEL_VERSAO}</code></p></details>`;
 
   corpo.innerHTML = `<div class="panel"><h3>DRE do período</h3>
     ${avisoBackend}
