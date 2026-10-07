@@ -62,7 +62,7 @@ const MODO_PRECIF_ = new URLSearchParams(location.search).get('app') === 'precif
   if (!MODO_PRECIF_) return;
   document.title = 'Leve Sonho — Precificação';
   const man = document.querySelector('link[rel="manifest"]');
-  if (man) man.href = 'manifest-precificacao.json?v=20261007b';
+  if (man) man.href = 'manifest-precificacao.json?v=20261007c';
   const tit = document.querySelector('meta[name="apple-mobile-web-app-title"]');
   if (tit) tit.content = 'Preço LS';
   const h1Gate = document.querySelector('#loginGate h1');
@@ -1930,7 +1930,8 @@ function renderKpis(el, rows) {
         <div class="kpi-value">${fat.temDados ? fmtBRL(fat.total) : '—'}</div>
         <div class="kpi-foot">${fat.temDados
           ? fat.pedidos + ' pedido(s) · ticket ' + fmtBRL(fat.ticket, 2)
-            + (variacaoFat === null ? '' : ' · ' + fmtPct(variacaoFat) + ' vs. anterior')
+            + (variacaoFat !== null ? ' · ' + fmtPct(variacaoFat) + ' vs. anterior'
+               : anteriorIncompleto ? ' · sem período anterior comparável' : '')
             + (fat.canceladas ? ' · ' + fat.canceladas + ' cancelado(s), ' + fmtBRL(fat.valorCancelado, 2) + ' fora' : '')
           : 'A aba Vendas alimenta este número'}</div>
       </div>
