@@ -16,7 +16,27 @@
  * append incremental deixaria cancelado contando como venda pra sempre.
  */
 
-const JANELA_VENDAS_DESDE = '2026-01-01';
+/* ALARGADO DE 2026-01-01 PARA 2025-11-01 em 07/10/2026.
+ *
+ * POR QUE: nov/25 e dez/25 apareciam na DRE com receita ZERO - a Margem de
+ * Contribuicao dos dois batia ao centavo com "receita = 0 menos o DAS menos
+ * as despesas variaveis". A causa era esta constante: o syncVendas nunca
+ * puxou 2025, entao a _Receita_Pedidos comecava em janeiro.
+ *
+ * POR QUE ALARGAR A JANELA e nao arquivar 2025 numa aba propria: esta aba e
+ * APAGADA E RECONSTRUIDA a cada 2h, entao carregar 2025 uma vez nao resolve.
+ * Aba separada resolveria, mas criaria um segundo caminho pra mesma pergunta
+ * - receita e CMV teriam que ler as duas e concordar. Alargar reusa o
+ * caminho inteiro sem uma linha de codigo novo.
+ *
+ * MEDI ANTES (sondar2025): sao 1.437 pedidos, ~15 paginas. A aba tinha 7.291
+ * pedidos em ~73 paginas; fica em ~88 de uma trava de 200. Cabe com folga.
+ *
+ * NAO ALARGUEI ATE 2025-01: outubro/25 pra tras nao tem DAS lancado nem
+ * despesa conferida, entao a DRE desses meses ficaria meio preenchida - que
+ * e pior que vazia, porque parece pronta. Dois meses e o que da pra fechar.
+ */
+const JANELA_VENDAS_DESDE = '2025-11-01';
 
 /** Situações de venda do Bling. Cancelado não conta como receita. */
 const SITUACAO_VENDA = {
@@ -906,3 +926,82 @@ function sondar2025() {
 
   mostrarRelatorio_('Sondagem 2025', L);
 }
+
+/* ============================================================================
+ * FECHAR nov/25 e dez/25 - receita primeiro, CMV depois.
+ *
+ * Ordem importa e nao e arbitraria: a receita sai da aba Vendas por agregacao
+ * (segundos, sem API) e o CMV precisa de uma chamada por pedido (1.437
+ * pedidos, varias rodadas). Gravar a receita antes ja tira os dois meses do
+ * "zero" e deixa a DRE legivel enquanto o CMV vem.
+ *
+ * ATENCAO: so roda depois que o syncVendas tiver rodado com a janela nova.
+ * Sem isso a aba Vendas nao tem 2025 e estas funcoes dizem "nenhuma venda".
+ * ========================================================================== */
+function gravarReceita2025() {
+  var L = [];
+  var meses = ['2025-11', '2025-12'];
+
+  /* CONFERE ANTES DE GRAVAR que a aba Vendas realmente tem os dois meses.
+     Sem isto, rodar com a janela velha gravaria... nada, e em silencio - a
+     gravarReceitaPedidos avisa pelo Logger.log, que nao aparece na tela. */
+  var temNaAba = {};
+  getVendasRows_().forEach(function (v) {
+    var m = String(v.data || '').slice(0, 7);
+    if (meses.indexOf(m) >= 0) temNaAba[m] = (temNaAba[m] || 0) + 1;
+  });
+
+  var faltando = meses.filter(function (m) { return !temNaAba[m]; });
+  if (faltando.length) {
+    mostrarRelatorio_('Receita 2025', [
+      'A aba Vendas ainda nao tem: ' + faltando.join(', '),
+      '',
+      'O JANELA_VENDAS_DESDE foi alargado para 2025-11-01, mas a aba so muda',
+      'depois que o syncVendas rodar. Rode "Sincronizar vendas (Bling)" e',
+      'volte aqui.'
+    ]);
+    return;
+  }
+
+  L.push('RECEITA DE nov/25 E dez/25');
+  L.push('');
+  meses.forEach(function (m) {
+    L.push(m + ': ' + temNaAba[m] + ' pedido(s) na aba Vendas');
+    gravarReceitaPedidos(m);   // ele proprio recusa sobrescrever mes existente
+  });
+  L.push('');
+
+  // le de volta o que ficou gravado, em vez de confiar na funcao que escreveu
+  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_RECEITA_PEDIDOS_);
+  var porMes = {};
+  if (sh && sh.getLastRow() > 1) {
+    sh.getRange(2, 1, sh.getLastRow() - 1, 4).getValues().forEach(function (l) {
+      var m = l[0] instanceof Date
+        ? Utilities.formatDate(l[0], 'America/Sao_Paulo', 'yyyy-MM')
+        : String(l[0] || '').trim().slice(0, 7);
+      if (meses.indexOf(m) < 0) return;
+      if (!porMes[m]) porMes[m] = { valor: 0, pedidos: 0, linhas: 0 };
+      porMes[m].valor += Number(l[2]) || 0;
+      porMes[m].pedidos += Number(l[3]) || 0;
+      porMes[m].linhas++;
+    });
+  }
+
+  L.push('GRAVADO NA _Receita_Pedidos:');
+  meses.forEach(function (m) {
+    var r = porMes[m];
+    L.push('  ' + m + ': ' + (r
+      ? 'R$ ' + r.valor.toFixed(2) + '  |  ' + r.pedidos + ' pedido(s)  |  ' + r.linhas + ' canal(is)'
+      : 'NADA - ver o motivo no Logger (Ver > Registros de execucao)'));
+  });
+  L.push('');
+  L.push('A sondagem tinha previsto R$ 53.967,30 e R$ 57.967,26.');
+  L.push('Se bater, a DRE de nov e dez/25 para de mostrar receita zero.');
+  L.push('');
+  L.push('PROXIMO PASSO: o CMV dos dois meses, um item de menu pra cada.');
+
+  mostrarRelatorio_('Receita 2025', L);
+}
+
+function gerarCmvNov25() { return gerarCmvMes('2025-11'); }
+function gerarCmvDez25() { return gerarCmvMes('2025-12'); }

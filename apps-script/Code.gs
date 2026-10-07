@@ -284,6 +284,10 @@ function onOpen() {
        de 2026-01-01. Antes de consertar, medir: quantos pedidos sao e se as
        fichas cobrem o mix de 2025. So le. */
     .addItem('Sondar 2025 (nov e dez) - so le, nao grava', 'sondar2025')
+    /* Fechar 2025 na ordem: sync (ja com a janela nova) > receita > CMV. */
+    .addItem('2025: gravar receita de nov e dez', 'gravarReceita2025')
+    .addItem('2025: CMV de novembro (repetir ate fechar)', 'gerarCmvNov25')
+    .addItem('2025: CMV de dezembro (repetir ate fechar)', 'gerarCmvDez25')
     /* Setembro foi preenchido a mao no dia 9 e ficou em 7,3% da receita,
        contra 23-28% dos outros meses. Repetir ate dizer que fechou. */
     .addItem('CMV: GERAR setembro/2026 (repetir ate fechar)', 'gerarCmvSetembro')
