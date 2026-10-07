@@ -215,6 +215,105 @@ var DAS_POR_COMPETENCIA_ = {
  * -------------------------------------------------------------------------- */
 var DAS_ESTIMADO_ = { '2026-08': 1, '2026-09': 1 };
 
+/* ============================================================================
+ * conferirImposto() - a aliquota de 7,72% ainda vale?
+ *
+ * PEDIDO DELA EM 07/10/2026: "o DAS sempre vence dia 20, coloca uma rotina pra
+ * validar o valor do imposto todo dia 20".
+ *
+ * Lembrete avisa que FALTA a guia. Isso tambem, mas a pergunta que decide
+ * dinheiro e outra: a aliquota que a gente usa pra estimar ainda acompanha a
+ * realidade? Ela SOBE conforme o faturamento dos 12 meses sobe, e uma
+ * aliquota velha subestima imposto todo mes, calada.
+ *
+ * Da pra medir sem pedir nada a ninguem: para cada competencia que JA TEM
+ * guia, calcular o que a formula teria estimado e comparar. A aliquota
+ * implicita de cada mes (guia / base) e o numero que importa - se ela estiver
+ * andando pra cima, o 7,72% precisa subir junto.
+ *
+ * A base NAO e a receita do painel: e a receita MENOS a venda do site, que
+ * nao entra na base declarada. Foi esse o meu erro inicial em setembro, e por
+ * isso a aliquota media que eu tinha calculado saia baixa demais.
+ * ========================================================================== */
+function conferirImposto() {
+  var L = [];
+  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_RECEITA_PEDIDOS_);
+  if (!sh || sh.getLastRow() < 2) {
+    mostrarRelatorio_('Imposto', ['_Receita_Pedidos vazia - sem base pra conferir']);
+    return;
+  }
+  var mesDe = function (v) {
+    return v instanceof Date
+      ? Utilities.formatDate(v, 'America/Sao_Paulo', 'yyyy-MM')
+      : String(v || '').trim().slice(0, 7);
+  };
+
+  var rec = {};
+  sh.getRange(2, 1, sh.getLastRow() - 1, 3).getValues().forEach(function (l) {
+    var m = mesDe(l[0]); if (!m) return;
+    if (!rec[m]) rec[m] = { total: 0, site: 0 };
+    var v = Math.abs(Number(l[2]) || 0);
+    rec[m].total += v;
+    if (canalSemNota_(l[1])) rec[m].site += v;
+  });
+
+  // ---- o aviso do dia 20, primeiro, porque e o que tem prazo
+  var hoje = new Date();
+  var dia = Number(Utilities.formatDate(hoje, 'America/Sao_Paulo', 'dd'));
+  var compVencendo = Utilities.formatDate(
+    new Date(hoje.getFullYear(), hoje.getMonth() - 1, 1), 'America/Sao_Paulo', 'yyyy-MM');
+  var faltaGuia = !DAS_POR_COMPETENCIA_[compVencendo] || !!DAS_ESTIMADO_[compVencendo];
+
+  if (faltaGuia) {
+    L.push('>>> A guia de ' + compVencendo + ' ' +
+           (DAS_POR_COMPETENCIA_[compVencendo] ? 'ainda e ESTIMATIVA.' : 'NAO esta lancada.'));
+    L.push('    Vence dia 20 de ' + Utilities.formatDate(hoje, 'America/Sao_Paulo', 'MM/yyyy')
+           + (dia >= 20 ? '  - JA VENCEU OU VENCE HOJE.' : '  - faltam ' + (20 - dia) + ' dia(s).'));
+    L.push('');
+  } else {
+    L.push('A guia de ' + compVencendo + ' ja esta lancada. Nada vencendo.');
+    L.push('');
+  }
+
+  // ---- a aliquota implicita, mes a mes
+  L.push('A ALIQUOTA AINDA VALE? (guia dividida pela base declarada)');
+  L.push('');
+  L.push('comp     |     receita |      - site |        base |       guia | aliq. | ');
+  var somaAliq = 0, nAliq = 0;
+  Object.keys(DAS_POR_COMPETENCIA_).sort().forEach(function (m) {
+    var r = rec[m];
+    if (!r) { L.push('  ' + m + '  | (sem receita na _Receita_Pedidos)'); return; }
+    var base = r.total - r.site;
+    var guia = Number(DAS_POR_COMPETENCIA_[m]) || 0;
+    var aliq = base > 0 ? guia / base : 0;
+    var est = !!DAS_ESTIMADO_[m];
+    if (!est && base > 0) { somaAliq += aliq; nAliq++; }
+    var pad = function (x) { return ('            ' + Number(x).toFixed(2)).slice(-12); };
+    L.push('  ' + m + ' |' + pad(r.total) + ' |' + pad(r.site) + ' |' + pad(base)
+           + ' |' + pad(guia).slice(-11) + ' | ' + (aliq * 100).toFixed(2) + '% '
+           + (est ? ' ESTIMADO' : ''));
+  });
+
+  var media = nAliq ? somaAliq / nAliq : 0;
+  L.push('');
+  L.push('aliquota media das GUIAS ....: ' + (media * 100).toFixed(2) + '%  (' + nAliq + ' guia(s))');
+  L.push('aliquota que o painel usa ...: ' + (ALIQUOTA_SIMPLES_ * 100).toFixed(2) + '%');
+  var dif = media - ALIQUOTA_SIMPLES_;
+  L.push('diferenca ...................: ' + (dif * 100).toFixed(2) + ' ponto(s)');
+  L.push('');
+  if (Math.abs(dif) > 0.002) {
+    L.push('>>> PASSOU DE 0,2 PONTO. Vale trocar o ALIQUOTA_SIMPLES_ para');
+    L.push('    ' + (media * 100).toFixed(2) + '%. A aliquota sobe com o faturamento dos 12 meses,');
+    L.push('    e uma aliquota velha subestima imposto todo mes, em silencio.');
+  } else {
+    L.push('Dentro de 0,2 ponto - nao precisa mexer.');
+  }
+  L.push('');
+  L.push('OLHE A COLUNA DE ALIQUOTA, nao so a media: se ela estiver SUBINDO mes');
+  L.push('a mes, a media ja esta atrasada em relacao ao proximo mes.');
+  mostrarRelatorio_('Imposto: a aliquota ainda vale?', L);
+}
+
 function verImpostoEstimado() {
   var L = [];
   L.push('IMPOSTO DO SIMPLES - guia lida  x  estimativa');
