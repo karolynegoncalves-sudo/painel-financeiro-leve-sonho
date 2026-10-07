@@ -198,25 +198,32 @@ var DAS_POR_COMPETENCIA_ = {
   // agosto: GUIA 07.20.26258.4983251-0, lida em 07/10/2026. Venceu em 21/09
   // porque o dia 20 caiu num domingo - ou seja, nao foi gerada em atraso e o
   // total NAO tem juros de mora (ao contrario de julho).
-  //
-  // A guia veio 3,7% ACIMA da minha estimativa de 3.849,28, e a diferenca nao
-  // e ruido: a aliquota implicita subiu.
-  //     3.993,05 / 49.861 (56.860 de receita - 6.999 do site) = 8,01%
-  // contra os 7,72% que eu vinha usando. O Simples sobe conforme o
-  // faturamento dos 12 meses, entao a aliquota e um alvo movel e a
-  // estimativa precisa ser remedida a cada guia - igual a taxa da Shopee.
   '2026-08': 3993.05,
   /* setembro: ESTIMADO, com a receita JA CORRIGIDA de 07/10 (o mes estava
-     pela metade na _Receita_Pedidos ate hoje) e com a aliquota REMEDIDA na
-     guia de agosto:
-        67.554,29 - 9.623,69 (site) = 57.930,60  x  8,01%  =  4.639,31
-     Com os 7,72% antigos daria 4.472,24 - R$ 167 a menos. Numa aliquota que
-     so sobe, a guia MAIS RECENTE estima melhor que a media das anteriores.
+     pela metade na _Receita_Pedidos ate hoje).
 
-     PROVISORIO: os 8,01% sao uma medicao de UM mes. O conferirImposto poe
-     jan-ago todos na mesma base e mostra se 8,01% e tendencia ou ponto fora
-     da curva - rodar antes de tratar esse numero como definitivo. */
-  '2026-09': 4639.31
+        67.554,29 - 9.623,69 (site) = 57.930,60  x  7,76%  =  4.496,75
+
+     OS 7,76% SAO A RAZAO AGREGADA, e isso importa: e a soma das oito guias
+     dividida pela soma das oito bases, nao a aliquota de um mes. Eu cheguei a
+     gravar aqui 4.639,31, estimado pelos 8,01% que a guia de agosto deu
+     sozinha, dizendo que a aliquota tinha subido. Estava errado.
+
+     A serie jan-ago na base do painel e: 5,83 | 7,04 | 8,01 | 7,76 | 8,86 |
+     7,65 | 8,92 | 8,01. Tres pontos de amplitude. A aliquota do Simples
+     SOBE DEVAGAR com o RBT12 e nao consegue pular de 8,86 pra 7,65 pra 8,92
+     em tres meses - entao o que balanca nao e a aliquota, e a minha BASE.
+
+     De onde vem o balanco: a base declarada e por NOTA EMITIDA e a minha e
+     por DATA DO PEDIDO. Pedido que vira nota no mes seguinte sai de um mes e
+     entra no outro. Medindo contra uma aliquota plana de 7,8%, o erro da
+     base vai de +12.200 (jan) a -7.133 (jul) e soma so +2.063 em oito meses:
+     erra para os dois lados e quase zera no agregado. Por isso a razao
+     agregada presta e o mes solto nao presta.
+
+     A estimativa de setembro carrega +-R$ 250 de incerteza por causa disso.
+     Nao vale continuar calibrando: a guia sai dia 20/10 e troca o numero. */
+  '2026-09': 4496.75
 };
 
 /* ----------------------------------------------------------------------------
@@ -307,7 +314,7 @@ function conferirImposto() {
   L.push('A ALIQUOTA AINDA VALE? (guia dividida pela base declarada)');
   L.push('');
   L.push('comp     |     receita |      - site |        base |       guia | aliq. | ');
-  var somaAliq = 0, nAliq = 0;
+  var somaAliq = 0, nAliq = 0, somaGuia = 0, somaBase = 0, minA = 9, maxA = 0;
   Object.keys(DAS_POR_COMPETENCIA_).sort().forEach(function (m) {
     var r = rec[m];
     if (!r) { L.push('  ' + m + '  | (sem receita na _Receita_Pedidos)'); return; }
@@ -315,27 +322,65 @@ function conferirImposto() {
     var guia = Number(DAS_POR_COMPETENCIA_[m]) || 0;
     var aliq = base > 0 ? guia / base : 0;
     var est = !!DAS_ESTIMADO_[m];
-    if (!est && base > 0) { somaAliq += aliq; nAliq++; }
+    if (!est && base > 0) {
+      somaAliq += aliq; nAliq++;
+      somaGuia += guia; somaBase += base;
+      if (aliq < minA) minA = aliq;
+      if (aliq > maxA) maxA = aliq;
+    }
     var pad = function (x) { return ('            ' + Number(x).toFixed(2)).slice(-12); };
     L.push('  ' + m + ' |' + pad(r.total) + ' |' + pad(r.site) + ' |' + pad(base)
            + ' |' + pad(guia).slice(-11) + ' | ' + (aliq * 100).toFixed(2) + '% '
            + (est ? ' ESTIMADO' : ''));
   });
 
-  var media = nAliq ? somaAliq / nAliq : 0;
+  /* A RAZAO AGREGADA, nao a media das razoes. Soma das guias sobre soma das
+     bases. Em 07/10/2026 as duas deram 7,76% por coincidencia, mas quando os
+     meses tem tamanhos diferentes elas divergem - e a agregada e a que
+     responde "quanto de imposto por real de base", que e o uso aqui. */
+  var media = somaBase > 0 ? somaGuia / somaBase : 0;
+  var mediaSimples = nAliq ? somaAliq / nAliq : 0;
+  var amplitude = nAliq ? maxA - minA : 0;
   L.push('');
-  L.push('aliquota media das GUIAS ....: ' + (media * 100).toFixed(2) + '%  (' + nAliq + ' guia(s))');
+  L.push('aliquota AGREGADA (soma/soma): ' + (media * 100).toFixed(2) + '%  (' + nAliq + ' guia(s))');
+  L.push('media simples dos meses .....: ' + (mediaSimples * 100).toFixed(2) + '%');
+  L.push('amplitude da coluna .........: ' + (minA * 100).toFixed(2) + '% a '
+         + (maxA * 100).toFixed(2) + '%  = ' + (amplitude * 100).toFixed(2) + ' ponto(s)');
   L.push('aliquota que o painel usa ...: ' + (ALIQUOTA_SIMPLES_ * 100).toFixed(2) + '%');
   var dif = media - ALIQUOTA_SIMPLES_;
   L.push('diferenca ...................: ' + (dif * 100).toFixed(2) + ' ponto(s)');
   L.push('');
-  if (Math.abs(dif) > 0.002) {
-    L.push('>>> PASSOU DE 0,2 PONTO. Vale trocar o ALIQUOTA_SIMPLES_ para');
-    L.push('    ' + (media * 100).toFixed(2) + '%. A aliquota sobe com o faturamento dos 12 meses,');
-    L.push('    e uma aliquota velha subestima imposto todo mes, em silencio.');
-  } else {
-    L.push('Dentro de 0,2 ponto - nao precisa mexer.');
+
+  /* A TRAVA QUE FALTOU EM 07/10. Eu peguei a aliquota de UM mes (agosto,
+     8,01%), chamei de "a aliquota subiu" e reescrevi a estimativa de
+     setembro com ela. A coluna inteira dizia o contrario: 3 pontos de
+     amplitude. A aliquota do Simples sobe devagar com o RBT12 e NAO pula
+     assim - amplitude larga quer dizer que a BASE esta errada mes a mes
+     (nota emitida num mes, pedido em outro), nao que a aliquota mudou.
+     Agora o relatorio diz isso antes de alguem ler a coluna errado. */
+  if (amplitude > 0.01) {
+    L.push('>>> A COLUNA BALANCA ' + (amplitude * 100).toFixed(1) + ' PONTOS. Isso nao e a aliquota');
+    L.push('    mudando - o Simples sobe devagar e nao pula tanto em poucos meses.');
+    L.push('    E a BASE que erra mes a mes: a declarada e por NOTA EMITIDA e a');
+    L.push('    nossa e por DATA DO PEDIDO, e o pedido que vira nota no mes');
+    L.push('    seguinte troca de mes. O erro vai para os dois lados e quase');
+    L.push('    some no agregado.');
+    L.push('    CONSEQUENCIA PRATICA: NAO estimar um mes pela aliquota do mes');
+    L.push('    anterior. Usar sempre a AGREGADA acima.');
+    L.push('');
   }
+
+  if (Math.abs(dif) > 0.002) {
+    L.push('>>> PASSOU DE 0,2 PONTO na AGREGADA. Vale trocar o ALIQUOTA_SIMPLES_');
+    L.push('    para ' + (media * 100).toFixed(2) + '%. A aliquota sobe com o faturamento dos 12');
+    L.push('    meses, e uma aliquota velha subestima imposto todo mes, calada.');
+  } else {
+    L.push('Dentro de 0,2 ponto na agregada - nao precisa mexer no parametro.');
+  }
+  L.push('');
+  L.push('A TENDENCIA so da pra ler em janelas, nao mes a mes: se a agregada dos'); 
+  L.push('ultimos 3 meses estiver acima da agregada do ano, o parametro ja esta');
+  L.push('atrasado. Um mes sozinho nao diz nada - ver o aviso de amplitude.');
   L.push('');
   L.push('OLHE A COLUNA DE ALIQUOTA, nao so a media: se ela estiver SUBINDO mes');
   L.push('a mes, a media ja esta atrasada em relacao ao proximo mes.');
@@ -359,9 +404,9 @@ function verImpostoEstimado() {
   L.push('de guia ....: R$ ' + tg.toFixed(2));
   L.push('estimado ...: R$ ' + te.toFixed(2));
   L.push('');
-  L.push('A ESTIMATIVA e 8,01% sobre a receita do painel MENOS a venda do site,');
+  L.push('A ESTIMATIVA e 7,76% sobre a receita do painel MENOS a venda do site,');
   L.push('que nao entra na base declarada. A aliquota foi medida nas seis guias');
-  L.push('de 2026 (7,61% a 8,01%) e sobe conforme o faturamento dos 12 meses.');
+  L.push('de 2026 e a razao AGREGADA, nao a de um mes - ver o conferirImposto.');
   L.push('');
   L.push('Trocar pela guia assim que o boleto sair: o numero estimado acerta a');
   L.push('ordem de grandeza e nao acerta o centavo - em julho a minha');
