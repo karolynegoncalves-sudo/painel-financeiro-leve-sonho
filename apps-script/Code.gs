@@ -273,7 +273,11 @@ function onOpen() {
        R$ 67.554,29 calculado. Porta separada de proposito - o gravar normal
        recusa sobrescrever, e deve continuar recusando. */
     .addItem('Receita: REFAZER setembro/2026 (estava pela metade)', 'refazerReceitaSetembro')
-    .addItem('Imposto: a aliquota ainda vale? (rodar dia 20)', 'conferirImposto')
+    .addItem('Imposto: a aliquota ainda vale?', 'conferirImposto')
+    /* O item acima chamava "(rodar dia 20)" e dependia de alguem lembrar.
+       Agora tem gatilho: instalar uma vez e ele manda o relatorio por e-mail
+       todo dia 20. Rodar de novo nao duplica. */
+    .addItem('Imposto: INSTALAR o aviso mensal do dia 20', 'instalarGatilhoImposto')
     .addItem('Imposto: guia lida x estimativa', 'verImpostoEstimado')
     .addItem('Conferir CMV por mes (_CMV_Consumo)', 'conferirCmvPorMes')
     /* Setembro foi preenchido a mao no dia 9 e ficou em 7,3% da receita,

@@ -271,11 +271,25 @@ var DAS_POR_COMPETENCIA_ = {
  * isso a aliquota media que eu tinha calculado saia baixa demais.
  * ========================================================================== */
 function conferirImposto() {
+  var r = _relatorioImposto_();
+  mostrarRelatorio_('Imposto: a aliquota ainda vale?', r.linhas);
+}
+
+/**
+ * Monta o relatorio e NAO mostra nada. Separado do conferirImposto de
+ * proposito: o gatilho do dia 20 roda sem navegador aberto, e la o
+ * SpreadsheetApp.getUi() nao existe - mostrarRelatorio_ quebraria a execucao
+ * inteira. Uma montagem so, dois jeitos de entregar.
+ *
+ * Devolve { linhas, pendencia }. `pendencia` e vazia quando nao ha nada
+ * vencendo; e o que o assunto do e-mail usa.
+ */
+function _relatorioImposto_() {
   var L = [];
   var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_RECEITA_PEDIDOS_);
   if (!sh || sh.getLastRow() < 2) {
-    mostrarRelatorio_('Imposto', ['_Receita_Pedidos vazia - sem base pra conferir']);
-    return;
+    return { linhas: ['_Receita_Pedidos vazia - sem base pra conferir'],
+             pendencia: 'a _Receita_Pedidos esta vazia' };
   }
   var mesDe = function (v) {
     return v instanceof Date
@@ -293,6 +307,7 @@ function conferirImposto() {
   });
 
   // ---- o aviso do dia 20, primeiro, porque e o que tem prazo
+  var pendencia = '';
   var hoje = new Date();
   var dia = Number(Utilities.formatDate(hoje, 'America/Sao_Paulo', 'dd'));
   var compVencendo = Utilities.formatDate(
@@ -300,6 +315,8 @@ function conferirImposto() {
   var faltaGuia = !DAS_POR_COMPETENCIA_[compVencendo] || !!DAS_ESTIMADO_[compVencendo];
 
   if (faltaGuia) {
+    pendencia = 'a guia de ' + compVencendo + ' ' +
+                (DAS_POR_COMPETENCIA_[compVencendo] ? 'ainda e estimativa' : 'nao esta lancada');
     L.push('>>> A guia de ' + compVencendo + ' ' +
            (DAS_POR_COMPETENCIA_[compVencendo] ? 'ainda e ESTIMATIVA.' : 'NAO esta lancada.'));
     L.push('    Vence dia 20 de ' + Utilities.formatDate(hoje, 'America/Sao_Paulo', 'MM/yyyy')
@@ -381,10 +398,59 @@ function conferirImposto() {
   L.push('A TENDENCIA so da pra ler em janelas, nao mes a mes: se a agregada dos'); 
   L.push('ultimos 3 meses estiver acima da agregada do ano, o parametro ja esta');
   L.push('atrasado. Um mes sozinho nao diz nada - ver o aviso de amplitude.');
-  L.push('');
-  L.push('OLHE A COLUNA DE ALIQUOTA, nao so a media: se ela estiver SUBINDO mes');
-  L.push('a mes, a media ja esta atrasada em relacao ao proximo mes.');
-  mostrarRelatorio_('Imposto: a aliquota ainda vale?', L);
+  /* AQUI TERMINAVA COM "olhe a coluna de aliquota: se ela estiver SUBINDO mes
+     a mes...". Tirei em 07/10/2026 porque foi exatamente esse conselho que me
+     fez errar: eu li agosto (8,01%) contra julho, vi "subindo" e regravei a
+     estimativa de setembro. Numa coluna que balanca 3 pontos, "subindo mes a
+     mes" e padrao em ruido - sempre tem um par de meses subindo. O aviso de
+     amplitude e a janela de 3 meses acima substituem isso por algo que
+     distingue tendencia de ruido. */
+  return { linhas: L, pendencia: pendencia };
+}
+
+/* ==========================================================================
+ * A ROTINA DO DIA 20 - de verdade, nao item de menu.
+ *
+ * Ela pediu em 07/10/2026: "o DAS sempre vence dia 20, coloca uma rotina pra
+ * validar o valor do imposto todo dia 20". Eu entreguei um item de menu com
+ * "(rodar dia 20)" no nome, o que nao e rotina nenhuma: depende de alguem
+ * lembrar. E a licao do dia foi justo essa - aviso que depende de leitura nao
+ * e trava.
+ *
+ * MANDA O RELATORIO INTEIRO, nao um "confira o imposto". Lembrete sem
+ * conteudo so transfere o trabalho; com a tabela dentro, ela decide no
+ * proprio e-mail se precisa abrir a planilha.
+ *
+ * MANDA TODO MES, inclusive quando esta tudo certo - nesse caso com assunto
+ * curto. Rotina que so fala quando ha problema nao da pra distinguir de
+ * rotina que parou de rodar, e gatilho do Apps Script morre calado quando a
+ * autorizacao expira.
+ * ========================================================================== */
+function avisarImpostoDia20() {
+  var r = _relatorioImposto_();
+  var assunto = r.pendencia
+    ? 'Imposto dia 20: ' + r.pendencia
+    : 'Imposto dia 20: nada pendente';
+  MailApp.sendEmail({
+    to: Session.getEffectiveUser().getEmail(),
+    subject: assunto,
+    body: r.linhas.join('\n')
+  });
+}
+
+/** Instala o gatilho mensal. Idempotente: limpa o antigo antes de criar. */
+function instalarGatilhoImposto() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'avisarImpostoDia20') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('avisarImpostoDia20')
+    .timeBased().onMonthDay(20).atHour(9).create();
+  mostrarRelatorio_('Imposto', [
+    'Gatilho instalado: todo dia 20, por volta das 9h.',
+    'Manda o relatorio da aliquota para ' + Session.getEffectiveUser().getEmail() + '.',
+    '',
+    'Rodar de novo nao duplica - ele apaga o anterior antes de criar.'
+  ]);
 }
 
 function verImpostoEstimado() {
