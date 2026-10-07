@@ -500,3 +500,207 @@ function _rodarConferirReceita() { return conferirReceitaPedidos(); }
 function gravarReceitaMesCorrente() {
   return gravarReceitaPedidos(Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'yyyy-MM'));
 }
+
+/* ============================================================================
+ * _CMV_Consumo: quem escreve passa a ser este codigo (07/10/2026).
+ *
+ * POR QUE: a aba alimenta o CMV da DRE inteira e, como a de receita, ninguem
+ * a escrevia. Setembro ficou com R$ 4.909,38 de CMV para R$ 67.554,29 de
+ * receita - 7,3%, quando os seis meses anteriores ficam entre 23% e 28%. Foi
+ * preenchida a mao em 09/09, pegando oito dias do mes. O resultado de
+ * setembro esta ~R$ 13.000 melhor do que foi.
+ *
+ * POR QUE E MAIS CARO QUE A RECEITA: receita e o TOTAL do pedido, e a aba
+ * Vendas ja tem. Custo depende das PECAS de cada pedido, e a listagem do
+ * Bling nao traz item - so o detalhe, pedido a pedido. Setembro tem 841
+ * pedidos.
+ *
+ * DESENHO: uma aba de rascunho (_CMV_Staging) guarda uma linha por pedido ja
+ * processado. Cada rodada avanca ate o teto de tempo do Google e para; a
+ * proxima continua de onde parou, pulando o que ja esta la. Quando acaba,
+ * agrega o rascunho e grava na _CMV_Consumo.
+ *
+ * O rascunho nao e so cursor: ele e a AUDITORIA. Com ele da pra perguntar
+ * "quais pedidos de setembro entraram sem ficha" e responder por pedido, que
+ * e o que a aba final nao permite - ela so tem o total do mes.
+ *
+ * O custo por peca vem do `custoDoSku_`, que ja existe e e o MESMO que a
+ * Ficha de Preco usa. Nao reimplemento formula de custo: duas implementacoes
+ * da mesma conta divergem, e a divergencia aparece como margem errada.
+ * ========================================================================== */
+const ABA_CMV_STAGING_ = '_CMV_Staging';
+
+function _cmvStaging_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sh = ss.getSheetByName(ABA_CMV_STAGING_);
+  if (!sh) {
+    sh = ss.insertSheet(ABA_CMV_STAGING_);
+    sh.hideSheet();
+  }
+  if (sh.getLastRow() < 1) {
+    sh.getRange(1, 1, 1, 8).setValues([[
+      'mes', 'pedidoId', 'canal', 'custo', 'pecas', 'pecasSemFicha', 'itens', 'quando'
+    ]]);
+  }
+  return sh;
+}
+
+function gerarCmvMes(mes) {
+  mes = String(mes || '').trim();
+  if (!/^\d{4}-\d{2}$/.test(mes)) {
+    mostrarRelatorio_('CMV', ['informe o mes: gerarCmvMes("2026-09")']);
+    return;
+  }
+  const L = [];
+  INICIO_SYNC_.t = Date.now();
+  const token = getBlingAccessToken_();
+  const cat = carregarCatalogosCusto_();
+
+  // ---- pedidos do mes, da aba Vendas (mesma fonte e mesmo filtro da receita)
+  const pedidos = getVendasRows_().filter(function (v) {
+    return v.contaReceita && String(v.data || '').slice(0, 7) === mes;
+  });
+  if (!pedidos.length) {
+    mostrarRelatorio_('CMV ' + mes, ['A aba Vendas nao tem pedido em ' + mes + '. Rode syncVendas.']);
+    return;
+  }
+
+  // ---- o que ja foi processado
+  const sh = _cmvStaging_();
+  const feitos = {};
+  if (sh.getLastRow() > 1) {
+    sh.getRange(2, 1, sh.getLastRow() - 1, 2).getValues().forEach(function (l) {
+      if (String(l[0]).trim() === mes) feitos[String(l[1]).trim()] = 1;
+    });
+  }
+
+  const faltam = pedidos.filter(function (p) { return !feitos[p.pedidoId]; });
+  L.push('CMV de ' + mes);
+  L.push('');
+  L.push('pedidos do mes ........: ' + pedidos.length);
+  L.push('ja processados ........: ' + (pedidos.length - faltam.length));
+  L.push('nesta rodada ..........: comecando pelos ' + faltam.length + ' que faltam');
+  L.push('');
+
+  const novas = [];
+  let parou = false, semProduto = 0;
+  const agora = Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'yyyy-MM-dd HH:mm');
+
+  for (let k = 0; k < faltam.length; k++) {
+    if (tempoGasto_() > TETO_TOTAL_MS) { parou = true; break; }
+    const p = faltam[k];
+    const r = fetchBlingStatus_('https://api.bling.com.br/Api/v3/pedidos/vendas/' + p.pedidoId, token);
+    Utilities.sleep(320);
+    const d = r.json && r.json.data;
+    if (!d) { continue; }           // nao grava: a proxima rodada tenta de novo
+    const itens = d.itens || [];
+    let custo = 0, pecas = 0, semFicha = 0;
+    itens.forEach(function (it) {
+      const q = Number(it.quantidade) || 0;
+      if (!q) return;
+      pecas += q;
+      const c = custoDoSku_(String(it.codigo || ''), String(it.descricao || ''), p.canal, cat);
+      if (c && c.custo > 0) { custo += c.custo * q; }
+      else { semFicha += q; }
+    });
+    if (!itens.length) semProduto++;
+    novas.push([mes, p.pedidoId, p.canal, custo, pecas, semFicha, itens.length, agora]);
+  }
+
+  if (novas.length) {
+    sh.getRange(sh.getLastRow() + 1, 1, novas.length, 8).setValues(novas);
+  }
+
+  const total = pedidos.length;
+  const prontos = (pedidos.length - faltam.length) + novas.length;
+  L.push('processados agora .....: ' + novas.length);
+  L.push('TOTAL pronto ..........: ' + prontos + ' de ' + total);
+  if (semProduto) L.push('pedidos sem item ......: ' + semProduto + ' (pedido sem produto no Bling)');
+  L.push('');
+
+  if (prontos < total) {
+    L.push('*** PAREI POR TEMPO. Clique no mesmo item do menu de novo. ***');
+    L.push('Faltam ' + (total - prontos) + ' pedido(s). Nada foi gravado na _CMV_Consumo');
+    L.push('ainda - o rascunho guarda o progresso e a proxima rodada continua.');
+    logSync_('gerarCmvMes', 'parcial', mes + ': ' + prontos + '/' + total);
+    mostrarRelatorio_('CMV ' + mes + ' - faltam ' + (total - prontos), L);
+    return;
+  }
+
+  // ---------------------------------------------------------- fecha o mes
+  const porCanal = {};
+  let tc = 0, tp = 0, ts = 0;
+  sh.getRange(2, 1, sh.getLastRow() - 1, 6).getValues().forEach(function (l) {
+    if (String(l[0]).trim() !== mes) return;
+    const canal = String(l[2] || '').trim();
+    if (!porCanal[canal]) porCanal[canal] = { custo: 0, pecas: 0, semFicha: 0 };
+    porCanal[canal].custo += Number(l[3]) || 0;
+    porCanal[canal].pecas += Number(l[4]) || 0;
+    porCanal[canal].semFicha += Number(l[5]) || 0;
+    tc += Number(l[3]) || 0; tp += Number(l[4]) || 0; ts += Number(l[5]) || 0;
+  });
+
+  const alvo = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_CMV_CONSUMO_);
+  if (!alvo) { mostrarRelatorio_('CMV', ['aba ' + ABA_CMV_CONSUMO_ + ' nao existe']); return; }
+
+  const mesDaLinha = function (v) {
+    return v instanceof Date
+      ? Utilities.formatDate(v, 'America/Sao_Paulo', 'yyyy-MM')
+      : String(v || '').trim().slice(0, 7);
+  };
+  const apagar = [];
+  let antesValor = 0, antesPecas = 0;
+  if (alvo.getLastRow() > 1) {
+    alvo.getRange(2, 1, alvo.getLastRow() - 1, 5).getValues().forEach(function (l, i) {
+      if (mesDaLinha(l[0]) !== mes) return;
+      apagar.push(i + 2);
+      antesValor += Number(l[2]) || 0;
+      antesPecas += Number(l[3]) || 0;
+      L.push('  ANTES  ' + String(l[1]) + ': R$ ' + (Number(l[2]) || 0).toFixed(2)
+             + ' em ' + (l[3] || '?') + ' peca(s)');
+    });
+  }
+
+  /* Mesma trava da receita, e pelo mesmo motivo: numero novo MUITO menor que o
+     gravado e sinal de dado faltando, nao de conserto. Nao bloqueia pra cima -
+     que e o caso de setembro. */
+  if (antesPecas > 0 && tp < antesPecas * 0.9) {
+    L.push('');
+    L.push('*** NAO GRAVEI. O calculado tem MENOS pecas que o gravado. ***');
+    L.push('   pecas: gravado ' + antesPecas + '   calculado ' + tp);
+    L.push('O rascunho esta completo e guardado; confira a aba Vendas antes.');
+    logSync_('gerarCmvMes', 'bloqueado', mes);
+    mostrarRelatorio_('CMV ' + mes + ': BLOQUEADO', L);
+    return;
+  }
+
+  const linhas = [];
+  Object.keys(porCanal).sort().forEach(function (c) {
+    const a = porCanal[c];
+    linhas.push([mes, c, a.custo, a.pecas, a.semFicha, agora, '', '', '', '']);
+  });
+  apagar.sort(function (x, y) { return y - x; }).forEach(function (r) { alvo.deleteRow(r); });
+  alvo.getRange(alvo.getLastRow() + 1, 1, linhas.length, 10).setValues(linhas);
+  recalcularDre_();
+
+  L.push('');
+  linhas.forEach(function (l) {
+    L.push('  DEPOIS ' + l[1] + ': R$ ' + Number(l[2]).toFixed(2) + ' em ' + l[3]
+           + ' peca(s), ' + l[4] + ' sem ficha');
+  });
+  L.push('');
+  L.push('CMV ANTES ..: R$ ' + antesValor.toFixed(2) + '   (' + antesPecas + ' pecas)');
+  L.push('CMV DEPOIS .: R$ ' + tc.toFixed(2) + '   (' + tp + ' pecas, ' + ts + ' sem ficha)');
+  L.push('DIFERENCA ..: R$ ' + (tc - antesValor).toFixed(2));
+  L.push('');
+  L.push('PECAS SEM FICHA: ' + ts + ' de ' + tp
+         + ' (' + (tp ? (100 * ts / tp).toFixed(0) : 0) + '%). Essas entraram com');
+  L.push('custo ZERO - o CMV acima ainda esta subestimado nesse tanto.');
+  L.push('');
+  L.push('O rascunho _CMV_Staging ficou com uma linha por pedido. Nao apague:');
+  L.push('e por ele que da pra perguntar QUAIS pedidos entraram sem ficha.');
+  logSync_('gerarCmvMes', 'ok', mes + ': ' + antesValor.toFixed(2) + ' -> ' + tc.toFixed(2));
+  mostrarRelatorio_('CMV ' + mes + ' fechado', L);
+}
+
+function gerarCmvSetembro() { return gerarCmvMes('2026-09'); }

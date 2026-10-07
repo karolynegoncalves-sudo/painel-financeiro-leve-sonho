@@ -274,6 +274,9 @@ function onOpen() {
        recusa sobrescrever, e deve continuar recusando. */
     .addItem('Receita: REFAZER setembro/2026 (estava pela metade)', 'refazerReceitaSetembro')
     .addItem('Conferir CMV por mes (_CMV_Consumo)', 'conferirCmvPorMes')
+    /* Setembro foi preenchido a mao no dia 9 e ficou em 7,3% da receita,
+       contra 23-28% dos outros meses. Repetir ate dizer que fechou. */
+    .addItem('CMV: GERAR setembro/2026 (repetir ate fechar)', 'gerarCmvSetembro')
     .addItem('Servicos de terceiros jan-abr (quem recebeu)', 'terceirosJanAbr')
     .addItem('Servicos de terceiros jan-AGO (quem recebeu)', 'terceirosJanAgo')
     /* RESINCRONIZAR A RECLASSIFICACAO FEITA NO BLING (04/10/2026).
