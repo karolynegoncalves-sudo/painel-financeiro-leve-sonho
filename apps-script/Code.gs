@@ -23,7 +23,7 @@
  * TROQUE ESTA STRING quando mexer no que o doGet devolve. O painel mostra o
  * valor e avisa em vermelho quando nao encontra a marca que ele espera.
  */
-const BACKEND_VERSAO_ = '2026-10-07 data-nativa';
+const BACKEND_VERSAO_ = '2026-10-07 leitura-unica';
 
 function doGet(e) {
   const params = (e && e.parameter) || {};
@@ -531,30 +531,48 @@ function getFluxoCaixaRows_(pedidoDe, pedidoAte) {
   const T_ = { f1: 0, f2: 0, proj: 0 };
   let tm_ = Date.now();
 
-  // FASE 1: as duas colunas de data e a situacao, para achar a faixa de linhas
-  const datas = sheet.getRange(2, 1, n, 1).getValues();
-  const comps = sheet.getRange(2, iComp + 1, n, 1).getValues();
+  /* UMA LEITURA SO, em vez de quatro (07/10/2026).
+   *
+   * Antes eram duas fases: a fase 1 lia TRES colunas inteiras em chamadas
+   * separadas (data, competencia, situacao) so pra descobrir a faixa de linhas
+   * que interessa, e a fase 2 lia as 15 colunas dessa faixa. Depois da troca
+   * do formatDate, a sessao Jobs mediu o que sobrou e isolou o problema: o f1
+   * ficou em 5 a 7 s e o `proj` caiu pra 12 ms - ou seja, o que restava no f1
+   * nao era conta, era a ida a aba. Tres getValues de coluna inteira custam
+   * tres vezes o pedagio de alcancar 22 mil linhas.
+   *
+   * A observacao que fecha o caso e dela: o bloco da fase 2 JA CONTEM as tres
+   * colunas da fase 1. E, como conta em aberto entra sempre e as provisoes vao
+   * ate 2027, a faixa `primeira..ultima` ja e quase a aba inteira (21.908 de
+   * 22.274 na ultima medicao) - entao ler tudo de uma vez custa praticamente o
+   * mesmo que a fase 2 sozinha, e as leituras da fase 1 somem.
+   *
+   * Medido antes: f1 5-7 s + f2 ~3 s. Esperado depois: ~3-4 s no total.
+   *
+   * SE UM DIA A FAIXA ENCOLHER - se alguem resolver o problema das linhas em
+   * aberto espalhadas - esta troca passa a ser ruim: ler a aba inteira pra
+   * devolver 1.300 linhas seria desperdicio. O ganho de hoje existe PORQUE a
+   * faixa e quase tudo. Vale reconferir se o `li` do carimbo cair muito. */
   const iSit = headers.indexOf('situacao') >= 0 ? headers.indexOf('situacao') : 2;
-  const sits = sheet.getRange(2, iSit + 1, n, 1).getValues();
+  const bloco = sheet.getRange(2, 1, n, COLS_FLUXO_).getValues();
+  T_.f1 = Date.now() - tm_;
+
+  tm_ = Date.now();
   let primeira = -1, ultimaLinha = -1;
   const dentro = new Array(n);
   for (let i = 0; i < n; i++) {
-    const d = texto(datas[i][0]);
-    const c = texto(comps[i][0]);
+    const linha = bloco[i];
+    const d = texto(linha[0]);
+    const c = texto(linha[iComp]);
     const noPeriodo = (d && d >= desde && d <= ate) || (c && c >= desde && c <= ate);
     /* Em aberto entra sempre - ver o cabecalho desta funcao, item 1. */
-    const emAberto = String(sits[i][0] || '').trim() === '1';
+    const emAberto = String(linha[iSit] || '').trim() === '1';
     dentro[i] = noPeriodo || emAberto;
     if (dentro[i]) { if (primeira < 0) primeira = i; ultimaLinha = i; }
   }
-  T_.f1 = Date.now() - tm_;
+  T_.f2 = Date.now() - tm_;
   if (primeira < 0) return { headers: headers, rows: [], desde: desde, total: n, ms: T_ };
 
-  // FASE 2: as 15 colunas, so da faixa que interessa
-  tm_ = Date.now();
-  const bloco = sheet.getRange(primeira + 2, 1, ultimaLinha - primeira + 1, COLS_FLUXO_)
-                     .getValues();
-  T_.f2 = Date.now() - tm_;
   tm_ = Date.now();
 
   /* SO AS COLUNAS QUE A TELA USA, e o motivo veio de uma medicao.
@@ -602,8 +620,13 @@ function getFluxoCaixaRows_(pedidoDe, pedidoAte) {
   const iDataOut = hOut.indexOf('data'), iCompOut = hOut.indexOf('competencia');
 
   const rows = [];
-  for (let i = 0; i < bloco.length; i++) {
-    if (!dentro[primeira + i]) continue;
+  /* `bloco` agora comeca na LINHA 2 da aba, nao na `primeira` - entao o indice
+     dele e o mesmo do `dentro`, sem deslocamento. O `primeira + i` de antes
+     existia porque a leitura comecava na faixa; mantido por engano aqui, ele
+     pularia linhas e devolveria menos dados sem erro nenhum. Percorre so a
+     faixa util, que e o que o `primeira`/`ultimaLinha` servem agora. */
+  for (let i = primeira; i <= ultimaLinha; i++) {
+    if (!dentro[i]) continue;
     const orig = bloco[i];
     const linha = new Array(proj.length);
     for (let k = 0; k < proj.length; k++) linha[k] = orig[proj[k]];
@@ -613,7 +636,7 @@ function getFluxoCaixaRows_(pedidoDe, pedidoAte) {
   }
   T_.proj = Date.now() - tm_;
   return { headers: hOut, rows: rows, desde: desde, ate: ate, total: n,
-           lidas: bloco.length, cols: hOut.length, ms: T_ };
+           lidas: (ultimaLinha - primeira + 1), cols: hOut.length, ms: T_ };
 }
 
 /**
