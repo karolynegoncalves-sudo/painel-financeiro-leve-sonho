@@ -280,6 +280,10 @@ function onOpen() {
     .addItem('Imposto: INSTALAR o aviso mensal do dia 20', 'instalarGatilhoImposto')
     .addItem('Imposto: guia lida x estimativa', 'verImpostoEstimado')
     .addItem('Conferir CMV por mes (_CMV_Consumo)', 'conferirCmvPorMes')
+    /* nov/25 e dez/25 estao na DRE com receita ZERO - o syncVendas so puxa
+       de 2026-01-01. Antes de consertar, medir: quantos pedidos sao e se as
+       fichas cobrem o mix de 2025. So le. */
+    .addItem('Sondar 2025 (nov e dez) - so le, nao grava', 'sondar2025')
     /* Setembro foi preenchido a mao no dia 9 e ficou em 7,3% da receita,
        contra 23-28% dos outros meses. Repetir ate dizer que fechou. */
     .addItem('CMV: GERAR setembro/2026 (repetir ate fechar)', 'gerarCmvSetembro')

@@ -733,3 +733,176 @@ function gerarCmvMes(mes) {
 }
 
 function gerarCmvSetembro() { return gerarCmvMes('2026-09'); }
+
+/* ============================================================================
+ * SONDAR OS MESES FECHADOS DE 2025 - medir antes de construir.
+ *
+ * O ACHADO QUE GEROU ISTO (07/10/2026). Ela viu "Servicos de terceiros" ainda
+ * dentro de Despesas Administrativas em nov/25 e perguntou por que. Esta
+ * certa: a reclassificacao da faccao cobriu jan-ago/2026 e 2025 nunca foi
+ * tocado.
+ *
+ * So que o buraco de 2025 e MAIOR que a classificacao. A Margem de
+ * Contribuicao de nov/25 e dez/25 bate ao centavo com "receita = 0":
+ *    nov/25  -4.696,76 = 0 - 3.164,91 (DAS) - 1.531,85 (desp. variaveis)
+ *    dez/25  -4.722,47 = 0 - 3.874,66 (DAS) -   847,81
+ * E o conferirImposto ja dizia o mesmo de outro jeito: a _Receita_Pedidos
+ * comeca em 2026-01.
+ *
+ * A causa e o JANELA_VENDAS_DESDE = '2026-01-01': o syncVendas nunca puxou
+ * 2025. Ele tambem APAGA e reconstroi a aba inteira a cada 2 horas, entao nao
+ * adianta carregar 2025 uma vez - some na proxima rodada.
+ *
+ * POR QUE SONDAR EM VEZ DE JA CONSERTAR: reclassificar a faccao de 2025 sem
+ * receita e sem CMV deixaria a coluna MAIS BONITA e igualmente ficticia - e
+ * pior, tiraria o custo da costura da DRE sem nada pondo no lugar. E a mesma
+ * armadilha do Private Label. Entao primeiro medir:
+ *
+ *   1. QUANTOS pedidos tem em nov e dez/25? Decide se da pra simplesmente
+ *      alargar o JANELA_VENDAS_DESDE (reusando todo o caminho que ja existe)
+ *      ou se isso estoura o teto de 6 min / 200 paginas do syncVendas.
+ *   2. QUANTO de receita entraria, por canal.
+ *   3. AS FICHAS COBREM 2025? Se os SKUs de 2025 nao estao no catalogo de
+ *      precificacao, o CMV sai perto de zero e a gente troca uma ficcao por
+ *      outra. Esta e a pergunta que decide o (b) inteiro, e por isso a
+ *      sondagem gasta 25 chamadas de detalhe pra responder com numero em vez
+ *      de palpite.
+ *
+ * Nao escreve NADA. So le e conta.
+ * ========================================================================== */
+function sondar2025() {
+  var L = [];
+  var token = getBlingAccessToken_();
+  var cat = carregarCatalogosCusto_();
+  var meses = [
+    ['2025-11', '2025-11-01', '2025-11-30'],
+    ['2025-12', '2025-12-01', '2025-12-31']
+  ];
+
+  L.push('SONDAGEM DOS MESES FECHADOS DE 2025');
+  L.push('');
+
+  var idsParaAmostra = [];
+  var totalPedidos = 0, totalPaginas = 0;
+
+  meses.forEach(function (m) {
+    var porCanal = {}, n = 0, nConta = 0, soma = 0, pagina = 1;
+    var idsDoMes = [];
+
+    while (true) {
+      var url = 'https://api.bling.com.br/Api/v3/pedidos/vendas'
+        + '?pagina=' + pagina + '&limite=100'
+        + '&dataInicial=' + m[1] + '&dataFinal=' + m[2];
+      var resp = fetchBling_(url, token);
+      var lista = (resp && resp.data) || [];
+      totalPaginas++;
+      if (!lista.length) break;
+
+      lista.forEach(function (p) {
+        n++;
+        var sid = (p.situacao && p.situacao.id) ? Number(p.situacao.id) : 0;
+        if (SITUACOES_NAO_CONTAM.indexOf(sid) >= 0) return;   // cancelado e clone
+        nConta++;
+        var v = Number(p.total) || 0;
+        soma += v;
+        var lojaId = (p.loja && p.loja.id) ? String(p.loja.id) : '';
+        var canal = CANAL_POR_LOJA[lojaId] || (lojaId ? 'Loja ' + lojaId : 'Venda direta');
+        porCanal[canal] = (porCanal[canal] || 0) + v;
+        idsDoMes.push({ id: p.id, canal: canal, nome: '' });
+      });
+
+      if (lista.length < 100) break;
+      pagina++;
+      if (pagina > 100) break;
+    }
+
+    totalPedidos += n;
+    L.push(m[0] + '  ---------------------------------------------');
+    L.push('  pedidos no Bling .........: ' + n);
+    L.push('  contam como receita ......: ' + nConta + '  (os outros sao cancelado ou clone)');
+    L.push('  RECEITA que entraria .....: R$ ' + soma.toFixed(2));
+    Object.keys(porCanal).sort(function (a, b) { return porCanal[b] - porCanal[a]; })
+      .forEach(function (c) {
+        L.push('      ' + ('                    ' + c).slice(-20) + '  R$ ' + porCanal[c].toFixed(2));
+      });
+    L.push('');
+
+    /* AMOSTRA ESPALHADA, nao os 12 primeiros. Pedido do comeco do mes pode ter
+       mix de produto diferente do fim; pegar em passo regular evita medir so
+       uma ponta. */
+    var passo = Math.max(1, Math.floor(idsDoMes.length / 12));
+    for (var i = 0; i < idsDoMes.length && idsParaAmostra.length < 25; i += passo) {
+      idsParaAmostra.push(idsDoMes[i]);
+    }
+  });
+
+  // ---------------------------------------------------- as fichas cobrem 2025?
+  L.push('AS FICHAS COBREM O MIX DE 2025?');
+  L.push('(amostra de ' + idsParaAmostra.length + ' pedidos, espalhada pelos dois meses)');
+  L.push('');
+
+  var pecas = 0, comFicha = 0, custoAmostra = 0, semItem = 0;
+  var familiasSemRegra = {};
+
+  idsParaAmostra.forEach(function (p) {
+    var r = fetchBlingStatus_('https://api.bling.com.br/Api/v3/pedidos/vendas/' + p.id, token);
+    Utilities.sleep(320);
+    var d = r.json && r.json.data;
+    if (!d) return;
+    var itens = d.itens || [];
+    if (!itens.length) { semItem++; return; }
+    itens.forEach(function (it) {
+      var q = Number(it.quantidade) || 0;
+      if (!q) return;
+      pecas += q;
+      var c = custoDoSku_(String(it.codigo || ''), String(it.descricao || ''), p.canal, cat);
+      if (c && c.custo > 0) { comFicha += q; custoAmostra += c.custo * q; }
+      else {
+        var f = (c && c.familia) || String(it.codigo || '').split('-').slice(0, 2).join('-');
+        familiasSemRegra[f] = (familiasSemRegra[f] || 0) + q;
+      }
+    });
+  });
+
+  var cob = pecas ? (comFicha / pecas * 100) : 0;
+  L.push('  pecas na amostra .........: ' + pecas);
+  L.push('  COM ficha ................: ' + comFicha + '  (' + cob.toFixed(1) + '%)');
+  L.push('  sem ficha ................: ' + (pecas - comFicha));
+  if (semItem) L.push('  pedidos sem item .........: ' + semItem);
+  L.push('');
+
+  var faltantes = Object.keys(familiasSemRegra)
+    .sort(function (a, b) { return familiasSemRegra[b] - familiasSemRegra[a]; });
+  if (faltantes.length) {
+    L.push('  familias sem regra, as 10 maiores:');
+    faltantes.slice(0, 10).forEach(function (f) {
+      L.push('      ' + ('            ' + f).slice(-12) + '  ' + familiasSemRegra[f] + ' peca(s)');
+    });
+    L.push('');
+  }
+
+  // ---------------------------------------------------- cabe no syncVendas?
+  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_VENDAS);
+  var linhasHoje = sh ? Math.max(0, sh.getLastRow() - 1) : 0;
+  var paginasHoje = Math.ceil(linhasHoje / 100);
+  var paginasDepois = paginasHoje + Math.ceil(totalPedidos / 100);
+
+  L.push('CABE ALARGAR O JANELA_VENDAS_DESDE PARA 2025-11-01?');
+  L.push('  aba Vendas hoje ..........: ' + linhasHoje + ' pedido(s), ~' + paginasHoje + ' pagina(s)');
+  L.push('  2025-11 e 2025-12 ........: ' + totalPedidos + ' pedido(s), ~'
+         + Math.ceil(totalPedidos / 100) + ' pagina(s)');
+  L.push('  depois ...................: ~' + paginasDepois + ' pagina(s) a cada sync');
+  L.push('  trava do syncVendas ......: 200 paginas');
+  L.push('');
+  if (paginasDepois > 160) {
+    L.push('  >>> APERTADO. Passa de 80% da trava, e a aba so cresce. Melhor');
+    L.push('      arquivar 2025 numa aba propria do que alargar a janela.');
+  } else {
+    L.push('  >>> CABE com folga. Alargar a janela reusa o caminho inteiro que');
+    L.push('      ja existe (receita e CMV leem a aba Vendas) sem codigo novo.');
+  }
+  L.push('');
+  L.push('NADA FOI GRAVADO. Isto so leu.');
+
+  mostrarRelatorio_('Sondagem 2025', L);
+}
