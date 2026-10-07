@@ -674,6 +674,85 @@ function verSaquinho() {
   mostrarRelatorio_('Saquinho: as duas pontas', L);
 }
 
+/* ============================================================================
+ * corrigirSaquinho() - alinha o painel com a Tabela Medidas Saquinhos (FPV
+ * Shopee 2026), que e a fonte do custo do saquinho e ja foi aplicada no Bling
+ * em 05/09/2026 (R$ 1,55/saquinho).
+ *
+ *   rendimento   0,250 m  ->  0,170 m
+ *   costura      R$ 0,30  ->  R$ 1,00
+ *
+ * OS DOIS JUNTOS, de proposito. Eles andam em sentidos opostos: so o
+ * rendimento faria o saquinho ficar R$ 0,24 mais BARATO do que ja esta errado,
+ * e com cara de conserto. Juntos, o custo sobe R$ 0,46 e passa a bater com o
+ * Bling.
+ *
+ * SO TROCA SE O VALOR ATUAL FOR O ANTIGO. Se ja estiver corrigido, ou se
+ * estiver num terceiro valor que alguem pos no meio tempo, nao mexe e avisa -
+ * sobrescrever valor desconhecido seria apagar decisao de outra pessoa sem
+ * ninguem ver.
+ *
+ * Autorizado pela Karolyne em 07/10/2026 ("pode gravar o custo shopee").
+ * ========================================================================== */
+function corrigirSaquinho() {
+  const L = [];
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let mexeu = 0;
+
+  const trocar = function (aba, colChave, colValor, de, para, rotulo) {
+    const sh = ss.getSheetByName(aba);
+    if (!sh || sh.getLastRow() < 2) { L.push('  ' + rotulo + ': aba ' + aba + ' vazia'); return; }
+    const cab = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
+    const iC = cab.indexOf(colChave), iV = cab.indexOf(colValor);
+    if (iC < 0 || iV < 0) { L.push('  ' + rotulo + ': cabecalho inesperado'); return; }
+    const dados = sh.getRange(2, 1, sh.getLastRow() - 1, sh.getLastColumn()).getValues();
+    let achou = 0;
+    dados.forEach(function (l, i) {
+      if (semAcento_(String(l[iC] || '')).indexOf('saquinho') < 0) return;
+      achou++;
+      const atual = Number(l[iV]) || 0;
+      if (Math.abs(atual - para) < 0.0001) {
+        L.push('  ' + rotulo + ' linha ' + (i + 2) + ': JA ESTA em ' + para + ' - nao mexi.');
+        return;
+      }
+      if (Math.abs(atual - de) > 0.0001) {
+        L.push('  ' + rotulo + ' linha ' + (i + 2) + ': esta em ' + atual
+               + ', esperava ' + de + ' - NAO MEXI. Alguem mudou no meio tempo.');
+        return;
+      }
+      sh.getRange(i + 2, iV + 1).setValue(para);
+      mexeu++;
+      L.push('  ' + rotulo + ' linha ' + (i + 2) + ': ' + de + '  ->  ' + para + '   OK');
+    });
+    if (!achou) L.push('  ' + rotulo + ': nao achei linha de saquinho em ' + aba);
+  };
+
+  L.push('SAQUINHO - alinhando com a Tabela Medidas Saquinhos (FPV Shopee)');
+  L.push('');
+  trocar(ABA_PRECIFICACAO_RENDIMENTO, 'tipoProduto', 'metros', 0.250, 0.170, 'rendimento');
+  trocar(ABA_PRECIFICACAO_PRODUCAO, 'tipoPeca', 'costuraValor', 0.30, 1.00, 'costura');
+
+  if (mexeu) limparCachePrecificacao_();
+
+  L.push('');
+  L.push('Celulas alteradas: ' + mexeu);
+  L.push('');
+  L.push('CUSTO DO SAQUINHO, depois disso:');
+  L.push('   tecido .: 0,170 m x R$ 2,99 = R$ 0,51');
+  L.push('   costura :                     R$ 1,00');
+  L.push('   fitilho :                     R$ 0,04');
+  L.push('   TOTAL ..:                     R$ 1,55   (bate com o Bling)');
+  L.push('');
+  L.push('Antes estava em R$ 1,09 - o saquinho ficou R$ 0,46 MAIS CARO.');
+  L.push('No kit de 50 isso e R$ 23; no de 100, R$ 46. Vale reconferir o preco');
+  L.push('dos kits, que e onde esse centavo vira dinheiro.');
+  L.push('');
+  L.push('O CMV ja fechado dos meses passados NAO muda - ele e numero gravado');
+  L.push('na _CMV_Consumo, nao formula. Isso vale pra frente e pra Ficha de');
+  L.push('Preco, que calcula na hora.');
+  mostrarRelatorio_('Saquinho corrigido', L);
+}
+
 function conferirFormatDate() {
   const L = [];
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_FLUXO_CAIXA);
