@@ -365,13 +365,14 @@ function gravarReceitaPedidos(mes) {
  * Apaga de baixo pra cima: apagar de cima desloca as linhas seguintes e os
  * indices seguintes passam a apontar pra linha errada.
  * ========================================================================== */
-function refazerReceitaMes(mes) {
+function refazerReceitaMes(mes, forcar) {
   mes = String(mes || '').trim();
   if (!/^\d{4}-\d{2}$/.test(mes)) {
     mostrarRelatorio_('Receita', ['informe o mes: refazerReceitaMes("2026-09")']);
     return;
   }
   const L = [];
+  let antesPedidos = 0;
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_RECEITA_PEDIDOS_);
   if (!sheet) { mostrarRelatorio_('Receita', ['aba nao existe']); return; }
 
@@ -390,6 +391,7 @@ function refazerReceitaMes(mes) {
       if (mesDaLinha(l[0]) !== mes) return;
       alvo.push(i + 2);
       antesTotal += Number(l[2]) || 0;
+      antesPedidos += Number(l[3]) || 0;
       L.push('  ANTES  ' + String(l[1]) + ': R$ ' + (Number(l[2]) || 0).toFixed(2)
              + ' em ' + (l[3] || '?') + ' pedido(s)   [gravado ' + (l[4] || '?') + ']');
     });
@@ -418,6 +420,50 @@ function refazerReceitaMes(mes) {
     L.push('seria trocar um numero errado por nenhum numero.');
     mostrarRelatorio_('Receita: refazer ' + mes, L);
     return;
+  }
+
+  /* ------------------------------------------------------------------------
+   * TRAVA DE DADO QUE SUMIU (07/10/2026).
+   *
+   * POR QUE: a Karolyne avalia apagar pedidos antigos no Bling pra liberar
+   * espaco. A aba Vendas e RECONSTRUIDA do zero a cada 2 horas, lendo o Bling
+   * de 2026-01-01 pra frente - entao pedido apagado la some daqui sozinho. Se
+   * alguem rodar esta funcao num mes antigo depois disso, ela grava quase zero
+   * por cima de um numero bom, em silencio, e o jeito de perceber seria a DRE
+   * do mes desabar sem motivo.
+   *
+   * A TRAVA OLHA A CONTAGEM DE PEDIDOS, nao so o valor. Valor pode cair por
+   * motivo legitimo (devolucao, cancelamento tardio); contagem de pedidos de
+   * um mes FECHADO so cai se o dado sumiu. Foi assim que setembro se denunciou
+   * hoje pelo lado oposto: 197 pedidos gravados contra 671 reais.
+   *
+   * Nao bloqueia correcao pra CIMA - era esse o caso de setembro, e e o caso
+   * normal de um mes preenchido pela metade.
+   * --------------------------------------------------------------------- */
+  if (!forcar && antesPedidos > 0) {
+    const quedaPedidos = 1 - (pedidos / antesPedidos);
+    const quedaValor = antesTotal > 0 ? 1 - (depoisTotal / antesTotal) : 0;
+    if (quedaPedidos > 0.10 || quedaValor > 0.30) {
+      L.push('');
+      L.push('*** NAO APAGUEI NADA. O calculado esta MENOR que o gravado. ***');
+      L.push('');
+      L.push('   pedidos:  gravado ' + antesPedidos + '   calculado ' + pedidos
+             + '   (' + (quedaPedidos * 100).toFixed(0) + '% a menos)');
+      L.push('   valor  :  gravado ' + antesTotal.toFixed(2) + '   calculado '
+             + depoisTotal.toFixed(2) + '   (' + (quedaValor * 100).toFixed(0) + '% a menos)');
+      L.push('');
+      L.push('Mes fechado nao perde pedido sozinho. As causas provaveis sao:');
+      L.push('  1. pedidos antigos APAGADOS no Bling (a aba Vendas e refeita do');
+      L.push('     zero a cada 2h lendo o Bling - o que sumiu la some aqui);');
+      L.push('  2. o syncVendas falhou no meio e a aba esta incompleta;');
+      L.push('  3. a janela do syncVendas (hoje 2026-01-01) passou na frente do mes.');
+      L.push('');
+      L.push('Confira a aba Vendas ANTES de insistir. Se o numero menor for');
+      L.push('mesmo o certo: refazerReceitaMes("' + mes + '", true).');
+      logSync_('refazerReceitaMes', 'bloqueado', mes + ': calculado menor que o gravado');
+      mostrarRelatorio_('Receita: BLOQUEADO em ' + mes, L);
+      return;
+    }
   }
 
   // apaga de baixo pra cima

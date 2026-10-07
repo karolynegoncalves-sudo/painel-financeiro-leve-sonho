@@ -23,7 +23,7 @@
  * TROQUE ESTA STRING quando mexer no que o doGet devolve. O painel mostra o
  * valor e avisa em vermelho quando nao encontra a marca que ele espera.
  */
-const BACKEND_VERSAO_ = '2026-10-04 cronometro-por-fase';
+const BACKEND_VERSAO_ = '2026-10-07 data-nativa';
 
 function doGet(e) {
   const params = (e && e.parameter) || {};
@@ -490,8 +490,35 @@ function getFluxoCaixaRows_(pedidoDe, pedidoAte) {
      sumir da DRE. Se a coluna nao existir, cai no 14 conhecido. */
   const iComp = headers.indexOf('competencia') >= 0 ? headers.indexOf('competencia') : 14;
 
+  /* O GARGALO DO LOGIN MORAVA AQUI (trocado em 07/10/2026).
+   *
+   * Era `Utilities.formatDate(v, 'America/Sao_Paulo', 'yyyy-MM-dd')`. Cada
+   * chamada dessas e uma ida ao SERVICO do Apps Script, nao uma conta local.
+   * A fase 1 faz duas passadas (data e competencia) sobre a aba inteira, ou
+   * seja ~44 mil chamadas por login.
+   *
+   * MEDIDO na planilha de verdade, 22.274 linhas (conferirFormatDate, no
+   * Diagnostico.gs):
+   *      Utilities.formatDate ..: 12.782 ms   (0,574 ms/linha)
+   *      getter nativo .........:      2 ms
+   *      divergencias ..........:      0
+   *
+   * Zero divergencia em 22 mil linhas - o fuso do script (America/Sao_Paulo,
+   * no appsscript.json) vale para o Date no V8, entao os getters locais dao o
+   * mesmo texto. Duas passadas = ~25,6 s de login devolvidos.
+   *
+   * A hipotese foi da sessao Jobs, e o argumento que a sustentou antes de
+   * qualquer medicao foi bom: a fase 1 le 3 colunas em 15-22 s e a fase 2 le
+   * as mesmas linhas com 15 colunas em 3 s. Ler MENOS nao pode demorar mais -
+   * logo o peso nao estava na leitura de celula.
+   *
+   * SE UM DIA O FUSO DO SCRIPT MUDAR, isto passa a datar errado em silencio
+   * (toda data depois das 21h viraria o dia seguinte, e na virada de mes a
+   * linha muda de mes). Rode o conferirFormatDate de novo antes de mexer no
+   * appsscript.json. */
+  const p2_ = function (x) { return x < 10 ? '0' + x : String(x); };
   const texto = function (v) {
-    if (v instanceof Date) return Utilities.formatDate(v, 'America/Sao_Paulo', 'yyyy-MM-dd');
+    if (v instanceof Date) return v.getFullYear() + '-' + p2_(v.getMonth() + 1) + '-' + p2_(v.getDate());
     return String(v || '').trim().slice(0, 10);
   };
 
@@ -563,8 +590,13 @@ function getFluxoCaixaRows_(pedidoDe, pedidoAte) {
     const j = headers.indexOf(nome);
     if (j >= 0) { proj.push(j); hOut.push(nome); }
   });
+  /* Mesmo motivo do `texto` acima: este roda uma vez por linha DEVOLVIDA (as
+     1.261 do periodo, nao as 22 mil), entao pesava bem menos - mas e a mesma
+     chamada de servico e o nativo da o mesmo texto, provado em 22.274 linhas
+     com zero divergencia. Trocar os dois junto evita a pergunta "por que um
+     sim e o outro nao" daqui a seis meses. */
   const ymd = function (v) {
-    if (v instanceof Date) return Utilities.formatDate(v, 'America/Sao_Paulo', 'yyyy-MM-dd');
+    if (v instanceof Date) return v.getFullYear() + '-' + p2_(v.getMonth() + 1) + '-' + p2_(v.getDate());
     return v;
   };
   const iDataOut = hOut.indexOf('data'), iCompOut = hOut.indexOf('competencia');
