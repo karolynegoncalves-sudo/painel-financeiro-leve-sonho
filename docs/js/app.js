@@ -715,7 +715,13 @@ async function garantirFluxo_(el) {
    cresce.
    Seguro porque as telas sempre receberam superconjunto - ate 15/09 o login
    trazia 13 meses - e todas recortam por FILTER (ou usam so conta em aberto,
-   que vem em toda resposta). Conferido nos leitores sem filtro em 07/10. */
+   que vem em toda resposta). Conferido nos leitores sem filtro em 07/10.
+   A garantia e estrutural: o servidor inclui conta EM ABERTO em qualquer
+   janela (getFluxoCaixaRows_: dentro = noPeriodo || emAberto), entao alargar
+   so acrescenta linha PAGA, e toda leitura de linha paga recorta por FILTER.
+   O QUE QUEBRARIA ISSO: uma tela nova que leia FLUXO_ROWS sem recortar por
+   FILTER e que NAO seja so-em-aberto. O numero dela inflaria em silencio com
+   a janela - o periodo muda e o valor nao acompanha. (Revisao do DRE.) */
 const JANELA_MESES_ = 3;
 let JANELA_PROMESSA_ = null;
 let JANELA_DE_ = '9999-12-31';
