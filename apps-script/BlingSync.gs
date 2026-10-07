@@ -140,6 +140,13 @@ function canalSemNota_(canal) {
  *
  * Ela sobe conforme o RBT12 sobe, entao revisar quando o faturamento mudar de
  * faixa. RBT12 declarado em 06/2026: R$ 633.110,36.
+ *
+ * CUIDADO AO COMPARAR: os seis numeros acima foram medidos sobre a receita
+ * DECLARADA. O conferirImposto mede sobre a base do painel (receita da
+ * _Receita_Pedidos menos a venda do site), que e uma APROXIMACAO da
+ * declarada. Sao duas reguas: a guia de agosto da 8,01% na regua do painel,
+ * e isso nao quer dizer que ela daria 8,01% na regua declarada. Comparar
+ * sempre dentro da mesma coluna do conferirImposto.
  */
 var ALIQUOTA_SIMPLES_ = 0.0772;
 
@@ -188,15 +195,28 @@ var DAS_POR_COMPETENCIA_ = {
   // (minha estimativa anterior era 4.580,21 e acertou o total por acidente -
   //  eu tinha pego o valor da CONTA no Bling, que traz o total da guia.)
   '2026-07': 4419.77,
-  // agosto: ESTIMADO. Aliquota de 7,72% sobre a receita do painel menos a
-  // venda do site (que nao entra na base declarada): 56.860 - 6.999 = 49.861.
-  // TROCAR pelo valor da guia quando sair.
-  '2026-08': 3849.28,
-  /* setembro: ESTIMADO, mesma formula, com a receita JA CORRIGIDA de 07/10
-     (o mes estava pela metade na _Receita_Pedidos ate hoje):
-        67.554,29 - 9.623,69 (site) = 57.930,60  x  7,72%  =  4.472,24
-     TROCAR pelo valor da guia quando o boleto sair. */
-  '2026-09': 4472.24
+  // agosto: GUIA 07.20.26258.4983251-0, lida em 07/10/2026. Venceu em 21/09
+  // porque o dia 20 caiu num domingo - ou seja, nao foi gerada em atraso e o
+  // total NAO tem juros de mora (ao contrario de julho).
+  //
+  // A guia veio 3,7% ACIMA da minha estimativa de 3.849,28, e a diferenca nao
+  // e ruido: a aliquota implicita subiu.
+  //     3.993,05 / 49.861 (56.860 de receita - 6.999 do site) = 8,01%
+  // contra os 7,72% que eu vinha usando. O Simples sobe conforme o
+  // faturamento dos 12 meses, entao a aliquota e um alvo movel e a
+  // estimativa precisa ser remedida a cada guia - igual a taxa da Shopee.
+  '2026-08': 3993.05,
+  /* setembro: ESTIMADO, com a receita JA CORRIGIDA de 07/10 (o mes estava
+     pela metade na _Receita_Pedidos ate hoje) e com a aliquota REMEDIDA na
+     guia de agosto:
+        67.554,29 - 9.623,69 (site) = 57.930,60  x  8,01%  =  4.639,31
+     Com os 7,72% antigos daria 4.472,24 - R$ 167 a menos. Numa aliquota que
+     so sobe, a guia MAIS RECENTE estima melhor que a media das anteriores.
+
+     PROVISORIO: os 8,01% sao uma medicao de UM mes. O conferirImposto poe
+     jan-ago todos na mesma base e mostra se 8,01% e tendencia ou ponto fora
+     da curva - rodar antes de tratar esse numero como definitivo. */
+  '2026-09': 4639.31
 };
 
 /* ----------------------------------------------------------------------------
@@ -210,10 +230,18 @@ var DAS_POR_COMPETENCIA_ = {
  *
  * Comentario avisa quem le o codigo. Quem olha a DRE nao le o codigo.
  *
- * Com a lista aqui, "qual imposto e chute?" tem resposta de um clique
+ * Com a lista, "qual imposto e chute?" tem resposta de um clique
  * (verImpostoEstimado) em vez de depender de alguem lembrar.
+ *
+ * O MAPA NAO FICA AQUI: ele ja existia desde 36bb04b, logo abaixo do
+ * JUROS_MORA_IMPOSTO_. Eu declarei um SEGUNDO neste ponto em 07/10/2026 sem
+ * procurar pelo primeiro, e como `var` no escopo global do Apps Script deixa
+ * a ULTIMA declaracao vencer, o antigo (que vem depois no arquivo)
+ * sobrescrevia o meu - setembro aparecia como "guia" mesmo eu tendo marcado
+ * como estimativa. Nenhum erro, so o valor errado.
+ * Ver a memoria apps-script-nome-duplicado-sombreia: eu tinha essa armadilha
+ * anotada e nao a apliquei. Procurar o nome ANTES de declarar e barato.
  * -------------------------------------------------------------------------- */
-var DAS_ESTIMADO_ = { '2026-08': 1, '2026-09': 1 };
 
 /* ============================================================================
  * conferirImposto() - a aliquota de 7,72% ainda vale?
@@ -331,9 +359,9 @@ function verImpostoEstimado() {
   L.push('de guia ....: R$ ' + tg.toFixed(2));
   L.push('estimado ...: R$ ' + te.toFixed(2));
   L.push('');
-  L.push('A ESTIMATIVA e 7,72% sobre a receita do painel MENOS a venda do site,');
+  L.push('A ESTIMATIVA e 8,01% sobre a receita do painel MENOS a venda do site,');
   L.push('que nao entra na base declarada. A aliquota foi medida nas seis guias');
-  L.push('de 2026 (7,61% a 7,81%) e sobe conforme o faturamento dos 12 meses.');
+  L.push('de 2026 (7,61% a 8,01%) e sobe conforme o faturamento dos 12 meses.');
   L.push('');
   L.push('Trocar pela guia assim que o boleto sair: o numero estimado acerta a');
   L.push('ordem de grandeza e nao acerta o centavo - em julho a minha');
@@ -355,8 +383,11 @@ var JUROS_MORA_IMPOSTO_ = {
   '2026-07': 160.44   // guia gerada em 27/08, venc era 20/08
 };
 
-/** Meses cujo valor acima e estimativa, nao guia. Aparecem no log. */
-var DAS_ESTIMADO_ = { '2026-08': 1 };
+/** Meses cujo valor acima e estimativa, nao guia. Aparecem no log, no
+ *  verImpostoEstimado e no conferirImposto. ESTE e o unico mapa - nao criar
+ *  outro em lugar nenhum (ver o comentario la em cima, perto do
+ *  DAS_POR_COMPETENCIA_). */
+var DAS_ESTIMADO_ = { '2026-09': 1 };   // agosto saiu daqui em 07/10: a guia chegou
 
 const JANELA_SYNC_DESDE = '2025-01-01';
 
