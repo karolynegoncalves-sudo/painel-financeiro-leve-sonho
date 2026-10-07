@@ -71,7 +71,7 @@ const MODO_PRECIF_ = new URLSearchParams(location.search).get('app') === 'precif
   if (!MODO_PRECIF_) return;
   document.title = 'Leve Sonho — Precificação';
   const man = document.querySelector('link[rel="manifest"]');
-  if (man) man.href = 'manifest-precificacao.json?v=20261007e';
+  if (man) man.href = 'manifest-precificacao.json?v=20261007f';
   const tit = document.querySelector('meta[name="apple-mobile-web-app-title"]');
   if (tit) tit.content = 'Preço LS';
   const h1Gate = document.querySelector('#loginGate h1');
@@ -2761,11 +2761,12 @@ function renderDfc_(el, rows) {
                      : serie.map((_, i) => l.soma.reduce((s, k) => s + somaPorColuna(k)[i], 0));
     const total = tot(vals);
     if (l.k && total === 0 && !vals.some(v => v !== 0)) return;
-    const cls = l.res ? 'dre-resultado' : l.sub ? 'dre-subtotal' : '';
+    const cls = (l.res ? 'dre-resultado' : l.sub ? 'dre-subtotal' : '') + ' dre-abre';
     const nome = l.k ? `<td>${l.n}</td>` : `<th>${l.sub || l.res}</th>`;
     const cel = l.k ? `<td class="num"><b>${fmtBRL(total, 2)}</b></td>`
                     : `<th class="num ${total < 0 ? 'val-out' : 'val-in'}">${fmtBRL(total, 2)}</th>`;
-    html += `<tr class="${cls}">${nome}` + vals.map(v => `<td class="num">${fmtBRL(v, 2)}</td>`).join('') + cel + '</tr>';
+    html += `<tr class="${cls}" data-linha="${LINHAS.indexOf(l)}" title="Clique para ver o que tem dentro">${nome}`
+      + vals.map(v => `<td class="num">${fmtBRL(v, 2)}</td>`).join('') + cel + '</tr>';
   });
 
   const transf = somaPorColuna('transf');
@@ -2803,6 +2804,77 @@ function renderDfc_(el, rows) {
       No período o caixa ${variacao >= 0 ? 'cresceu' : 'encolheu'}
       <b>${fmtBRL(Math.abs(variacao), 2)}</b>. ${nota}${notaOutros}</div></div>`;
   document.getElementById('tblDfc').innerHTML = html;
+
+  /* GAVETA DA DFC (07/10/2026), igual a da DRE: celula de mes abre aquele mes
+     em cima e o acumulado embaixo; nome e Total abrem o periodo. */
+  fecharGaveta_();
+  DFC_DRILL = { serie: serie, rows: rows, classificar: classificar, val: val, LINHAS: LINHAS };
+  document.querySelectorAll('#tblDfc tr.dre-abre').forEach(function (tr) {
+    tr.addEventListener('click', function (ev) {
+      const cel = ev.target.closest('td, th');
+      const idx = cel ? cel.cellIndex : 0;
+      const col = (idx >= 1 && idx <= serie.length) ? idx - 1 : null;
+      abrirGavetaDfc_(LINHAS[Number(tr.dataset.linha)], col);
+    });
+  });
+}
+
+let DFC_DRILL = null;
+
+/* O que tem dentro de uma linha da DFC, num conjunto de lancamentos (o mes ou
+   o periodo). Linha simples: categorias e maiores lancamentos. Subtotal e
+   variacao: as linhas que somam nele. */
+function corpoDfc_(linha, rows) {
+  const F = (v) => fmtBRL(v, 2);
+  const D = DFC_DRILL;
+  const nomeDe = (k) => { const l = D.LINHAS.find(x => x.k === k); return l ? l.n : k; };
+  if (linha.k) {
+    const linhas = rows.filter(r => D.classificar(r) === linha.k);
+    const total = linhas.reduce((s, r) => s + D.val(r), 0);
+    const porCat = {};
+    linhas.forEach(function (r) { porCat[r.categoria] = (porCat[r.categoria] || 0) + D.val(r); });
+    const cats = Object.keys(porCat).sort((x, y) => Math.abs(porCat[y]) - Math.abs(porCat[x]));
+    const maiores = linhas.slice().sort((x, y) => y.valor - x.valor).slice(0, 15);
+    const corpo = `<h4>Por categoria <small>${cats.length} categoria(s)</small></h4>
+      <table class="simple gv-tab">`
+      + cats.map(c => `<tr><td>${escapeHtml_(c || '(sem categoria)')}</td><td class="num">${F(porCat[c])}</td>
+          <td class="num gv-pct">${fmtPctSimples_(Math.abs(porCat[c]) / (Math.abs(total) || 1))}</td></tr>`).join('')
+      + `</table>
+      <h4>Os maiores lançamentos <small>${linhas.length} no total</small></h4>
+      <table class="simple gv-tab gv-lanc">`
+      + maiores.map(r => `<tr>
+          <td>${fmtDataBR(r.date)}</td>
+          <td>${escapeHtml_(r.contato || r.categoria)}
+            ${r.descricao ? '<small>' + escapeHtml_(String(r.descricao).slice(0, 70)) + '</small>' : ''}</td>
+          <td class="num">${F(D.val(r))}</td></tr>`).join('')
+      + '</table>'
+      + (linhas.length > 15 ? `<p class="gv-nota">Mostrando os 15 maiores de ${linhas.length}.
+          A aba <b>Fluxo de Caixa</b> tem todos, com busca.</p>` : '')
+      + (!linhas.length ? '<p class="gv-nota">Nenhum lançamento nesta linha.</p>' : '');
+    return { corpo: corpo, total: total };
+  }
+  const partes = linha.soma.map(k => ({ k: k,
+    v: rows.reduce((s, r) => s + (D.classificar(r) === k ? D.val(r) : 0), 0) }));
+  const total = partes.reduce((s, x) => s + x.v, 0);
+  const corpo = `<p class="gv-nota">Não é uma conta, é uma <b>soma</b>. Estas são as linhas
+    que entram nela — clique em qualquer uma delas na tabela para abrir por dentro.</p>
+    <table class="simple gv-tab">`
+    + partes.filter(x => x.v !== 0).map(x => `<tr><td>${escapeHtml_(nomeDe(x.k))}</td>
+        <td class="num">${F(x.v)}</td></tr>`).join('')
+    + `</table>`;
+  return { corpo: corpo, total: total };
+}
+
+function abrirGavetaDfc_(linha, col) {
+  if (!DFC_DRILL || !linha) return;
+  const tudo = corpoDfc_(linha, DFC_DRILL.rows);
+  let mes = null;
+  if (col != null && DFC_DRILL.serie.length > 1 && DFC_DRILL.serie[col]) {
+    const b = DFC_DRILL.serie[col];
+    mes = corpoDfc_(linha, b.rows);
+    mes.label = b.label;
+  }
+  mostrarGaveta_(linha.n || linha.sub || linha.res, 'caixa', tudo, mes, null);
 }
 
 /*
@@ -3486,7 +3558,6 @@ function corpoGaveta_(item, ctx) {
 
 function abrirGaveta_(item, col) {
   if (!DRILL || !item) return;
-  const F = (v) => fmtBRL(v, 2);
   const tudo = corpoGaveta_(item, DRILL);
   let mes = null;
   if (col != null && DRILL.serie.length > 1 && DRILL.serie[col]) {
@@ -3495,23 +3566,30 @@ function abrirGaveta_(item, col) {
       { rows: b.rows, porColuna: [DRILL.porColuna[col]], serie: [b] }));
     mes.label = b.label;
   }
-  const topo = mes || tudo;
   const pctRec = (t) => t.receita ? fmtPctSimples_(Math.abs(t.total) / Math.abs(t.receita)) + ' da receita' : '';
+  mostrarGaveta_(item.nome, DRILL.porCompetencia ? 'competência' : 'caixa', tudo, mes, pctRec);
+}
+
+/* Desenha a gaveta: o mes clicado em cima (se houver) e o acumulado do
+   periodo embaixo. Serve a DRE e a DFC - as duas abrem igual. */
+function mostrarGaveta_(titulo, regime, tudo, mes, pctFn) {
+  const F = (v) => fmtBRL(v, 2);
+  const pct = pctFn || function () { return ''; };
+  const topo = mes || tudo;
   const periodo = fmtDataBR(FILTER.start) + ' a ' + fmtDataBR(FILTER.end);
-  const regime = DRILL.porCompetencia ? 'competência' : 'caixa';
   const gv = document.getElementById('gaveta');
   gv.innerHTML = `<div class="gv-head">
-      <div><div class="gv-tit">${escapeHtml_(item.nome)}</div>
+      <div><div class="gv-tit">${escapeHtml_(titulo)}</div>
         <div class="gv-sub">${mes ? escapeHtml_(mes.label) : periodo} · ${regime}</div></div>
       <button type="button" class="gv-x" id="gvFechar" aria-label="Fechar">✕</button>
     </div>
     <div class="gv-valor ${topo.total < 0 ? 'val-out' : 'val-in'}">${F(topo.total)}
-      <small>${pctRec(topo)}</small></div>
+      <small>${pct(topo)}</small></div>
     <div class="gv-corpo">${topo.corpo}`
     + (mes ? `<div class="gv-acum">
         <div class="gv-acum-tit">Acumulado do período <small>${periodo}</small></div>
         <div class="gv-acum-valor ${tudo.total < 0 ? 'val-out' : 'val-in'}">${F(tudo.total)}
-          <small>${pctRec(tudo)}</small></div>
+          <small>${pct(tudo)}</small></div>
         ${tudo.corpo}</div>` : '')
     + `</div>`;
   /* Mexe no display INLINE alem do atributo. O atributo sozinho nao venceu o
