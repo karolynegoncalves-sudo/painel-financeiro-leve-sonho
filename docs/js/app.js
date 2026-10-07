@@ -71,7 +71,7 @@ const MODO_PRECIF_ = new URLSearchParams(location.search).get('app') === 'precif
   if (!MODO_PRECIF_) return;
   document.title = 'Leve Sonho — Precificação';
   const man = document.querySelector('link[rel="manifest"]');
-  if (man) man.href = 'manifest-precificacao.json?v=20261007g';
+  if (man) man.href = 'manifest-precificacao.json?v=20261007h';
   const tit = document.querySelector('meta[name="apple-mobile-web-app-title"]');
   if (tit) tit.content = 'Preço LS';
   const h1Gate = document.querySelector('#loginGate h1');
@@ -1808,6 +1808,7 @@ function renderCruzamento_(rows) {
 
     return { ...m, vendi, recebi, resultado, caixa };
   });
+  KPI_DRILL = { rows: rows, todasComp: todasComp };
 
   const somaDe = (k) => linha.reduce((s, l) => s + l[k], 0);
   const tv = somaDe('vendi'), tr = somaDe('recebi'), tres = somaDe('resultado'), tc = somaDe('caixa');
@@ -1817,13 +1818,13 @@ function renderCruzamento_(rows) {
     <th>Resultado <small>competência</small></th>
     <th>Caixa <small>variação</small></th></tr>`;
   linha.forEach(l => {
-    tab += `<tr><td>${l.label}</td>
+    tab += `<tr class="dre-abre" data-mes="${l.chave}" data-rotulo="${escapeHtml_(l.label)}" title="Clique num valor para ver o que tem dentro"><td>${l.label}</td>
       <td class="num">${fmtBRL(l.vendi, 2)}</td>
       <td class="num">${fmtBRL(l.recebi, 2)}</td>
       <td class="num ${l.resultado >= 0 ? 'val-in' : 'val-out'}">${fmtBRL(l.resultado, 2)}</td>
       <td class="num ${l.caixa >= 0 ? 'val-in' : 'val-out'}">${fmtBRL(l.caixa, 2)}</td></tr>`;
   });
-  tab += `<tr class="dre-subtotal"><th>Total</th>
+  tab += `<tr class="dre-subtotal dre-abre" data-mes="" title="Clique num valor para ver o que tem dentro"><th>Total</th>
     <th class="num">${fmtBRL(tv, 2)}</th>
     <th class="num">${fmtBRL(tr, 2)}</th>
     <th class="num ${tres >= 0 ? 'val-in' : 'val-out'}">${fmtBRL(tres, 2)}</th>
@@ -1859,7 +1860,7 @@ function renderCruzamento_(rows) {
     <div class="sub">As quatro colunas respondem perguntas diferentes, e por isso quase nunca são iguais.
     <b>Vendi</b> é o que saiu da loja; <b>Recebi</b> é o que entrou na conta; <b>Resultado</b> é o que o mês
     rendeu de fato; <b>Caixa</b> é o quanto o saldo andou.</div>
-    <div style="overflow-x:auto;"><table class="simple dre">${tab}</table></div>
+    <div style="overflow-x:auto;"><table class="simple dre" id="tblCruz">${tab}</table></div>
     ${notas.length ? '<ul class="sub" style="margin-top:.7rem;padding-left:1.1rem;">'
       + notas.map(n => `<li style="margin-bottom:.35rem;">${n}</li>`).join('') + '</ul>' : ''}
   </div>`;
@@ -2013,6 +2014,20 @@ function renderKpis(el, rows) {
   `;
   ligarFiltroBar_(el);
 
+  /* GAVETA NOS KPIs (07/10/2026), como na DRE, DFC e Fluxo: clicar num valor
+     da tabela Vendas x Resultado x Caixa abre aquele mes e coluna, com o
+     acumulado do periodo embaixo. */
+  fecharGaveta_();
+  const COLS_CRUZ = [null, 'vendi', 'recebi', 'resultado', 'caixa'];
+  document.querySelectorAll('#tblCruz tr.dre-abre').forEach(function (tr) {
+    tr.addEventListener('click', function (ev) {
+      const cel = ev.target.closest('td, th');
+      const tipo = cel ? COLS_CRUZ[cel.cellIndex] : null;
+      if (!tipo) return;
+      abrirGavetaKpi_(tipo, tr.dataset.mes || null, tr.dataset.rotulo || '');
+    });
+  });
+
   const tblC = document.getElementById('tblCanais');
   if (canais.length) {
     // "Part." e a fatia do faturamento que cada canal representa. E o numero
@@ -2100,11 +2115,86 @@ function renderKpis(el, rows) {
       ]
     },
     options: {
+      /* Barra ou ponto de um mes abre a gaveta daquele mes: receita (o que
+         entrou) ou resultado liquido (pela data do caixa, como esta linha). */
+      onHover: (ev, els) => { if (ev.native && ev.native.target) ev.native.target.style.cursor = els.length ? 'pointer' : 'default'; },
+      onClick: (ev, els) => {
+        if (!els.length) return;
+        const b = serie[els[0].index];
+        abrirGavetaKpi_(els[0].datasetIndex === 0 ? 'recebi' : 'resultadoCaixa', null, b.label, b.rows);
+      },
       responsive: true, maintainAspectRatio: false,
       plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 11 } } }, tooltip: { callbacks: { label: (c) => c.dataset.label + ': ' + fmtBRL(c.raw) } } },
       scales: { y: { ticks: { callback: (v) => fmtBRL(v) }, grid: { color: '#EFE7DB' } }, x: { grid: { display: false } } }
     }
   });
+}
+
+let KPI_DRILL = null;
+
+/* Cada coluna dos KPIs e uma pergunta diferente, e a gaveta abre cada uma pelo
+   mesmo filtro que a calculou (renderCruzamento_ e totais_) - senao a gaveta
+   nao bate com a celula clicada. */
+const KPI_TIPOS_ = {
+  vendi:          { t: 'Vendi', sub: 'data da venda', porQue: 'canal' },
+  recebi:         { t: 'Recebi', sub: 'data do dinheiro', porQue: 'categoria' },
+  resultado:      { t: 'Resultado', sub: 'competência', porQue: 'grupo da DRE' },
+  resultadoCaixa: { t: 'Resultado líquido', sub: 'caixa', porQue: 'grupo da DRE' },
+  caixa:          { t: 'Caixa — variação', sub: 'caixa, sem transferências', porQue: 'grupo da DRE' }
+};
+function kpiEntraNoResultado_(r) {
+  return r.grupoDRE !== '(sem mapear)' && (r.grupoDRE.indexOf('ignorar') < 0 || ehRecebimento_(r.grupoDRE));
+}
+function kpiBase_(tipo) {
+  const D = KPI_DRILL || { rows: [], todasComp: [] };
+  if (tipo === 'vendi') return (VENDAS_ROWS || []).filter(v => v.contaReceita && v.date >= FILTER.start && v.date <= FILTER.end);
+  if (tipo === 'recebi') return D.rows.filter(r => ehRecebimento_(r.grupoDRE));
+  if (tipo === 'caixa') return D.rows.filter(r => !/transfer/i.test(r.categoria || ''));
+  if (tipo === 'resultado') return D.todasComp.filter(kpiEntraNoResultado_);
+  return D.rows.filter(kpiEntraNoResultado_);   // resultadoCaixa
+}
+function corpoKpi_(tipo, lista) {
+  const F = (v) => fmtBRL(v, 2);
+  const vendas = tipo === 'vendi';
+  const val = vendas ? (v) => v.total : (r) => (r.tipo === 'entrada' ? 1 : -1) * r.valor;
+  const grupo = vendas ? (v) => v.canal : tipo === 'recebi' ? (r) => r.categoria : (r) => r.grupoDRE;
+  const data = tipo === 'resultado' ? (r) => r.dateComp : (r) => r.date;
+  const total = lista.reduce((s, x) => s + val(x), 0);
+  const por = {};
+  lista.forEach(function (x) { const g = grupo(x) || '—'; por[g] = (por[g] || 0) + val(x); });
+  const gs = Object.keys(por).sort((a, b) => Math.abs(por[b]) - Math.abs(por[a]));
+  const maiores = lista.slice().sort((a, b) => Math.abs(val(b)) - Math.abs(val(a))).slice(0, 15);
+  const corpo = `<h4>Por ${KPI_TIPOS_[tipo].porQue} <small>${gs.length}</small></h4><table class="simple gv-tab">`
+    + gs.map(g => `<tr><td>${escapeHtml_(g)}</td><td class="num">${F(por[g])}</td>
+        <td class="num gv-pct">${fmtPctSimples_(Math.abs(por[g]) / (Math.abs(total) || 1))}</td></tr>`).join('')
+    + `</table><h4>${vendas ? 'Os maiores pedidos' : 'Os maiores lançamentos'} <small>${lista.length} no total</small></h4>
+    <table class="simple gv-tab gv-lanc">`
+    + maiores.map(x => `<tr><td>${fmtDataBR(data(x))}</td>
+        <td>${vendas ? escapeHtml_(x.canal) + (x.numero ? ' <small>pedido ' + escapeHtml_(x.numero) + (x.cliente ? ' · ' + escapeHtml_(x.cliente) : '') + '</small>' : '')
+                     : escapeHtml_(x.contato || x.categoria) + (x.descricao ? '<small>' + escapeHtml_(String(x.descricao).slice(0, 70)) + '</small>' : '')}</td>
+        <td class="num">${F(val(x))}</td></tr>`).join('')
+    + '</table>'
+    + (lista.length > 15 ? `<p class="gv-nota">Mostrando os 15 maiores de ${lista.length}.</p>` : '')
+    + (!lista.length ? '<p class="gv-nota">Nada neste recorte.</p>' : '');
+  return { corpo: corpo, total: total };
+}
+/* mesChave: 'yyyy-MM' da linha clicada na tabela; listaMes: as linhas de uma
+   barra do grafico (ja recortadas pelo bucket). Sem nenhum dos dois, abre so
+   o periodo. */
+function abrirGavetaKpi_(tipo, mesChave, rotulo, listaMes) {
+  const base = kpiBase_(tipo);
+  const tudo = corpoKpi_(tipo, base);
+  let mes = null;
+  if (listaMes) {
+    const set = new Set(base);
+    mes = corpoKpi_(tipo, listaMes.filter(x => set.has(x)));
+  } else if (mesChave) {
+    const chaveDe = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+    const data = tipo === 'resultado' ? (r) => r.dateComp : (r) => r.date;
+    mes = corpoKpi_(tipo, base.filter(x => chaveDe(data(x)) === mesChave));
+  }
+  if (mes) mes.label = rotulo;
+  mostrarGaveta_(KPI_TIPOS_[tipo].t, KPI_TIPOS_[tipo].sub, tudo, mes, null);
 }
 
 /* ---------------- Fluxo de Caixa ---------------- */
