@@ -71,7 +71,7 @@ const MODO_PRECIF_ = new URLSearchParams(location.search).get('app') === 'precif
   if (!MODO_PRECIF_) return;
   document.title = 'Leve Sonho — Precificação';
   const man = document.querySelector('link[rel="manifest"]');
-  if (man) man.href = 'manifest-precificacao.json?v=20261007d';
+  if (man) man.href = 'manifest-precificacao.json?v=20261007e';
   const tit = document.querySelector('meta[name="apple-mobile-web-app-title"]');
   if (tit) tit.content = 'Preço LS';
   const h1Gate = document.querySelector('#loginGate h1');
@@ -3269,8 +3269,15 @@ function renderDreCaixa_(corpo, rows, porCompetencia) {
             porColuna: porColuna, serie: serie };
   const tbl = document.getElementById('tblDre');
   tbl.querySelectorAll('tr.dre-abre').forEach(function (tr) {
-    tr.addEventListener('click', function () {
-      abrirGaveta_(DRE_ESTRUTURA[Number(tr.dataset.item)]);
+    tr.addEventListener('click', function (ev) {
+      /* Celula de MES clicada: a gaveta abre aquele mes primeiro e o acumulado
+         embaixo (07/10/2026 - somado direto confundia: clicar em jun/26 de
+         -R$ 320,69 mostrava -R$ 5.745,68 do periodo). Nome, Total e % abrem o
+         periodo inteiro, como antes. */
+      const cel = ev.target.closest('td, th');
+      const idx = cel ? cel.cellIndex : 0;
+      const col = (idx >= 1 && idx <= DRILL.serie.length) ? idx - 1 : null;
+      abrirGaveta_(DRE_ESTRUTURA[Number(tr.dataset.item)], col);
     });
   });
 }
@@ -3374,8 +3381,11 @@ function cmvPorDentro_(linhas) {
   return h;
 }
 
-function abrirGaveta_(item) {
-  if (!DRILL || !item) return;
+/* O que a gaveta mostra para um item, num contexto: o periodo inteiro (DRILL)
+   ou uma coluna so (rows/porColuna/serie daquele mes). Mesma conta nos dois -
+   o mes e o acumulado nunca podem divergir por terem sido calculados de
+   jeitos diferentes. */
+function corpoGaveta_(item, ctx) {
   const F = (v) => fmtBRL(v, 2);
   const abs = (v) => fmtBRL(Math.abs(v), 2);
   const soma = (lista) => (lista || []).reduce((s, r) => s + Math.abs(Number(r.valor) || 0), 0);
@@ -3384,7 +3394,7 @@ function abrirGaveta_(item) {
   let total = 0;
 
   if (item.tipo === 'grupo') {
-    total = DRILL.porColuna.reduce((s, pg) => s + (pg[item.nome] || 0), 0);
+    total = ctx.porColuna.reduce((s, pg) => s + (pg[item.nome] || 0), 0);
 
     if (item.nome === GRUPO_DEPRECIACAO) {
       corpo = `<p class="gv-nota">Não é lançamento: é cálculo. Nenhum dinheiro sai
@@ -3392,21 +3402,21 @@ function abrirGaveta_(item) {
         ela perde valor com o uso.</p>
         <table class="simple gv-tab">
           <tr><td>Máquinas e equipamentos<small>R$ 17.950 × 10% a.a.</small></td>
-              <td class="num">${F(-149.58 * DRILL.serie.length)}</td></tr>
+              <td class="num">${F(-149.58 * ctx.serie.length)}</td></tr>
           <tr><td>Informática<small>R$ 10.400 × 20% a.a.</small></td>
-              <td class="num">${F(-173.33 * DRILL.serie.length)}</td></tr>
+              <td class="num">${F(-173.33 * ctx.serie.length)}</td></tr>
         </table>
-        <p class="gv-nota">${DRILL.serie.length} mês(es) no período.</p>`;
+        <p class="gv-nota">${ctx.serie.length} mês(es) no período.</p>`;
 
-    } else if (DRILL.fontes && (item.nome === 'Receita Bruta' || item.nome === 'CMV'
+    } else if (ctx.fontes && (item.nome === 'Receita Bruta' || item.nome === 'CMV'
                || item.nome === GRUPO_IMPOSTO || item.nome === GRUPO_PROVISAO)) {
       /* Fonte externa: nao ha lancamento para listar. A quebra util e por CANAL
          na receita e no CMV, e por COMPETENCIA no imposto - que e o que a guia
          tem. */
-      const lista = item.nome === 'Receita Bruta' ? DRILL.fontes.receita
-        : item.nome === 'CMV' ? DRILL.fontes.cmv
-          : item.nome === GRUPO_IMPOSTO ? DRILL.fontes.imposto : DRILL.fontes.provisao;
-      const meses = DRILL.serie.map(b => b.chave);
+      const lista = item.nome === 'Receita Bruta' ? ctx.fontes.receita
+        : item.nome === 'CMV' ? ctx.fontes.cmv
+          : item.nome === GRUPO_IMPOSTO ? ctx.fontes.imposto : ctx.fontes.provisao;
+      const meses = ctx.serie.map(b => b.chave);
       const dentro = (lista || []).filter(r => meses.indexOf(r.mes) >= 0);
       const porChave = {};
       dentro.forEach(function (r) {
@@ -3428,7 +3438,7 @@ function abrirGaveta_(item) {
       /* Grupo de lancamento: categorias primeiro (e ali que se decide), depois
          as maiores linhas (e ali que se confere). */
       const chave = chaveGrupo_(item.nome);
-      const linhas = DRILL.rows.filter(r => chaveGrupo_(canonizarGrupo_(r.grupoDRE)) === chave);
+      const linhas = ctx.rows.filter(r => chaveGrupo_(canonizarGrupo_(r.grupoDRE)) === chave);
       const porCat = {};
       linhas.forEach(function (r) {
         const v = (r.tipo === 'entrada' ? 1 : -1) * r.valor;
@@ -3445,7 +3455,7 @@ function abrirGaveta_(item) {
         <h4>Os maiores lançamentos <small>${linhas.length} no período</small></h4>
         <table class="simple gv-tab gv-lanc">`
         + maiores.map(r => `<tr>
-            <td>${fmtDataBR(DRILL.porCompetencia ? r.dateComp : r.date)}</td>
+            <td>${fmtDataBR(ctx.porCompetencia ? r.dateComp : r.date)}</td>
             <td>${escapeHtml_(r.contato || r.categoria)}
               ${r.descricao ? '<small>' + escapeHtml_(String(r.descricao).slice(0, 70)) + '</small>' : ''}</td>
             <td class="num">${F((r.tipo === 'entrada' ? 1 : -1) * r.valor)}</td></tr>`).join('')
@@ -3458,29 +3468,52 @@ function abrirGaveta_(item) {
   } else {
     /* Subtotal ou resultado: a conta que o forma. */
     total = (item.soma || []).reduce((s, n) =>
-      s + DRILL.porColuna.reduce((t, pg) => t + (pg[n] || 0), 0), 0);
+      s + ctx.porColuna.reduce((t, pg) => t + (pg[n] || 0), 0), 0);
     corpo = `<p class="gv-nota">Não é uma conta, é uma <b>soma</b>. Estas são as linhas
       que entram nela — clique em qualquer uma delas na tabela para abrir por dentro.</p>
       <table class="simple gv-tab">`
       + (item.soma || []).map(function (n) {
-        const v = DRILL.porColuna.reduce((t, pg) => t + (pg[n] || 0), 0);
+        const v = ctx.porColuna.reduce((t, pg) => t + (pg[n] || 0), 0);
         return `<tr><td>${escapeHtml_(n)}</td><td class="num">${F(v)}</td></tr>`;
       }).join('')
       + `</table><table class="simple gv-tab"><tr class="gv-total">
         <td><b>${escapeHtml_(item.nome)}</b></td><td class="num"><b>${F(total)}</b></td></tr></table>`;
   }
 
-  const receita = DRILL.porColuna.reduce((s, pg) => s + (pg['Receita Bruta'] || 0), 0);
+  const receita = ctx.porColuna.reduce((s, pg) => s + (pg['Receita Bruta'] || 0), 0);
+  return { corpo: corpo, total: total, receita: receita };
+}
+
+function abrirGaveta_(item, col) {
+  if (!DRILL || !item) return;
+  const F = (v) => fmtBRL(v, 2);
+  const tudo = corpoGaveta_(item, DRILL);
+  let mes = null;
+  if (col != null && DRILL.serie.length > 1 && DRILL.serie[col]) {
+    const b = DRILL.serie[col];
+    mes = corpoGaveta_(item, Object.assign({}, DRILL,
+      { rows: b.rows, porColuna: [DRILL.porColuna[col]], serie: [b] }));
+    mes.label = b.label;
+  }
+  const topo = mes || tudo;
+  const pctRec = (t) => t.receita ? fmtPctSimples_(Math.abs(t.total) / Math.abs(t.receita)) + ' da receita' : '';
+  const periodo = fmtDataBR(FILTER.start) + ' a ' + fmtDataBR(FILTER.end);
+  const regime = DRILL.porCompetencia ? 'competência' : 'caixa';
   const gv = document.getElementById('gaveta');
   gv.innerHTML = `<div class="gv-head">
       <div><div class="gv-tit">${escapeHtml_(item.nome)}</div>
-        <div class="gv-sub">${fmtDataBR(FILTER.start)} a ${fmtDataBR(FILTER.end)} ·
-          ${DRILL.porCompetencia ? 'competência' : 'caixa'}</div></div>
+        <div class="gv-sub">${mes ? escapeHtml_(mes.label) : periodo} · ${regime}</div></div>
       <button type="button" class="gv-x" id="gvFechar" aria-label="Fechar">✕</button>
     </div>
-    <div class="gv-valor ${total < 0 ? 'val-out' : 'val-in'}">${F(total)}
-      <small>${receita ? fmtPctSimples_(Math.abs(total) / Math.abs(receita)) + ' da receita' : ''}</small></div>
-    <div class="gv-corpo">${corpo}</div>`;
+    <div class="gv-valor ${topo.total < 0 ? 'val-out' : 'val-in'}">${F(topo.total)}
+      <small>${pctRec(topo)}</small></div>
+    <div class="gv-corpo">${topo.corpo}`
+    + (mes ? `<div class="gv-acum">
+        <div class="gv-acum-tit">Acumulado do período <small>${periodo}</small></div>
+        <div class="gv-acum-valor ${tudo.total < 0 ? 'val-out' : 'val-in'}">${F(tudo.total)}
+          <small>${pctRec(tudo)}</small></div>
+        ${tudo.corpo}</div>` : '')
+    + `</div>`;
   /* Mexe no display INLINE alem do atributo. O atributo sozinho nao venceu o
      `display:flex` do CSS (regra de autor ganha da do navegador), e o painel
      ficou visivel para sempre. Inline ganha dos dois. */

@@ -571,3 +571,11 @@ table.dre tr.dre-resultado td, table.dre tr.dre-resultado th{color:#EAF2EE;}
   text-transform:uppercase; letter-spacing:.04em; list-style:none;}
 .dre-carimbo summary::-webkit-details-marker{display:none;}
 .dre-carimbo summary::before{content:'ⓘ '; }
+
+/* Gaveta: mes clicado em cima, acumulado do periodo embaixo (07/10/2026). */
+.gv-acum{margin-top:22px; padding-top:14px; border-top:2px solid var(--line);}
+.gv-acum-tit{font-family:'IBM Plex Mono',monospace; font-size:11px; text-transform:uppercase;
+  letter-spacing:.05em; color:var(--muted);}
+.gv-acum-tit small{text-transform:none; letter-spacing:0; margin-left:6px;}
+.gv-acum-valor{font-family:'Fraunces',serif; font-weight:600; font-size:20px; margin:4px 0 6px;}
+.gv-acum-valor small{display:block; font-family:'Inter',sans-serif; font-weight:400; font-size:11px; color:var(--muted);}
