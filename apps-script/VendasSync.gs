@@ -565,12 +565,32 @@ function gerarCmvMes(mes) {
     return;
   }
 
-  // ---- o que ja foi processado
+  /* A COLUNA DE MES VOLTA COMO DATA (bug meu, 07/10/2026).
+   *
+   * Eu gravo o texto "2026-09" e o Sheets converte pra data; na releitura
+   * volta um Date, e `String(Date) === "2026-09"` e sempre falso. Resultado:
+   * a segunda rodada nao reconheceu nenhum dos 284 pedidos da primeira e
+   * comecou do zero.
+   *
+   * Eu ja tinha tratado isto nas funcoes de receita - o `mesDaLinha` existe
+   * la exatamente por isso - e escrevi esta sem aplicar. Saber da armadilha
+   * nao protege; o que protege e a conversao estar no mesmo lugar que a
+   * leitura, sempre.
+   *
+   * E DEDUPLICA POR pedidoId: a rodada perdida deixou linhas repetidas no
+   * rascunho, e somar duas vezes o mesmo pedido inflaria o CMV sem erro
+   * nenhum. A chave e o pedido, nao a linha. */
+  const mesDoRascunho_ = function (v) {
+    return v instanceof Date
+      ? Utilities.formatDate(v, 'America/Sao_Paulo', 'yyyy-MM')
+      : String(v || '').trim().slice(0, 7);
+  };
+
   const sh = _cmvStaging_();
   const feitos = {};
   if (sh.getLastRow() > 1) {
     sh.getRange(2, 1, sh.getLastRow() - 1, 2).getValues().forEach(function (l) {
-      if (String(l[0]).trim() === mes) feitos[String(l[1]).trim()] = 1;
+      if (mesDoRascunho_(l[0]) === mes) feitos[String(l[1]).trim()] = 1;
     });
   }
 
@@ -628,10 +648,18 @@ function gerarCmvMes(mes) {
   }
 
   // ---------------------------------------------------------- fecha o mes
+  /* Agrega DEDUPLICANDO por pedidoId: a rodada que se perdeu deixou o mesmo
+     pedido duas vezes no rascunho, e somar os dois dobraria o custo dele sem
+     erro nenhum. Fica com a ultima leitura de cada pedido. */
   const porCanal = {};
-  let tc = 0, tp = 0, ts = 0;
+  let tc = 0, tp = 0, ts = 0, repetidos = 0;
+  const vistos = {};
   sh.getRange(2, 1, sh.getLastRow() - 1, 6).getValues().forEach(function (l) {
-    if (String(l[0]).trim() !== mes) return;
+    if (mesDoRascunho_(l[0]) !== mes) return;
+    const pid = String(l[1] || '').trim();
+    if (!pid) return;
+    if (vistos[pid]) { repetidos++; return; }
+    vistos[pid] = 1;
     const canal = String(l[2] || '').trim();
     if (!porCanal[canal]) porCanal[canal] = { custo: 0, pecas: 0, semFicha: 0 };
     porCanal[canal].custo += Number(l[3]) || 0;
@@ -639,6 +667,7 @@ function gerarCmvMes(mes) {
     porCanal[canal].semFicha += Number(l[5]) || 0;
     tc += Number(l[3]) || 0; tp += Number(l[4]) || 0; ts += Number(l[5]) || 0;
   });
+  if (repetidos) L.push('(ignorei ' + repetidos + ' linha(s) repetida(s) do rascunho)');
 
   const alvo = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_CMV_CONSUMO_);
   if (!alvo) { mostrarRelatorio_('CMV', ['aba ' + ABA_CMV_CONSUMO_ + ' nao existe']); return; }
