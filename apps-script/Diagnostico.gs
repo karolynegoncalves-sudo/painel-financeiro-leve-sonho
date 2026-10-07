@@ -753,6 +753,60 @@ function corrigirSaquinho() {
   mostrarRelatorio_('Saquinho corrigido', L);
 }
 
+/* ============================================================================
+ * verProducao() - SO LEITURA. QUEM decide o tecido de cada peca.
+ *
+ * POR QUE (07/10/2026): a Karolyne disse que os robes de cetim do site sao
+ * cetim COM ELASTANO (6,99/m), nao poliester (2,99/m), e o chat de
+ * Rastreamento propos refletir isso na letra do SKU (bloco 2 = ELS).
+ *
+ * A letra do SKU nao decide o tecido. Quem decide e esta aba: o par
+ * (canalGrupo, tipoPeca) aponta o material e o valor da costura. Trocar CET
+ * por ELS no codigo e documentacao - o custo sai igual se a linha de producao
+ * do canal continuar mandando poliester.
+ *
+ * E o inverso tambem vale, e e o risco real: se a linha do canal do site JA
+ * estiver em elastano, o custo dos 19 robes ja esta certo, e "corrigir" de
+ * novo em outro lugar dobraria o preco do tecido sem ninguem ver.
+ *
+ * Por isso: olhar a tabela antes de mexer em qualquer um dos dois.
+ * ========================================================================== */
+function verProducao() {
+  const L = [];
+  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_PRECIFICACAO_PRODUCAO);
+  if (!sh || sh.getLastRow() < 2) {
+    mostrarRelatorio_('Producao', ['aba ' + ABA_PRECIFICACAO_PRODUCAO + ' vazia ou inexistente']);
+    return;
+  }
+  const cab = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
+  const iC = cab.indexOf('canalGrupo'), iT = cab.indexOf('tipoPeca'),
+        iM = cab.indexOf('material'), iV = cab.indexOf('costuraValor'),
+        iA = cab.indexOf('ativo'), iMan = cab.indexOf('custoManual');
+
+  L.push('QUEM DECIDE O TECIDO E A COSTURA DE CADA PECA');
+  L.push('(o par canal + tipo de peca, nao a letra do SKU)');
+  L.push('');
+  L.push('canal                tipo de peca              material                custura  ativo');
+  const pad = function (s, n) { s = String(s == null ? '' : s); return (s + '                         ').slice(0, n); };
+  sh.getRange(2, 1, sh.getLastRow() - 1, sh.getLastColumn()).getValues().forEach(function (l) {
+    if (!String(l[iC] || '').trim() && !String(l[iT] || '').trim()) return;
+    L.push(pad(l[iC], 20) + ' ' + pad(l[iT], 25) + ' ' + pad(iM >= 0 ? l[iM] : '', 23)
+           + ' ' + pad(iV >= 0 ? l[iV] : '', 8) + ' ' + (iA >= 0 ? l[iA] : '')
+           + (iMan >= 0 && l[iMan] ? '   custoManual=' + l[iMan] : ''));
+  });
+
+  L.push('');
+  L.push('O QUE PROCURAR: a linha do canal do SITE para robe. Se o material');
+  L.push('dela ja for Cetim Elastano, o custo dos 19 robes de cetim do site JA');
+  L.push('esta certo e nao ha nada a corrigir - mexer de novo dobraria o preco');
+  L.push('do tecido sem aparecer. Se estiver Cetim Poliester, e ali que se');
+  L.push('corrige, e nao na letra do codigo.');
+  L.push('');
+  L.push('Referencia: Cetim Poliester R$ 2,99/m  -  Cetim Elastano R$ 6,99/m.');
+  L.push('Num robe de ~1,5 m a diferenca e R$ 6,00 por peca.');
+  mostrarRelatorio_('Producao: quem decide o tecido', L);
+}
+
 function conferirFormatDate() {
   const L = [];
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_FLUXO_CAIXA);

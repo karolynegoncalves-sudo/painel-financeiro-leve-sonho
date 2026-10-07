@@ -266,6 +266,7 @@ function onOpen() {
     .addItem('Tecidos do site: gravar preco por metro', 'gravarTecidosDoSite')
     .addItem('Rendimento: o que ja esta medido (metros por peca)', 'verRendimento')
     .addItem('Saquinho: ver as duas pontas do custo', 'verSaquinho')
+    .addItem('Producao: quem decide o tecido de cada peca', 'verProducao')
     .addItem('Saquinho: CORRIGIR as duas (0,170 m e costura 1,00)', 'corrigirSaquinho')
     .addItem('Receita: gravar o mes corrente', 'gravarReceitaMesCorrente')
     /* Setembro foi preenchido a mao no meio do mes: R$ 24.534,07 na aba contra
