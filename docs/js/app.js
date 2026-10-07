@@ -62,7 +62,7 @@ const MODO_PRECIF_ = new URLSearchParams(location.search).get('app') === 'precif
   if (!MODO_PRECIF_) return;
   document.title = 'Leve Sonho — Precificação';
   const man = document.querySelector('link[rel="manifest"]');
-  if (man) man.href = 'manifest-precificacao.json?v=20261006b';
+  if (man) man.href = 'manifest-precificacao.json?v=20261007a';
   const tit = document.querySelector('meta[name="apple-mobile-web-app-title"]');
   if (tit) tit.content = 'Preço LS';
   const h1Gate = document.querySelector('#loginGate h1');
@@ -414,6 +414,9 @@ async function verificarESeguir_(token) {
   aplicarLogin_(data, chave0);
   snapGravar_('fluxoCaixa|' + chave0, data);
   marcarFresco_('login');
+  /* Depois do login, nao antes: duas rotas pesadas juntas disputam o limite
+     de execucoes simultaneas do Apps Script (ver carregarEmLotes_). */
+  preCarregarJanela_();
 }
 
 /* Aplica a resposta do login - a guardada ou a fresca, o mesmo caminho para
@@ -658,6 +661,16 @@ async function garantirFluxo_(el) {
   const chave = de + '|' + ate;
   if (chave === FLUXO_CHAVE) return;
   if (FLUXO_CACHE[chave]) { FLUXO_ROWS = FLUXO_CACHE[chave]; FLUXO_CHAVE = chave; return; }
+  /* Periodo dentro da janela larga ja baixada (ver preCarregarJanela_):
+     desenha na hora. Se a janela ainda esta vindo e o periodo cabe nela,
+     espera por ela em vez de abrir uma segunda chamada igual. */
+  let cobre = chaveQueCobre_(de, ate);
+  if (!cobre && JANELA_PROMESSA_ && de >= JANELA_DE_) {
+    if (el) el.innerHTML = '<div class="state-msg carregando">Carregando o período…</div>';
+    await JANELA_PROMESSA_;
+    cobre = chaveQueCobre_(de, ate);
+  }
+  if (cobre) { FLUXO_ROWS = FLUXO_CACHE[cobre]; FLUXO_CHAVE = cobre; return; }
 
   /* Periodo ja visto neste aparelho: desenha o guardado e busca o fresco por
      tras. Quando chegar, so redesenha se a pessoa ainda estiver nele. */
@@ -691,6 +704,58 @@ async function garantirFluxo_(el) {
   }
   snapGravar_('fluxoCaixa|' + chave, d);
   usarFluxo_(d, chave, true);
+}
+
+/* ---------------- Janela larga (07/10/2026) ----------------
+   Cada periodo novo era uma ida de 6-8s ao servidor, a cada troca de mes.
+   Depois do login, uma chamada por tras traz do 1o dia de 3 meses atras ate
+   hoje; dai em diante qualquer periodo dentro disso (com o anterior para
+   comparar) sai da memoria. Custa quase o mesmo que pedir uma semana: o
+   servidor le a aba inteira de qualquer jeito (leitura-unica), so a resposta
+   cresce.
+   Seguro porque as telas sempre receberam superconjunto - ate 15/09 o login
+   trazia 13 meses - e todas recortam por FILTER (ou usam so conta em aberto,
+   que vem em toda resposta). Conferido nos leitores sem filtro em 07/10. */
+const JANELA_MESES_ = 3;
+let JANELA_PROMESSA_ = null;
+let JANELA_DE_ = '9999-12-31';
+
+function chaveQueCobre_(de, ate) {
+  const ks = Object.keys(FLUXO_CACHE);
+  for (let i = 0; i < ks.length; i++) {
+    const [kde, kate] = ks[i].split('|');
+    if (kde <= de && kate >= ate) return ks[i];
+  }
+  return null;
+}
+
+function preCarregarJanela_() {
+  if (JANELA_PROMESSA_) return JANELA_PROMESSA_;
+  const hoje = new Date();
+  const de = ymdLocal_(new Date(hoje.getFullYear(), hoje.getMonth() - JANELA_MESES_, 1));
+  const ate = ymdLocal_(hoje);
+  const chave = de + '|' + ate;
+  JANELA_DE_ = de;
+  JANELA_PROMESSA_ = (async function () {
+    const guardado = await snapLer_('fluxoCaixa|' + chave);
+    if (guardado && !FLUXO_CACHE[chave]) {
+      FLUXO_CACHE[chave] = parseFluxoRows_(guardado.data);
+      marcarVelho_('janela', guardado.ts);
+    }
+    const d = await apiFetch_('fluxoCaixa', idToken, 2, { de: de, ate: ate });
+    if (!d || d.error || d._falhou) {
+      /* Sem a janela o painel so volta a buscar periodo a periodo, como antes.
+         Se havia guardado em uso, a faixa diz que nao atualizou. */
+      if (guardado) { FAIXA_ERRO_ = 'não consegui atualizar os últimos meses agora.'; desenharFaixa_(); }
+      return;
+    }
+    snapGravar_('fluxoCaixa|' + chave, d);
+    const atual = FLUXO_CHAVE === chave;
+    usarFluxo_(d, chave, atual);
+    marcarFresco_('janela');
+    if (atual) rerenderSeUsa_(['hoje', 'kpis', 'fluxoCaixa', 'dre', 'balanco', 'vendas']);
+  })();
+  return JANELA_PROMESSA_;
 }
 
 function usarFluxo_(d, chave, tornarAtual) {
