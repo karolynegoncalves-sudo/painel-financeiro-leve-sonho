@@ -71,7 +71,7 @@ const MODO_PRECIF_ = new URLSearchParams(location.search).get('app') === 'precif
   if (!MODO_PRECIF_) return;
   document.title = 'Leve Sonho — Precificação';
   const man = document.querySelector('link[rel="manifest"]');
-  if (man) man.href = 'manifest-precificacao.json?v=20261007f';
+  if (man) man.href = 'manifest-precificacao.json?v=20261007g';
   const tit = document.querySelector('meta[name="apple-mobile-web-app-title"]');
   if (tit) tit.content = 'Preço LS';
   const h1Gate = document.querySelector('#loginGate h1');
@@ -2170,19 +2170,30 @@ function renderFluxoCaixa(el, rows) {
   rows.filter(r => r.tipo === 'saida').forEach(r => { porCategoria[r.categoria] = (porCategoria[r.categoria] || 0) + r.valor; });
   const topCategorias = Object.entries(porCategoria).sort((a, b) => b[1] - a[1]).slice(0, 10);
 
+  /* GAVETA NOS GRAFICOS (07/10/2026), como na DRE e na DFC: a barra de um mes
+     abre aquele mes (entradas ou saidas, por categoria e maiores lancamentos)
+     e o acumulado embaixo; a barra de uma categoria abre a categoria. */
+  fecharGaveta_();
+  FX_DRILL = { serie: serie, rows: rows };
+  const maozinha = (ev, els) => { if (ev.native && ev.native.target) ev.native.target.style.cursor = els.length ? 'pointer' : 'default'; };
+
   new Chart(document.getElementById('chartCaixaMensal'), {
     type: 'bar',
     data: { labels: serie.map(b => b.label), datasets: [
       { label: 'Entradas', data: entradas, backgroundColor: PALETTE.entrada },
       { label: 'Saídas', data: saidas, backgroundColor: PALETTE.saida }
     ] },
-    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' }, tooltip: { callbacks: { label: (c) => c.dataset.label + ': ' + fmtBRL(c.raw) } } }, scales: { y: { ticks: { callback: (v) => fmtBRL(v) } } } }
+    options: { onHover: maozinha,
+      onClick: (ev, els) => { if (els.length) abrirGavetaFluxo_(els[0].datasetIndex === 0 ? 'entrada' : 'saida', null, els[0].index); },
+      responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' }, tooltip: { callbacks: { label: (c) => c.dataset.label + ': ' + fmtBRL(c.raw) } } }, scales: { y: { ticks: { callback: (v) => fmtBRL(v) } } } }
   });
 
   new Chart(document.getElementById('chartCaixaCategorias'), {
     type: 'bar',
     data: { labels: topCategorias.map(c => c[0]), datasets: [{ label: 'Total', data: topCategorias.map(c => c[1]), backgroundColor: PALETTE.saida, borderRadius: 3 }] },
-    options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => fmtBRL(c.raw) } } }, scales: { x: { ticks: { callback: (v) => fmtBRL(v) } } } }
+    options: { onHover: maozinha,
+      onClick: (ev, els) => { if (els.length) abrirGavetaFluxo_('saida', topCategorias[els[0].index][0], null); },
+      indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => fmtBRL(c.raw) } } }, scales: { x: { ticks: { callback: (v) => fmtBRL(v) } } } }
   });
 
   const redesenhar = () => desenharTabelaFluxo_(rows);
@@ -2197,6 +2208,58 @@ function renderFluxoCaixa(el, rows) {
     renderFluxoCaixa(el, rows);
   });
   redesenhar();
+}
+
+let FX_DRILL = null;
+
+/* Corpo da gaveta do Fluxo de Caixa para um conjunto de lancamentos ja
+   filtrado (tipo e, se houver, categoria). Soma pagas E em aberto, igual aos
+   graficos - a gaveta tem que bater com a barra clicada. */
+function corpoFluxo_(linhas, porCategoria) {
+  const F = (v) => fmtBRL(v, 2);
+  const val = (r) => (r.tipo === 'entrada' ? 1 : -1) * r.valor;
+  const total = linhas.reduce((s, r) => s + val(r), 0);
+  const abertas = linhas.filter(r => r.aberta);
+  let corpo = '';
+  if (porCategoria) {
+    const porCat = {};
+    linhas.forEach(function (r) { porCat[r.categoria] = (porCat[r.categoria] || 0) + val(r); });
+    const cats = Object.keys(porCat).sort((x, y) => Math.abs(porCat[y]) - Math.abs(porCat[x]));
+    corpo += `<h4>Por categoria <small>${cats.length} categoria(s)</small></h4><table class="simple gv-tab">`
+      + cats.map(c => `<tr><td>${escapeHtml_(c || '(sem categoria)')}</td><td class="num">${F(porCat[c])}</td>
+          <td class="num gv-pct">${fmtPctSimples_(Math.abs(porCat[c]) / (Math.abs(total) || 1))}</td></tr>`).join('')
+      + '</table>';
+  }
+  const maiores = linhas.slice().sort((x, y) => y.valor - x.valor).slice(0, 15);
+  corpo += `<h4>Os maiores lançamentos <small>${linhas.length} no total</small></h4>
+    <table class="simple gv-tab gv-lanc">`
+    + maiores.map(r => `<tr>
+        <td>${fmtDataBR(r.date)}${r.aberta ? '<small>em aberto</small>' : ''}</td>
+        <td>${escapeHtml_(r.contato || r.categoria)}
+          ${r.descricao ? '<small>' + escapeHtml_(String(r.descricao).slice(0, 70)) + '</small>' : ''}</td>
+        <td class="num">${F(val(r))}</td></tr>`).join('')
+    + '</table>'
+    + (abertas.length ? `<p class="gv-nota">Inclui ${abertas.length} lançamento(s) <b>em aberto</b>
+        (${F(abertas.reduce((s, r) => s + val(r), 0))}), como o gráfico. Para ver só o que já
+        mexeu no banco, use o filtro Situação da lista abaixo.</p>` : '')
+    + (linhas.length > 15 ? `<p class="gv-nota">Mostrando os 15 maiores de ${linhas.length}.
+        A lista de lançamentos abaixo tem todos, com busca.</p>` : '')
+    + (!linhas.length ? '<p class="gv-nota">Nenhum lançamento.</p>' : '');
+  return { corpo: corpo, total: total };
+}
+
+function abrirGavetaFluxo_(tipo, categoria, col) {
+  if (!FX_DRILL) return;
+  const filtra = (rows) => rows.filter(r => r.tipo === tipo && (!categoria || r.categoria === categoria));
+  const tudo = corpoFluxo_(filtra(FX_DRILL.rows), !categoria);
+  let mes = null;
+  if (col != null && FX_DRILL.serie.length > 1 && FX_DRILL.serie[col]) {
+    const b = FX_DRILL.serie[col];
+    mes = corpoFluxo_(filtra(b.rows), !categoria);
+    mes.label = b.label;
+  }
+  const titulo = categoria || (tipo === 'entrada' ? 'Entradas' : 'Saídas');
+  mostrarGaveta_(titulo, 'caixa', tudo, mes, null);
 }
 
 const LIMITE_LINHAS_FLUXO = 300;
