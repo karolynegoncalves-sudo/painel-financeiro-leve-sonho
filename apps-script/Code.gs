@@ -708,7 +708,9 @@ function getDreFontesV2_() {
   if (typeof CANAIS_SEM_NOTA_ !== 'undefined' && typeof ALIQUOTA_SIMPLES_ !== 'undefined') {
     const acc = {};
     ler(ABA_RECEITA_PEDIDOS_, 4).forEach(function (r) {
-      if (!CANAIS_SEM_NOTA_[String(r.canal || '').trim()]) return;
+      /* Casa por conteudo, nao por chave exata - ver canalSemNota_ no
+         BlingSync.gs. "Site (Nuvemshop)" e "Nuvemshop" sao o mesmo canal. */
+      if (!canalSemNota_(r.canal)) return;
       acc[r.mes] = (acc[r.mes] || 0) + Math.abs(r.valor) * ALIQUOTA_SIMPLES_;
     });
     Object.keys(acc).forEach(function (mes) {

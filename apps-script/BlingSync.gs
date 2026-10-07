@@ -100,6 +100,38 @@ var GRUPO_PROVISAO_IMPOSTO_ = 'Provisão de Imposto (venda sem nota)';
  */
 var CANAIS_SEM_NOTA_ = { 'Nuvemshop': 1 };
 
+/* ----------------------------------------------------------------------------
+ * canalSemNota_(canal) - o canal emite nota?
+ *
+ * EXISTE POR CAUSA DE UM ERRO MEU, em 07/10/2026. A busca era por chave
+ * EXATA: `CANAIS_SEM_NOTA_[canal.trim()]`. Quando refiz setembro na
+ * _Receita_Pedidos, o canal passou a se chamar "Site (Nuvemshop)" (nome que o
+ * syncVendas usa) em vez de "Nuvemshop" (nome que estava na aba, preenchida a
+ * mao). A chave deixou de casar e a PROVISAO de setembro e outubro virou
+ * zero, calada.
+ *
+ * Eu tinha dito a ela que a troca de nome era cosmetica "porque a DRE soma por
+ * mes e ignora o canal". Era verdade para a DRE e falso para isto aqui - este
+ * pedaco le o canal. Uma unica contra-exceção derruba um "ignora".
+ *
+ * O resultado nao muda (a provisao fica fora dele por decisao dela em
+ * 15/09), mas o numero do RISCO some da tela - e ela tirou a provisao do
+ * resultado justamente pra mante-la visivel. Risco que sai da tela deixa de
+ * ser conhecido, que e pior que risco no lugar errado.
+ *
+ * Agora casa por CONTEUDO, sem acento e sem caixa: "Nuvemshop", "Site
+ * (Nuvemshop)" e o que vier depois batem igual. O mapa continua sendo a fonte
+ * de QUAIS canais nao emitem nota - muda so o jeito de reconhece-los.
+ * -------------------------------------------------------------------------- */
+function canalSemNota_(canal) {
+  var c = String(canal || '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase();
+  if (!c) return false;
+  return Object.keys(CANAIS_SEM_NOTA_).some(function (k) {
+    var n = String(k).normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase();
+    return n && c.indexOf(n) >= 0;
+  });
+}
+
 /**
  * Aliquota efetiva do Simples, medida nas seis guias de 2026 sobre a receita
  * DECLARADA (nao sobre a do painel - foi esse o meu erro inicial):
@@ -814,7 +846,7 @@ function recalcularDre_() {
       const mes = mesTexto_(mesBruto);
       const v = Math.abs(Number(valor) || 0);
       if (!mes || !v) return;
-      if (!CANAIS_SEM_NOTA_[String(canal || '').trim()]) return;
+      if (!canalSemNota_(canal)) return;
       const imposto = v * ALIQUOTA_SIMPLES_;
       soma += imposto;
       n++;
