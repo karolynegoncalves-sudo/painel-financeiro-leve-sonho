@@ -62,7 +62,7 @@ const MODO_PRECIF_ = new URLSearchParams(location.search).get('app') === 'precif
   if (!MODO_PRECIF_) return;
   document.title = 'Leve Sonho — Precificação';
   const man = document.querySelector('link[rel="manifest"]');
-  if (man) man.href = 'manifest-precificacao.json?v=20261007a';
+  if (man) man.href = 'manifest-precificacao.json?v=20261007b';
   const tit = document.querySelector('meta[name="apple-mobile-web-app-title"]');
   if (tit) tit.content = 'Preço LS';
   const h1Gate = document.querySelector('#loginGate h1');
@@ -795,6 +795,12 @@ function computeRange_(preset, monthStr, customStart, customEnd) {
   if (preset === 'mes') {
     return [startOfDay_(new Date(hoje.getFullYear(), hoje.getMonth(), 1)), endOfDay_(hoje)];
   }
+  /* Ultimos 12 meses (07/10/2026): 12 meses de calendario contando o atual,
+     do dia 1 de 11 meses atras ate hoje - mes inteiro, para os graficos
+     mensais nao comecarem com um mes cortado. */
+  if (preset === 'ultimo_ano') {
+    return [startOfDay_(new Date(hoje.getFullYear(), hoje.getMonth() - 11, 1)), endOfDay_(hoje)];
+  }
   if (preset === 'mes_passado') {
     const ini = new Date(hoje.getFullYear(), hoje.getMonth() - 1, 1);
     const fim = new Date(hoje.getFullYear(), hoje.getMonth(), 0);
@@ -835,7 +841,7 @@ function periodoAnterior_(start, end) {
 
 const FILTER_LABELS = {
   hoje: 'Hoje', ontem: 'Ontem', semana: 'Esta semana', semana_passada: 'Semana passada',
-  mes: 'Este mês', mes_passado: 'Mês passado', mes_selecionado: 'Mês selecionado', personalizado: 'Período personalizado'
+  mes: 'Este mês', mes_passado: 'Mês passado', ultimo_ano: 'Últimos 12 meses', mes_selecionado: 'Mês selecionado', personalizado: 'Período personalizado'
 };
 
 /**
@@ -865,7 +871,7 @@ function ymdLocal_(dt) {
 }
 
 function renderFiltroBar_() {
-  const presets = ['hoje', 'ontem', 'semana', 'semana_passada', 'mes', 'mes_passado'];
+  const presets = ['hoje', 'ontem', 'semana', 'semana_passada', 'mes', 'mes_passado', 'ultimo_ano'];
   const custIni = FILTER.preset === 'personalizado' ? toDateInputValue_(FILTER.start) : '';
   const custFim = FILTER.preset === 'personalizado' ? toDateInputValue_(FILTER.end) : '';
   return `
@@ -1891,13 +1897,18 @@ function renderKpis(el, rows) {
   const [prevStart, prevEnd] = periodoAnterior_(FILTER.start, FILTER.end);
   const rowsAnterior = FLUXO_ROWS.filter(r => r.date >= prevStart && r.date <= prevEnd);
   const anterior = totais_(rowsAnterior.filter(r => r.paga));
-  const variacaoReceita = anterior.receitaBruta ? (receitaBruta / anterior.receitaBruta - 1) : null;
+  /* Periodo anterior que comeca antes do que o painel baixa (JANELA_DESDE)
+     vem incompleto, e a variacao sairia +300% contra meio periodo - numero
+     plausivel e falso. Acontece com "Ultimos 12 meses", cujo anterior sao os
+     12 meses de antes. Sem comparacao e melhor que comparacao errada. */
+  const anteriorIncompleto = !!JANELA_DESDE && ymdLocal_(prevStart) < JANELA_DESDE;
+  const variacaoReceita = (!anteriorIncompleto && anterior.receitaBruta) ? (receitaBruta / anterior.receitaBruta - 1) : null;
   const indPmr = pmr_(rows);
   const eq = pontoEquilibrio_();
   const canais = margemPorCanal_(rows);
   const fat = faturamento_(FILTER.start, FILTER.end);
   const fatAnterior = faturamento_(prevStart, prevEnd);
-  const variacaoFat = fatAnterior.total ? (fat.total / fatAnterior.total - 1) : null;
+  const variacaoFat = (!anteriorIncompleto && fatAnterior.total) ? (fat.total / fatAnterior.total - 1) : null;
   const totalCanais = canais.reduce((s, c) => s + c.receita, 0);
 
   el.innerHTML = `
