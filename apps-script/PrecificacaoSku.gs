@@ -46,9 +46,72 @@
  * rendimento, uma linha por modelo.
  */
 
-/** Prefixo de família: os dois primeiros blocos do código (RMC-CUR-G-AZL -> RMC-CUR). */
+/**
+ * TAMANHOS que o codigo pode carregar. Serve pra saber ONDE a familia termina,
+ * nao pra ler o tamanho - o tamanho continua vindo do campo `Tamanho:` do nome
+ * do produto no Bling, que esta em 100% dos SKUs que tem tamanho.
+ *
+ * Nenhuma sigla de aviamento colide com esta lista, e isso foi conferido
+ * quando o esquema dos robes do site fechou (07/10/2026): GL (guipir larga),
+ * GMB e GMBR (guipir), VI (vies), PL (plumas), ELS (elastano), CRP (crepe),
+ * VIS (viscolinho). G, GG e G1 estao aqui; GL nao.
+ */
+var TAMANHOS_SKU_ = {
+  PP: 1, P: 1, M: 1, G: 1, GG: 1, XG: 1, XGG: 1,
+  G1: 1, G2: 1, G3: 1, G4: 1,
+  U: 1, UN: 1, UNICO: 1
+};
+
+/** Um bloco e tamanho se esta na lista ou se e so digito (grade infantil 2..14,
+ *  que o Bling grava ora "6" ora "06"). */
+function ehBlocoDeTamanho_(bloco) {
+  var b = String(bloco || '').trim().toUpperCase();
+  if (!b) return false;
+  if (/^\d+$/.test(b)) return true;
+  return !!TAMANHOS_SKU_[b];
+}
+
+/**
+ * Familia ESPECIFICA: todos os blocos ate o primeiro que for tamanho.
+ *
+ *   RMC-CUR-G-AZL      -> RMC-CUR        (G e tamanho, corta ali)
+ *   RLC-ELS-GL-P-AZL   -> RLC-ELS-GL     (GL nao e tamanho; P e)
+ *   RICC-ELS-8         -> RICC-ELS       (bloco 1 de 4 letras, tanto faz)
+ *
+ * POR QUE MUDOU (07/10/2026, pedido dela). Antes isto devolvia sempre os DOIS
+ * primeiros blocos, e o bloco 3 - que e onde mora a RENDA - era jogado fora.
+ * No esquema novo dos robes do site isso juntava 13 modelos em 5 chaves:
+ *
+ *   RTC-ELS   Maria + Rebeca + Joana
+ *   RLC-ELS   Amanda + Juliana + Alice + Isadora
+ *   RLL-ELS   Hellen + Thayssa
+ *   RICC-ELS  Cetim + guipir
+ *   RILC-ELS  Vies + Plumas
+ *
+ * A regra da familia carrega o `materialSecundario` (a renda) e o
+ * `tipoProduto` (que define os metros no catalogo de rendimento). Com uma
+ * chave so, guipir larga sairia custando como vies - e sem erro nenhum na
+ * tela: quem cadastrasse as 13 veria 5 linhas valerem e 8 serem ignoradas.
+ *
+ * E A MESMA REGRA que o Rastreamento usa pra parsear SKU ("ate a lista de
+ * tamanhos"), de proposito. Duas regras diferentes pro mesmo codigo divergem,
+ * e a divergencia aparece como custo errado, nao como erro.
+ */
 function familiaDoSku_(sku) {
-  const partes = String(sku || '').split('-');
+  var partes = String(sku || '').split('-').filter(function (b) { return b !== ''; });
+  if (!partes.length) return '';
+  var fim = partes.length;
+  for (var i = 1; i < partes.length; i++) {       // bloco 1 nunca e tamanho
+    if (ehBlocoDeTamanho_(partes[i])) { fim = i; break; }
+  }
+  if (fim < 1) fim = 1;
+  return partes.slice(0, fim).join('-');
+}
+
+/** A familia do jeito ANTIGO: dois blocos. Continua existindo porque e o
+ *  fallback - ver o comentario no custoDoSku_. */
+function familiaBaseDoSku_(sku) {
+  var partes = String(sku || '').split('-');
   if (partes.length <= 2) return partes[0] || '';
   return partes[0] + '-' + partes[1];
 }
@@ -182,7 +245,26 @@ function carregarCatalogosCusto_() {
   const regras = {};
   getPrecificacaoSkuRegras_().forEach(r => { regras[r.familia.toUpperCase()] = r; });
 
-  return { materiais, rendimento, corte, producao, regras, aviamentosTamanho };
+  /* QUAIS BASES JA TEM FILHO CADASTRADO.
+   *
+   * Isto existe pra o aviso de fallback do custoDoSku_ nao virar ruido. Com a
+   * familia especifica (07/10/2026), MUITO SKU normal passa a pedir uma chave
+   * longa que ninguem vai cadastrar: PIF-CUR-PRE-06 pede "PIF-CUR-PRE", onde
+   * PRE e COR, nao acabamento. Avisar em todos seria avisar em centenas, e
+   * aviso que aparece sempre ninguem le.
+   *
+   * O caso que MERECE aviso e outro e e estreito: a base ja tem algum filho
+   * cadastrado (alguem comecou a separar RLC-ELS-GL) e ESTE SKU nao achou o
+   * dele. Ai o fallback silencioso faria a Alice custar como a Isadora.
+   * Quando a base nao tem filho nenhum, o fallback e so o comportamento
+   * antigo e nao ha o que avisar. */
+  const basesComFilho = {};
+  Object.keys(regras).forEach(function (k) {
+    const base = familiaBaseDoSku_(k).toUpperCase();
+    if (base && base !== k) basesComFilho[base] = 1;
+  });
+
+  return { materiais, rendimento, corte, producao, regras, aviamentosTamanho, basesComFilho };
 }
 
 /**
@@ -191,10 +273,42 @@ function carregarCatalogosCusto_() {
  * catálogo) precisa aparecer como incompleto, nunca como zero silencioso.
  */
 function custoDoSku_(sku, nomeProduto, canal, cat) {
-  const familia = familiaDoSku_(sku).toUpperCase();
-  const regra = cat.regras[familia];
   const canalGrupo = grupoDoCanal_(canal);
   const avisos = [];
+
+  /* CHAVE ESPECIFICA PRIMEIRO, CHAVE ANTIGA DEPOIS - e dizendo quando caiu.
+   *
+   * A familiaDoSku_ passou a devolver a chave longa (RLC-ELS-GL) em 07/10/2026.
+   * Trocar seco quebraria o que ja esta cadastrado: PIF-CUR-PRE-06 agora pede
+   * "PIF-CUR-PRE" e o catalogo tem "PIF-CUR". Sem o fallback, esses SKUs
+   * passariam a sair com custo null e o CMV cairia - um conserto de robe
+   * derrubando o custo do pijama infantil, sem ninguem ligar uma coisa a
+   * outra.
+   *
+   * Com o fallback a mudanca e ESTRITAMENTE ADITIVA: chave longa cadastrada
+   * passa a valer; nao cadastrada, continua tudo como antes.
+   *
+   * MAS O FALLBACK AVISA. Cair calado na chave generica e justo o erro caro:
+   * a Alice (guipir larga) custaria como estiver o RLC-ELS e o numero sairia
+   * plausivel. O aviso nomeia as duas chaves pra aparecer no relatorio de
+   * quem conferir. */
+  var familia = familiaDoSku_(sku).toUpperCase();
+  var regra = cat.regras[familia];
+  if (!regra) {
+    const base = familiaBaseDoSku_(sku).toUpperCase();
+    if (base && base !== familia && cat.regras[base]) {
+      /* So avisa quando a base JA tem filho cadastrado - ver basesComFilho no
+         carregarCatalogosCusto_. Fora disso o fallback e o comportamento de
+         sempre e o aviso seria ruido em centenas de SKU. */
+      if (cat.basesComFilho && cat.basesComFilho[base]) {
+        avisos.push('"' + base + '" ja tem acabamento separado no catalogo, mas "'
+                    + familia + '" nao esta la - usei o generico. Se este codigo'
+                    + ' tem acabamento proprio, o custo esta saindo do vizinho.');
+      }
+      familia = base;
+      regra = cat.regras[base];
+    }
+  }
 
   if (!regra) {
     return { sku: sku, familia: familia, canalGrupo: canalGrupo, custo: null, completo: false,
