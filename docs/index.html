@@ -16,7 +16,7 @@
      como icone de manifest. Dai os PNG em icons/.
      O apple-touch-icon passou a apontar para o PNG: no iPad o data URI as
      vezes vira icone cinza na tela de inicio. -->
-<link rel="manifest" href="manifest.json?v=20261007h">
+<link rel="manifest" href="manifest.json?v=20261007i">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <meta name="theme-color" content="#3E5754">
 <meta name="mobile-web-app-capable" content="yes">
@@ -38,7 +38,7 @@
      chegar na tela em vez de ficar no servidor. -->
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
-<link rel="stylesheet" href="css/style.css?v=20261007h">
+<link rel="stylesheet" href="css/style.css?v=20261007i">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.5.0/chart.umd.min.js" defer></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
@@ -102,8 +102,8 @@
   </footer>
 </div>
 
-<script src="js/config.js?v=20261007h"></script>
-<script src="js/precificacao-calc.js?v=20261007h"></script>
+<script src="js/config.js?v=20261007i"></script>
+<script src="js/precificacao-calc.js?v=20261007i"></script>
 <!-- GAVETA DE DETALHE DA DRE. Fica fora das abas de proposito: a aba e
      redesenhada inteira a cada render, e a gaveta sobreviveria a isso com o
      conteudo de outro periodo. Aqui ela e independente e o render a fecha. -->
@@ -117,7 +117,7 @@
 <div id="gvFundo" hidden style="display:none"></div>
 <aside id="gaveta" hidden style="display:none" aria-live="polite"></aside>
 
-<script src="js/app.js?v=20261007h"></script>
+<script src="js/app.js?v=20261007i"></script>
 
 <!-- REGISTRO DO SERVICE WORKER. Depois do app.js de proposito: se o registro
      falhar (navegador antigo, http sem s, modo anonimo), o painel tem de abrir
@@ -126,7 +126,7 @@
 <script>
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', function () {
-    navigator.serviceWorker.register('sw.js?v=20261007h')
+    navigator.serviceWorker.register('sw.js?v=20261007i')
       .catch(function () { /* sem app instalavel; o painel segue normal */ });
   });
 }

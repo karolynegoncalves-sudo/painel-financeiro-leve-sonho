@@ -71,7 +71,7 @@ const MODO_PRECIF_ = new URLSearchParams(location.search).get('app') === 'precif
   if (!MODO_PRECIF_) return;
   document.title = 'Leve Sonho — Precificação';
   const man = document.querySelector('link[rel="manifest"]');
-  if (man) man.href = 'manifest-precificacao.json?v=20261007h';
+  if (man) man.href = 'manifest-precificacao.json?v=20261007i';
   const tit = document.querySelector('meta[name="apple-mobile-web-app-title"]');
   if (tit) tit.content = 'Preço LS';
   const h1Gate = document.querySelector('#loginGate h1');
@@ -2043,7 +2043,7 @@ function renderKpis(el, rows) {
         : (c.medido ? '' : ' <span class="pill md">estimado</span>');
       const detTaxa = c.semTaxa ? '—'
         : fmtPctSimples_(c.pct) + (c.fixaUnit ? ' + ' + fmtBRL(c.fixaUnit, 2) + '/pedido' : '');
-      h += `<tr><td>${escapeHtml_(c.canal)}${selo}</td>`
+      h += `<tr class="dre-abre" data-canal="${escapeHtml_(c.canal)}" title="Clique para ver o canal mês a mês"><td>${escapeHtml_(c.canal)}${selo}</td>`
         + `<td class="num">${c.pedidos}</td>`
         + `<td class="num">${fmtBRL(c.ticket, 2)}</td>`
         + `<td class="num val-in">${fmtBRL(c.receita, 2)}</td>`
@@ -2064,6 +2064,12 @@ function renderKpis(el, rows) {
       + `<th class="num val-in">${fmtBRL(totMc, 2)}</th>`
       + `<th class="num">${totalCanais ? fmtPctSimples_(totMc / totalCanais) : '—'}</th></tr>`;
     tblC.innerHTML = h;
+    /* GAVETA DO CANAL (07/10/2026): a linha (ou a fatia do grafico) abre o
+       canal mes a mes e os maiores pedidos. */
+    KPI_CANAIS = ordenados;
+    tblC.querySelectorAll('tr.dre-abre').forEach(function (tr) {
+      tr.addEventListener('click', function () { abrirGavetaCanal_(tr.dataset.canal); });
+    });
 
     // Cor fixa por canal, na cor da marca de cada um: a mesma fatia tem a
     // mesma cor todo mes, mesmo quando a ordem muda. Canal fora da lista cai
@@ -2088,6 +2094,8 @@ function renderKpis(el, rows) {
         datasets: [{ data: ordenados.map(c => c.receita), backgroundColor: ordenados.map((c, i) => corDoCanal_(c.canal, i)), borderWidth: 0 }]
       },
       options: {
+        onHover: (ev, els) => { if (ev.native && ev.native.target) ev.native.target.style.cursor = els.length ? 'pointer' : 'default'; },
+        onClick: (ev, els) => { if (els.length) abrirGavetaCanal_(ordenados[els[0].index].canal); },
         responsive: true, maintainAspectRatio: false, cutout: '58%',
         plugins: {
           legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 11 } } },
@@ -2131,6 +2139,49 @@ function renderKpis(el, rows) {
 }
 
 let KPI_DRILL = null;
+let KPI_CANAIS = null;
+
+/* O canal mes a mes. A taxa de cada mes usa o MESMO pct e a mesma taxa fixa
+   por pedido que a linha da tabela (margemPorCanal_), entao os meses somam
+   exatamente a linha clicada. */
+function abrirGavetaCanal_(canal) {
+  const c = (KPI_CANAIS || []).find(x => x.canal === canal);
+  if (!c) return;
+  const F = (v) => fmtBRL(v, 2);
+  const vendas = (VENDAS_ROWS || []).filter(v => v.canal === canal && v.contaReceita
+    && v.date >= FILTER.start && v.date <= FILTER.end);
+  const chaveDe = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+  const meses = mesesDoPeriodo_(FILTER.start, FILTER.end);
+  const linhas = meses.map(function (m) {
+    const doMes = vendas.filter(v => chaveDe(v.date) === m.chave);
+    const receita = doMes.reduce((s, v) => s + v.total, 0);
+    const pedidos = doMes.length;
+    const taxa = c.semTaxa ? 0 : receita * c.pct + pedidos * c.fixaUnit;
+    return { label: m.label, receita: receita, pedidos: pedidos, taxa: taxa, mc: receita - taxa };
+  });
+  let corpo = '';
+  if (meses.length > 1) {
+    corpo += `<h4>Mês a mês</h4><table class="simple gv-tab">
+      <tr><th>Mês</th><th class="num">Pedidos</th><th class="num">Receita</th><th class="num">Taxa</th><th class="num">Margem</th></tr>`
+      + linhas.map(l => `<tr><td>${escapeHtml_(l.label)}</td><td class="num">${l.pedidos}</td>
+          <td class="num">${F(l.receita)}</td><td class="num val-out">${l.taxa ? '−' + F(l.taxa) : '—'}</td>
+          <td class="num">${F(l.mc)}<small>${l.receita ? fmtPctSimples_(l.mc / l.receita) : ''}</small></td></tr>`).join('')
+      + '</table>';
+  }
+  const maiores = vendas.slice().sort((a, b) => b.total - a.total).slice(0, 15);
+  corpo += `<h4>Os maiores pedidos <small>${vendas.length} no período</small></h4>
+    <table class="simple gv-tab gv-lanc">`
+    + maiores.map(v => `<tr><td>${fmtDataBR(v.date)}</td>
+        <td>${v.numero ? 'pedido ' + escapeHtml_(v.numero) : '—'}${v.cliente ? '<small>' + escapeHtml_(v.cliente) + '</small>' : ''}</td>
+        <td class="num">${F(v.total)}</td></tr>`).join('')
+    + '</table>'
+    + (vendas.length > 15 ? `<p class="gv-nota">Mostrando os 15 maiores de ${vendas.length}. A aba <b>Vendas</b> tem todos.</p>` : '')
+    + `<p class="gv-nota">Taxa do canal: ${c.semTaxa ? '<b>sem taxa cadastrada</b> — a margem mostrada é a receita inteira'
+        : fmtPctSimples_(c.pct) + (c.fixaUnit ? ' + ' + F(c.fixaUnit) + ' por pedido' : '')
+          + (c.medido ? '' : ' (<b>estimada</b>, ainda não medida)')}. Ainda <b>não desconta o custo do produto</b>.</p>`;
+  const nota = `${c.pedidos} pedido(s) · ticket ${F(c.ticket)} · margem de contrib. ${F(c.mc)} (${fmtPctSimples_(c.mcPct)})`;
+  mostrarGaveta_(canal, 'data da venda', { corpo: corpo, total: c.receita }, null, function () { return nota; });
+}
 
 /* Cada coluna dos KPIs e uma pergunta diferente, e a gaveta abre cada uma pelo
    mesmo filtro que a calculou (renderCruzamento_ e totais_) - senao a gaveta
