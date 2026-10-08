@@ -71,9 +71,6 @@ while i < n:
     if c in ',{}()[];':
         dentro = pilha[-1][0] if pilha else None
         # ,, num objeto ou numa lista de argumentos e SyntaxError. Em array
-    if c in ',{}()[];':
-        dentro = pilha[-1][0] if pilha else None
-        # ,, num objeto ou numa lista de argumentos e SyntaxError. Em array
         # literal ([1,,2]) e buraco valido - ali nao reclamo.
         if c == ',':
             if ultimo and ultimo[0] == ',' and dentro in ('{', '('):
