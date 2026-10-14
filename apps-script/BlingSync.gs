@@ -1699,19 +1699,43 @@ function verAcertoJulho() {
   L.push('CART-ACERTO-JANJUL - o lancamento inteiro');
   L.push('');
 
-  /* Janela estreita de proposito: a conta e de 31/07. Pegar o mes inteiro
-     traria centenas de linhas e nenhuma informacao a mais. */
-  var url = 'https://api.bling.com.br/Api/v3/contas/pagar'
-    + '?pagina=1&limite=100'
-    + '&dataVencimentoInicial=2026-07-28&dataVencimentoFinal=2026-08-02';
-  var r = fetchBlingStatus_(url, token);
-  if (r.status !== 200 || !r.json || !r.json.data) {
-    mostrarRelatorio_('Acerto julho', ['GET /contas/pagar devolveu HTTP ' + r.status]);
-    return;
+  /* PAGINA ATE O FIM. A primeira versao disto pediu limite=100 numa pagina
+     so e devolveu exatamente 100 contas - e eu quase li isso como "a janela
+     tem 100 contas e a nossa nao esta entre elas". 100 nao era a contagem,
+     era o TETO. A conta podia estar na pagina 2.
+     
+     O controle negativo que eu tinha (imprimir os 5 maiores valores) provava
+     que a janela devolveu DADO, e nao que devolveu TUDO. Sao perguntas
+     diferentes, e a que importava era a segunda. Resultado igual ao teto do
+     limite e sinal de truncamento, nunca de contagem - vale pra qualquer
+     listagem paginada.
+     
+     E a janela abriu: julho inteiro mais a primeira semana de agosto. A conta
+     e de 31/07 mas o VENCIMENTO pode nao ser a competencia, e varrer 5
+     semanas custa poucas chamadas. */
+  var lista = [];
+  var pagina = 1, truncou = false;
+  while (true) {
+    var url = 'https://api.bling.com.br/Api/v3/contas/pagar'
+      + '?pagina=' + pagina + '&limite=100'
+      + '&dataVencimentoInicial=2026-07-01&dataVencimentoFinal=2026-08-07';
+    var r = fetchBlingStatus_(url, token);
+    if (r.status !== 200 || !r.json || !r.json.data) {
+      mostrarRelatorio_('Acerto julho',
+        ['GET /contas/pagar devolveu HTTP ' + r.status + ' na pagina ' + pagina]);
+      return;
+    }
+    var bloco = r.json.data;
+    lista = lista.concat(bloco);
+    if (bloco.length < 100) break;
+    pagina++;
+    Utilities.sleep(350);
+    if (pagina > 40) { truncou = true; break; }   // trava, nao limite esperado
   }
 
-  var lista = r.json.data;
-  L.push('contas com vencimento de 28/07 a 02/08 ....: ' + lista.length);
+  L.push('paginas lidas ............................: ' + pagina);
+  L.push('contas de 01/07 a 07/08 ..................: ' + lista.length
+         + (truncou ? '   *** BATI NA TRAVA DE 40 PAGINAS - pode faltar ***' : ''));
 
   /* Casa pelo VALOR, porque o historico nao vem na listagem. Tolerancia de um
      centavo pra nao perder por arredondamento de ponto flutuante. */
@@ -1719,13 +1743,28 @@ function verAcertoJulho() {
     return Math.abs(Math.abs(Number(c.valor) || 0) - 2784.46) < 0.011;
   });
   L.push('com valor 2.784,46 .......................: ' + alvo.length);
+  /* Se o numero de contas bater exatamente num multiplo de 100, desconfiar:
+     pode ser teto e nao contagem. Aqui a paginacao ja trata, mas o aviso
+     fica pra quem ler o relatorio. */
+  if (lista.length % 100 === 0 && lista.length > 0) {
+    L.push('   (atencao: total e multiplo exato de 100 - conferir se paginou tudo)');
+  }
   L.push('');
 
   if (!alvo.length) {
-    L.push('NAO ACHEI. Duas possibilidades, e elas se distinguem:');
-    L.push('  - a conta esta por COMPETENCIA em 31/07 mas vence em outra data');
-    L.push('    (a competencia que o painel usa nao e o vencimento);');
+    L.push('NAO ACHEI em 5 semanas de vencimento, lendo todas as paginas.');
+    L.push('Agora isso significa alguma coisa - na primeira tentativa eu li so');
+    L.push('100 contas de uma pagina e "nao achei" nao valia nada.');
+    L.push('');
+    L.push('O que sobra:');
+    L.push('  - a conta nao e CONTA A PAGAR: o espelho lanca acerto de carteira');
+    L.push('    como movimento de caixa/bordero, que nao aparece aqui;');
+    L.push('  - o vencimento esta fora de 01/07 a 07/08 (competencia nao e');
+    L.push('    vencimento, e um acerto pode vencer bem depois);');
     L.push('  - ou ela foi apagada/alterada desde que o Jobs leu.');
+    L.push('');
+    L.push('O Jobs leu do Fluxo de Caixa do painel, que vem do syncBling. Se a');
+    L.push('linha existe la e nao existe aqui, a primeira hipotese e a boa.');
     L.push('');
     L.push('CONTROLE NEGATIVO, pra separar "nao achou" de "nao filtrou":');
     L.push('os 5 maiores valores que a janela devolveu foram');
