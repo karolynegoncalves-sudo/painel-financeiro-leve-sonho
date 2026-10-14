@@ -1757,7 +1757,16 @@ function verAcertoJulho() {
     var l = a.l;
     L.push('--- linha ' + a.linha + ' da aba -----------------------------');
     L.push('  data .............: ' + l[0]);
-    L.push('  competencia ......: ' + l[14]);
+    L.push('  competencia ......: ' + (l[14] || '(VAZIA)'));
+    /* Competencia vazia importa: a DRE agrupa por competencia e cai pra `data`
+       quando ela falta. Entao este lancamento esta em julho por causa da DATA
+       (31/07), nao por alguem ter dito que a competencia dele e julho - o que
+       e justamente o que se esperaria de um acerto de jan a jul. */
+    if (!l[14]) {
+      L.push('      ^ sem competencia: a DRE usa a DATA (acima) pra posicionar.');
+      L.push('        Num acerto de varios meses, isso significa que NINGUEM');
+      L.push('        escolheu julho - julho e so onde ele foi lancado.');
+    }
     L.push('  situacao .........: ' + l[2]);
     L.push('  categoria ........: ' + l[4] + '  (grupo: ' + l[5] + ')');
     L.push('  contato ..........: ' + l[8]);
@@ -1775,8 +1784,25 @@ function verAcertoJulho() {
     Utilities.sleep(350);
     if (r.status !== 200 || !r.json || !r.json.data) {
       L.push('  GET /contas/' + rota + '/' + l[12] + ' -> HTTP ' + r.status);
-      L.push('  (404 aqui significa que a conta foi APAGADA no Bling depois do');
-      L.push('   ultimo sync - a aba guarda o retrato, o Bling nao tem mais.)');
+      /* MENSAGEM POR STATUS. A primeira versao imprimia a explicacao do 404
+         qualquer que fosse o erro - e em 14/10 ela imprimiu "a conta foi
+         apagada" num 429, que e limite de requisicao. Dizer a coisa errada
+         com confianca e pior que nao dizer nada: ela quase registrou como
+         conta apagada o que era so a API ocupada. */
+      if (r.status === 429) {
+        L.push('  429 = LIMITE DE REQUISICAO do Bling, que e de 3 por segundo e');
+        L.push('  vale pra CONTA INTEIRA, somando todas as conversas. Outra');
+        L.push('  sessao esta usando a API agora. A conta existe - so nao deu');
+        L.push('  pra ler neste instante.');
+        L.push('  >>> ESPERE UM MINUTO E RODE DE NOVO. Nada se perdeu.');
+      } else if (r.status === 404) {
+        L.push('  404 = a conta foi APAGADA no Bling depois do ultimo sync.');
+        L.push('  A aba guarda o retrato; o Bling nao tem mais o original.');
+      } else if (r.status === 401 || r.status === 403) {
+        L.push('  ' + r.status + ' = token recusado. Rode "Reautorizar Bling".');
+      } else {
+        L.push('  Erro nao esperado. O retrato da aba (acima) continua valendo.');
+      }
       L.push('');
       return;
     }
