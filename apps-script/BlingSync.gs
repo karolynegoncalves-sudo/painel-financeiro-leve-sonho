@@ -1667,3 +1667,103 @@ function preencherQuemVazio() {
   try { SpreadsheetApp.getUi().alert(msg); } catch (e) {}
   return msg;
 }
+
+/* ============================================================================
+ * LER O "CART-ACERTO-JANJUL" INTEIRO - o historico completo, do GET por id.
+ *
+ * O QUE TRAVOU JULHO. O Jobs achou um lancamento de -2.784,46 em 31/07/2026,
+ * contato Shopee, categoria "Taxas do marketplace", historico
+ * "CART-ACERTO-JANJUL". Pelo nome e um acerto de carteira de janeiro a julho
+ * jogado inteiro em julho. Mas o nome e tudo que a gente tem, e decidir o que
+ * fazer com R$ 2.784 pelo nome do lancamento e exatamente o tipo de inferencia
+ * que ja me enganou tres vezes nesta investigacao.
+ *
+ * A LISTAGEM DO BLING VEM PODADA: `historico`, `numeroDocumento` e `origem`
+ * chegam VAZIOS em /contas/pagar e cheios no GET por id. Entao achar na
+ * listagem e, para o candidato, buscar o detalhe. Sao duas ou tres chamadas,
+ * nao uma varredura - nao disputa o limite de 3 req/s com as outras sessoes.
+ *
+ * POR QUE IMPORTA SABER O QUE ELE CORRIGE: em 15/07/2026 o espelho da Shopee
+ * trocou de metodo, de lancar pela data do PEDIDO para lancar pela data de
+ * LIBERACAO. Pedido do comeco de julho que so liberou depois do dia 15 pode
+ * ter entrado duas vezes. Medi o teto desse risco pela quebra por dia: R$ 937.
+ * O acerto e R$ 2.784, quatro vezes maior - entao ele NAO e so o conserto da
+ * virada, ou e e esta errado. O historico completo deve dizer.
+ *
+ * SO LE. Nao escreve nada no Bling nem na planilha.
+ * ========================================================================== */
+function verAcertoJulho() {
+  var L = [];
+  var token = getBlingAccessToken_();
+
+  L.push('CART-ACERTO-JANJUL - o lancamento inteiro');
+  L.push('');
+
+  /* Janela estreita de proposito: a conta e de 31/07. Pegar o mes inteiro
+     traria centenas de linhas e nenhuma informacao a mais. */
+  var url = 'https://api.bling.com.br/Api/v3/contas/pagar'
+    + '?pagina=1&limite=100'
+    + '&dataVencimentoInicial=2026-07-28&dataVencimentoFinal=2026-08-02';
+  var r = fetchBlingStatus_(url, token);
+  if (r.status !== 200 || !r.json || !r.json.data) {
+    mostrarRelatorio_('Acerto julho', ['GET /contas/pagar devolveu HTTP ' + r.status]);
+    return;
+  }
+
+  var lista = r.json.data;
+  L.push('contas com vencimento de 28/07 a 02/08 ....: ' + lista.length);
+
+  /* Casa pelo VALOR, porque o historico nao vem na listagem. Tolerancia de um
+     centavo pra nao perder por arredondamento de ponto flutuante. */
+  var alvo = lista.filter(function (c) {
+    return Math.abs(Math.abs(Number(c.valor) || 0) - 2784.46) < 0.011;
+  });
+  L.push('com valor 2.784,46 .......................: ' + alvo.length);
+  L.push('');
+
+  if (!alvo.length) {
+    L.push('NAO ACHEI. Duas possibilidades, e elas se distinguem:');
+    L.push('  - a conta esta por COMPETENCIA em 31/07 mas vence em outra data');
+    L.push('    (a competencia que o painel usa nao e o vencimento);');
+    L.push('  - ou ela foi apagada/alterada desde que o Jobs leu.');
+    L.push('');
+    L.push('CONTROLE NEGATIVO, pra separar "nao achou" de "nao filtrou":');
+    L.push('os 5 maiores valores que a janela devolveu foram');
+    lista.map(function (c) { return Math.abs(Number(c.valor) || 0); })
+      .sort(function (a, b) { return b - a; })
+      .slice(0, 5)
+      .forEach(function (v) { L.push('   R$ ' + v.toFixed(2)); });
+    L.push('Se esta lista veio cheia, a janela funcionou e a conta e que nao');
+    L.push('esta nela. Se veio vazia, o filtro e que nao pegou.');
+    mostrarRelatorio_('Acerto julho', L);
+    return;
+  }
+
+  alvo.forEach(function (c) {
+    var d = fetchBlingStatus_('https://api.bling.com.br/Api/v3/contas/pagar/' + c.id, token);
+    Utilities.sleep(350);
+    var o = (d.json && d.json.data) || {};
+    L.push('--- conta ' + c.id + ' ----------------------------------');
+    L.push('  valor ............: R$ ' + (Number(o.valor) || 0).toFixed(2));
+    L.push('  vencimento .......: ' + (o.vencimento || '?'));
+    L.push('  competencia ......: ' + (o.competencia || '(vazia)'));
+    L.push('  situacao .........: ' + (o.situacao || '?'));
+    L.push('  contato ..........: ' + ((o.contato && o.contato.nome) || '?'));
+    L.push('  categoria ........: ' + ((o.categoria && (o.categoria.descricao || o.categoria.id)) || '?'));
+    L.push('  numeroDocumento ..: ' + (o.numeroDocumento || '(vazio)'));
+    L.push('  HISTORICO:');
+    String(o.historico || '(vazio)').split(/\r?\n/).forEach(function (linha) {
+      L.push('    ' + linha);
+    });
+    if (o.origem) L.push('  origem ...........: ' + JSON.stringify(o.origem));
+    L.push('');
+  });
+
+  L.push('O QUE PROCURAR NO HISTORICO: se ele lista os meses ou os pedidos que');
+  L.push('corrige, da pra ratear o valor pelos meses de origem em vez de');
+  L.push('deixar tudo em julho. Se so disser "acerto", nao da - e aí o certo e');
+  L.push('anotar que julho carrega um acerto de jan a jul e NAO comparar julho');
+  L.push('com os outros meses, em vez de inventar um rateio.');
+
+  mostrarRelatorio_('Acerto julho', L);
+}

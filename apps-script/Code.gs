@@ -278,6 +278,10 @@ function onOpen() {
        Agora tem gatilho: instalar uma vez e ele manda o relatorio por e-mail
        todo dia 20. Rodar de novo nao duplica. */
     .addItem('Imposto: INSTALAR o aviso mensal do dia 20', 'instalarGatilhoImposto')
+    /* O unico lancamento que trava julho: -2.784,46 em 31/07, historico
+       "CART-ACERTO-JANJUL". A listagem do Bling nao traz historico; so o
+       GET por id. Duas chamadas, so leitura. */
+    .addItem('Taxa: ler o acerto de julho por inteiro', 'verAcertoJulho')
     .addItem('Imposto: guia lida x estimativa', 'verImpostoEstimado')
     .addItem('Conferir CMV por mes (_CMV_Consumo)', 'conferirCmvPorMes')
     /* nov/25 e dez/25 estao na DRE com receita ZERO - o syncVendas so puxa
