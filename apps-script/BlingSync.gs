@@ -1695,7 +1695,7 @@ function preencherQuemVazio() {
 function verAcertoJulho() {
   var L = [];
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sh = ss.getSheetByName(ABA_FLUXO);
+  var sh = ss.getSheetByName(ABA_FLUXO_CAIXA);
 
   L.push('CART-ACERTO-JANJUL - o lancamento inteiro');
   L.push('');
@@ -1719,7 +1719,7 @@ function verAcertoJulho() {
    * de bordero - a hipotese que eu ia levantar estava descartada antes de eu
    * levanta-la. */
   if (!sh || sh.getLastRow() < 2) {
-    mostrarRelatorio_('Acerto julho', ['A aba ' + ABA_FLUXO + ' esta vazia.']);
+    mostrarRelatorio_('Acerto julho', ['A aba ' + ABA_FLUXO_CAIXA + ' esta vazia.']);
     return;
   }
 
