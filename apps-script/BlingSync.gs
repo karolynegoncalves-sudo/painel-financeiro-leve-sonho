@@ -1825,3 +1825,190 @@ function verAcertoJulho() {
 
   mostrarRelatorio_('Acerto julho', L);
 }
+
+/* ============================================================================
+ * ZUMBIS: linha na aba que aponta pra conta que NAO EXISTE MAIS no Bling.
+ *
+ * O CASO QUE REVELOU ISTO (14/10/2026). O CART-ACERTO-JANJUL de R$ 2.784,46
+ * esta na aba Fluxo de Caixa, com categoria, contato e valor, pesando na DRE
+ * de julho - e o GET pelo id dele devolve 404. A conta foi apagada no Bling
+ * depois do ultimo sync.
+ *
+ * POR QUE ISSO E ESTRUTURAL E NAO UM CASO. O sincronizarTipo_ e APPEND-ONLY:
+ *     if (existentes.has(chave)) return;
+ * Ele nunca revisita o que ja esta la. Isso foi escolha deliberada e boa - e
+ * o que torna a aba imune a varredura incompleta e a janela mal escolhida.
+ * Mas tem o avesso: conta APAGADA no Bling fica na aba PARA SEMPRE, e
+ * continua somando na DRE. Ninguem ve, porque o sync nao reclama do que nao
+ * encontra - ele so nao encontra.
+ *
+ * ANTES DE CONSERTAR, MEDIR. Pode ser uma linha ou podem ser centenas, e o
+ * tamanho muda o que fazer: uma linha se trata na mao, um padrao precisa de
+ * rotina. Entao isto NAO apaga nada - so conta e lista.
+ *
+ * COMO EVITA O FALSO POSITIVO QUE ME PEGOU HOJE DE MANHA. Comparar "ids da
+ * aba" contra "ids que a listagem devolveu" acusaria como apagada toda conta
+ * cujo VENCIMENTO caia fora da janela da listagem - e vencimento nao e a data
+ * da aba. Foi assim que eu conclui errado que a minha busca estava quebrada.
+ * Por isso sao DUAS etapas: a listagem so levanta CANDIDATOS, e cada
+ * candidato e confirmado por um GET individual. Zumbi so entra no relatorio
+ * com 404 na mao.
+ *
+ * SO LE.
+ * ========================================================================== */
+const ABA_ZUMBI_ = '_Zumbis';
+
+function _zumbis_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sh = ss.getSheetByName(ABA_ZUMBI_);
+  if (!sh) {
+    sh = ss.insertSheet(ABA_ZUMBI_);
+    sh.getRange(1, 1, 1, 8).setValues([[
+      'tipo', 'origemId', 'data', 'valor', 'categoria', 'grupoDRE', 'descricao', 'conferidoEm'
+    ]]);
+    sh.setFrozenRows(1);
+    sh.hideSheet();
+  }
+  return sh;
+}
+
+/**
+ * Procura zumbis num intervalo de meses. `de` e `ate` no formato '2026-07'.
+ * Retomavel: o que ja foi conferido fica na _Zumbis e nao e conferido de novo.
+ */
+function procurarZumbis(de, ate) {
+  de = String(de || '').trim();
+  ate = String(ate || '').trim();
+  if (!/^\d{4}-\d{2}$/.test(de) || !/^\d{4}-\d{2}$/.test(ate)) {
+    mostrarRelatorio_('Zumbis', ['uso: procurarZumbis("2026-07", "2026-08")']);
+    return;
+  }
+
+  const L = [];
+  INICIO_SYNC_.t = Date.now();
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sh = ss.getSheetByName(ABA_FLUXO_CAIXA);
+  if (!sh || sh.getLastRow() < 2) {
+    mostrarRelatorio_('Zumbis', ['A aba ' + ABA_FLUXO_CAIXA + ' esta vazia.']);
+    return;
+  }
+
+  const tz = 'America/Sao_Paulo';
+  const mesDe = function (v) {
+    return v instanceof Date ? Utilities.formatDate(v, tz, 'yyyy-MM')
+                             : String(v || '').trim().slice(0, 7);
+  };
+
+  // ---- 1. as linhas da aba no periodo
+  const n = sh.getLastRow() - 1;
+  const dados = sh.getRange(2, 1, n, COLS_FLUXO_).getValues();
+  const candidatos = [];
+  dados.forEach(function (l) {
+    const m = mesDe(l[14] || l[0]);          // competencia, ou data quando falta
+    if (m < de || m > ate) return;
+    if (!l[12]) return;                      // sem origemId nao da pra conferir
+    candidatos.push({
+      tipo: String(l[13] || '').toLowerCase().indexOf('receber') >= 0 ? 'receber' : 'pagar',
+      id: String(l[12]).trim(),
+      data: l[0], valor: Number(l[11]) || 0,
+      cat: l[4], grupo: l[5], desc: l[10]
+    });
+  });
+
+  L.push('ZUMBIS em ' + de + ' a ' + ate);
+  L.push('');
+  L.push('linhas da aba no periodo .................: ' + candidatos.length);
+
+  // ---- 2. o que ja foi conferido antes
+  const shZ = _zumbis_();
+  const jaConferido = {};
+  if (shZ.getLastRow() > 1) {
+    shZ.getRange(2, 1, shZ.getLastRow() - 1, 2).getValues().forEach(function (l) {
+      if (l[1]) jaConferido[l[0] + ':' + String(l[1]).trim()] = 1;
+    });
+  }
+
+  /* 3. CACHE DE VIVOS, pra nao gastar um GET por linha. A listagem de um mes
+     custa poucas chamadas e resolve a maioria; so quem NAO aparecer nela vira
+     suspeito e leva um GET individual. Sem este passo seriam centenas de
+     chamadas e o teto de 6 minutos mataria a funcao no meio. */
+  const vivos = {};
+  const token = getBlingAccessToken_();
+  ['pagar', 'receber'].forEach(function (tipo) {
+    var pagina = 1;
+    while (true) {
+      if (tempoGasto_() > TETO_TOTAL_MS) break;
+      var url = 'https://api.bling.com.br/Api/v3/contas/' + tipo
+        + '?pagina=' + pagina + '&limite=100'
+        + '&dataVencimentoInicial=' + de + '-01'
+        + '&dataVencimentoFinal=' + ate + '-28';
+      var r = fetchBlingStatus_(url, token);
+      if (r.status !== 200 || !r.json || !r.json.data) break;
+      var bloco = r.json.data;
+      bloco.forEach(function (c) { vivos[tipo + ':' + c.id] = 1; });
+      if (bloco.length < 100) break;
+      pagina++;
+      Utilities.sleep(350);
+      if (pagina > 60) break;
+    }
+  });
+  L.push('contas vivas na listagem do periodo ......: ' + Object.keys(vivos).length);
+
+  const suspeitos = candidatos.filter(function (c) {
+    return !vivos[c.tipo + ':' + c.id] && !jaConferido[c.tipo + ':' + c.id];
+  });
+  L.push('suspeitos (nao vieram na listagem) .......: ' + suspeitos.length);
+  L.push('ja conferidos em rodadas anteriores ......: '
+         + candidatos.filter(function (c) { return jaConferido[c.tipo + ':' + c.id]; }).length);
+  L.push('');
+
+  // ---- 4. confirma um a um. Suspeito nao e zumbi ate dar 404.
+  const agora = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd HH:mm');
+  const confirmados = [];
+  let vivosNoGet = 0, erros = 0, parou = false;
+  for (var i = 0; i < suspeitos.length; i++) {
+    if (tempoGasto_() > TETO_TOTAL_MS) { parou = true; break; }
+    var c = suspeitos[i];
+    var g = fetchBlingStatus_('https://api.bling.com.br/Api/v3/contas/' + c.tipo + '/' + c.id, token);
+    Utilities.sleep(350);
+    if (g.status === 404) {
+      confirmados.push([c.tipo, c.id, c.data, c.valor, c.cat, c.grupo, c.desc, agora]);
+    } else if (g.status === 200) {
+      vivosNoGet++;     // estava fora da janela da listagem, nao apagada
+    } else {
+      erros++;          // 429 e afins: nao conclui nada, tenta na proxima rodada
+    }
+  }
+
+  if (confirmados.length) {
+    shZ.getRange(shZ.getLastRow() + 1, 1, confirmados.length, 8).setValues(confirmados);
+  }
+
+  L.push('CONFIRMADOS POR GET:');
+  L.push('  apagadas no Bling (404) ................: ' + confirmados.length);
+  L.push('  vivas, so fora da janela da listagem ...: ' + vivosNoGet);
+  L.push('  sem resposta (429 e afins) .............: ' + erros
+         + (erros ? '   <- rode de novo pra estes' : ''));
+  L.push('');
+
+  if (confirmados.length) {
+    var soma = 0;
+    confirmados.forEach(function (z) { soma += Math.abs(Number(z[3]) || 0); });
+    L.push('PESO DOS ZUMBIS NA DRE: R$ ' + soma.toFixed(2));
+    L.push('');
+    confirmados.slice(0, 15).forEach(function (z) {
+      L.push('  ' + z[0] + ' #' + z[1] + '  R$ ' + Math.abs(Number(z[3]) || 0).toFixed(2)
+             + '  ' + z[4] + '  ' + String(z[6] || '').slice(0, 30));
+    });
+    if (confirmados.length > 15) L.push('  ... e mais ' + (confirmados.length - 15) + '. Veja a aba ' + ABA_ZUMBI_ + '.');
+    L.push('');
+  }
+
+  if (parou) {
+    L.push('*** PAREI POR TEMPO. Rode de novo - ele continua de onde parou. ***');
+  }
+  L.push('NAO APAGUEI NADA. So li e anotei na aba ' + ABA_ZUMBI_ + '.');
+  mostrarRelatorio_('Zumbis ' + de + ' a ' + ate, L);
+}
+
+function procurarZumbisJulho() { return procurarZumbis('2026-07', '2026-07'); }

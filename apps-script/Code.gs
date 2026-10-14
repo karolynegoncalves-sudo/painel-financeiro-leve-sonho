@@ -282,6 +282,9 @@ function onOpen() {
        "CART-ACERTO-JANJUL". A listagem do Bling nao traz historico; so o
        GET por id. Duas chamadas, so leitura. */
     .addItem('Taxa: ler o acerto de julho por inteiro', 'verAcertoJulho')
+    /* O sync e append-only: conta APAGADA no Bling fica na aba pra sempre e
+       continua somando na DRE. Isto conta quantas sao. So le. */
+    .addItem('Zumbis: contas que sumiram do Bling (julho)', 'procurarZumbisJulho')
     .addItem('Imposto: guia lida x estimativa', 'verImpostoEstimado')
     .addItem('Conferir CMV por mes (_CMV_Consumo)', 'conferirCmvPorMes')
     /* nov/25 e dez/25 estao na DRE com receita ZERO - o syncVendas so puxa
