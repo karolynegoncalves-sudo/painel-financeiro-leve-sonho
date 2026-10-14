@@ -1992,15 +1992,47 @@ function procurarZumbis(de, ate) {
   L.push('');
 
   if (confirmados.length) {
-    var soma = 0;
-    confirmados.forEach(function (z) { soma += Math.abs(Number(z[3]) || 0); });
-    L.push('PESO DOS ZUMBIS NA DRE: R$ ' + soma.toFixed(2));
-    L.push('');
-    confirmados.slice(0, 15).forEach(function (z) {
-      L.push('  ' + z[0] + ' #' + z[1] + '  R$ ' + Math.abs(Number(z[3]) || 0).toFixed(2)
-             + '  ' + z[4] + '  ' + String(z[6] || '').slice(0, 30));
+    /* QUEBRA POR GRUPO, e nao um total so.
+     *
+     * A primeira versao imprimia "PESO DOS ZUMBIS NA DRE: R$ X" somando tudo,
+     * e esse rotulo estava ERRADO - exatamente o tipo de numero plausivel que
+     * eu passei a semana caçando. A Receita Bruta da DRE NAO vem do Fluxo de
+     * Caixa: ela e sobrescrita a partir da _Receita_Pedidos. Entao zumbi que
+     * e conta a RECEBER num grupo de recebimento nao mexe no resultado - mexe
+     * na tela de caixa, no "recebi" dos KPIs e no prazo medio de recebimento.
+     *
+     * Chamar os dois de "peso na DRE" juntaria um erro de R$ 6 mil que existe
+     * com um que nao existe, e quem lesse decidiria errado nos dois sentidos. */
+    var porGrupo = {}, somaTudo = 0, nPagar = 0, nReceber = 0;
+    confirmados.forEach(function (z) {
+      var v = Math.abs(Number(z[3]) || 0);
+      var g = String(z[5] || '(sem grupo)');
+      if (!porGrupo[g]) porGrupo[g] = { n: 0, v: 0 };
+      porGrupo[g].n++; porGrupo[g].v += v;
+      somaTudo += v;
+      if (z[0] === 'pagar') nPagar++; else nReceber++;
     });
-    if (confirmados.length > 15) L.push('  ... e mais ' + (confirmados.length - 15) + '. Veja a aba ' + ABA_ZUMBI_ + '.');
+
+    L.push('TOTAL CONFIRMADO: R$ ' + somaTudo.toFixed(2)
+           + '   (' + nPagar + ' a pagar, ' + nReceber + ' a receber)');
+    L.push('');
+    L.push('POR GRUPO DA DRE - e so a primeira coluna que mexe no resultado:');
+    Object.keys(porGrupo).sort(function (a, b) { return porGrupo[b].v - porGrupo[a].v; })
+      .forEach(function (g) {
+        var mexe = g.indexOf('ignorar na DRE') < 0 && g.indexOf('(sem mapear)') < 0;
+        L.push('  ' + (mexe ? 'MEXE  ' : 'nao   ') + ('           R$ ' + porGrupo[g].v.toFixed(2)).slice(-14)
+               + '  ' + porGrupo[g].n + 'x  ' + g);
+      });
+    L.push('');
+    L.push('Lembrete do porque: a Receita Bruta da DRE vem da _Receita_Pedidos,');
+    L.push('nao do Fluxo de Caixa. Zumbi de RECEBER infla a tela de caixa, o');
+    L.push('"recebi" dos KPIs e o prazo medio - nao o resultado.');
+    L.push('');
+    confirmados.slice(0, 12).forEach(function (z) {
+      L.push('  ' + z[0] + ' #' + z[1] + '  R$ ' + Math.abs(Number(z[3]) || 0).toFixed(2)
+             + '  ' + z[4] + '  ' + String(z[6] || '').slice(0, 26));
+    });
+    if (confirmados.length > 12) L.push('  ... e mais ' + (confirmados.length - 12) + '. Veja a aba ' + ABA_ZUMBI_ + '.');
     L.push('');
   }
 
