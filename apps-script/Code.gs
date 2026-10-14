@@ -285,6 +285,11 @@ function onOpen() {
     /* O sync e append-only: conta APAGADA no Bling fica na aba pra sempre e
        continua somando na DRE. Isto conta quantas sao. So le. */
     .addItem('Zumbis: contas que sumiram do Bling (julho)', 'procurarZumbisJulho')
+    .addItem('Zumbis: varrer TODOS os meses (repetir ate fechar)', 'procurarZumbisTodos')
+    .addItem('Zumbis: quais meses ja fecharam', 'verProgressoZumbis')
+    /* A unica linha de Despesas Variaveis sem lastro no Bling. Reconfirma o
+       404 antes de apagar e guarda o retrato na _Zumbis. */
+    .addItem('Zumbis: REMOVER o acerto de julho (2.784,46)', 'removerAcertoJulho')
     .addItem('Imposto: guia lida x estimativa', 'verImpostoEstimado')
     .addItem('Conferir CMV por mes (_CMV_Consumo)', 'conferirCmvPorMes')
     /* nov/25 e dez/25 estao na DRE com receita ZERO - o syncVendas so puxa

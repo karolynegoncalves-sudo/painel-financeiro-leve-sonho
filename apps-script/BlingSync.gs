@@ -2067,14 +2067,206 @@ function procurarZumbis(de, ate) {
   L.push('');
 
   var faltam = suspeitos.length - (confirmados.length + vivosNoGet + erros);
-  if (parou) {
-    L.push('*** PAREI POR TEMPO. Faltam ~' + Math.max(0, faltam) + ' suspeitos nesta janela.');
+  /* FECHOU a janela? So quando nao parou por tempo E nao sobrou 429 pra
+     retentar. Erro de rede deixa suspeito sem veredito, e um mes com
+     suspeito sem veredito nao esta varrido. */
+  var completo = !parou && erros === 0 && faltam <= 0;
+  if (!completo) {
+    L.push('*** AINDA NAO FECHOU. Faltam ~' + Math.max(0, faltam + erros) + ' suspeitos nesta janela.');
     L.push('    Rode de novo - ele continua de onde parou. ***');
   } else {
     L.push('JANELA COMPLETA: todos os suspeitos de ' + de + ' a ' + ate + ' foram conferidos.');
   }
   L.push('NAO APAGUEI NADA. So li e anotei na aba ' + ABA_ZUMBI_ + '.');
   mostrarRelatorio_('Zumbis ' + de + ' a ' + ate, L);
+  return completo;
 }
 
 function procurarZumbisJulho() { return procurarZumbis('2026-07', '2026-07'); }
+
+/* ============================================================================
+ * REMOVER ZUMBI da aba Fluxo de Caixa, e varrer o resto dos meses.
+ *
+ * Ela autorizou em 14/10/2026: "tira o acerto e varre os outros meses".
+ *
+ * O QUE "TIRAR" SIGNIFICA AQUI, e e importante nao confundir: a conta ja NAO
+ * EXISTE no Bling - foi apagada la por alguem, e o 404 confirma. O que sobra
+ * e a linha na PLANILHA, que o sync nunca remove porque e append-only. Entao
+ * remover e alinhar o painel com a origem, nao apagar dado do Bling. Nada
+ * nesta parte toca na API a nao ser pra LER.
+ * ========================================================================== */
+
+/**
+ * Remove UMA linha da aba Fluxo de Caixa, pelo origemId.
+ *
+ * RECONFIRMA O 404 NA HORA. A varredura pode ter rodado horas antes, e
+ * apagar linha de uma conta que voltou a existir perderia dado de verdade.
+ * Custa uma chamada e compra o direito de apagar - sem ela, isto seria
+ * "apagar porque um relatorio antigo disse".
+ *
+ * GUARDA O RETRATO ANTES. A linha inteira vai pra _Zumbis com carimbo de
+ * remocao, entao da pra reconstruir se alguem mudar de ideia. Remocao sem
+ * trilha e o tipo de coisa que ninguem consegue auditar seis meses depois.
+ */
+function removerZumbiPorId(tipo, id) {
+  tipo = String(tipo || 'pagar').trim().toLowerCase();
+  id = String(id || '').trim();
+  var L = [];
+  if (!id) { mostrarRelatorio_('Remover zumbi', ['informe o id']); return; }
+
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName(ABA_FLUXO_CAIXA);
+  if (!sh || sh.getLastRow() < 2) {
+    mostrarRelatorio_('Remover zumbi', ['A aba ' + ABA_FLUXO_CAIXA + ' esta vazia.']);
+    return;
+  }
+
+  var n = sh.getLastRow() - 1;
+  var dados = sh.getRange(2, 1, n, COLS_FLUXO_).getValues();
+  var linhas = [];
+  for (var k = 0; k < n; k++) {
+    if (String(dados[k][12] || '').trim() === id) linhas.push(k + 2);
+  }
+
+  L.push('REMOVER ZUMBI ' + tipo + ' #' + id);
+  L.push('');
+  L.push('linhas encontradas na aba ...: ' + linhas.length);
+  if (!linhas.length) {
+    L.push('Nada a fazer - esse id nao esta na aba.');
+    mostrarRelatorio_('Remover zumbi', L);
+    return;
+  }
+
+  // ---- reconfirma que a conta continua inexistente
+  var token = getBlingAccessToken_();
+  var r = fetchBlingStatus_('https://api.bling.com.br/Api/v3/contas/' + tipo + '/' + id, token);
+  L.push('GET /contas/' + tipo + '/' + id + ' -> HTTP ' + r.status);
+  if (r.status === 200) {
+    L.push('');
+    L.push('*** NAO REMOVI. A conta EXISTE no Bling. ***');
+    L.push('A varredura que a marcou como zumbi esta desatualizada, ou alguem');
+    L.push('recriou a conta. Rode a varredura de novo antes de decidir.');
+    mostrarRelatorio_('Remover zumbi', L);
+    return;
+  }
+  if (r.status !== 404) {
+    L.push('');
+    L.push('*** NAO REMOVI. So removo com 404 na mao. ***');
+    L.push(r.status === 429
+      ? 'Foi 429: limite de requisicao, outra sessao usando a API. Tente em 1 min.'
+      : 'Status inesperado - nao da pra afirmar que a conta sumiu.');
+    mostrarRelatorio_('Remover zumbi', L);
+    return;
+  }
+
+  // ---- guarda o retrato e remove
+  var shZ = _zumbis_();
+  var agora = Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'yyyy-MM-dd HH:mm');
+  var guardadas = [];
+  linhas.forEach(function (ln) {
+    var l = sh.getRange(ln, 1, 1, COLS_FLUXO_).getValues()[0];
+    guardadas.push([tipo, id, l[0], l[11], l[4], l[5],
+                    'REMOVIDO DA ABA | ' + String(l[10] || ''), agora]);
+    L.push('  linha ' + ln + ': R$ ' + (Number(l[11]) || 0).toFixed(2)
+           + '  ' + l[4] + '  ' + String(l[10] || '').slice(0, 30));
+  });
+  shZ.getRange(shZ.getLastRow() + 1, 1, guardadas.length, 8).setValues(guardadas);
+
+  /* De baixo pra cima: apagar de cima desloca as linhas de baixo e os indices
+     que eu guardei deixariam de valer. */
+  linhas.sort(function (a, b) { return b - a; }).forEach(function (ln) { sh.deleteRow(ln); });
+
+  L.push('');
+  L.push('REMOVIDAS: ' + linhas.length + ' linha(s). O retrato ficou na aba ' + ABA_ZUMBI_ + '.');
+  L.push('');
+  L.push('NAO VOLTA SOZINHO: o sync so adiciona o que a listagem do Bling');
+  L.push('devolve, e o Bling nao tem mais essa conta.');
+
+  if (typeof recalcularDre_ === 'function') { recalcularDre_(); L.push('DRE recalculada.'); }
+  mostrarRelatorio_('Remover zumbi', L);
+}
+
+/** O acerto de julho: a unica linha de Despesas Variaveis sem lastro no Bling. */
+function removerAcertoJulho() { return removerZumbiPorId('pagar', '26577539313'); }
+
+/* ==========================================================================
+ * VARRER TODOS OS MESES, retomavel.
+ *
+ * Julho sozinho levou tres rodadas. O periodo inteiro e 2025-01 ate hoje, uns
+ * 22 meses - clicar mes a mes seria dezenas de cliques e alguem perderia a
+ * conta de onde parou. Aqui o progresso fica em ScriptProperties: cada mes
+ * que FECHA e registrado, e a proxima rodada pula ele.
+ *
+ * Mes so e dado como fechado quando a janela termina sem sobrar suspeito -
+ * marcar como fechado um mes que parou por tempo esconderia justamente o que
+ * faltou olhar.
+ * ========================================================================== */
+var ZUMBI_PROGRESSO_ = 'ZUMBIS_MESES_FEITOS';
+
+function procurarZumbisTodos() {
+  var props = PropertiesService.getScriptProperties();
+  var feitos = {};
+  try { feitos = JSON.parse(props.getProperty(ZUMBI_PROGRESSO_) || '{}'); } catch (e) { feitos = {}; }
+
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName(ABA_FLUXO_CAIXA);
+  if (!sh || sh.getLastRow() < 2) {
+    mostrarRelatorio_('Zumbis', ['A aba ' + ABA_FLUXO_CAIXA + ' esta vazia.']);
+    return;
+  }
+
+  // meses presentes na aba
+  var tz = 'America/Sao_Paulo';
+  var col = sh.getRange(2, 1, sh.getLastRow() - 1, COLS_FLUXO_).getValues();
+  var meses = {};
+  col.forEach(function (l) {
+    var v = l[14] || l[0];
+    var m = v instanceof Date ? Utilities.formatDate(v, tz, 'yyyy-MM')
+                              : String(v || '').trim().slice(0, 7);
+    if (/^\d{4}-\d{2}$/.test(m)) meses[m] = 1;
+  });
+  var lista = Object.keys(meses).sort();
+  var faltando = lista.filter(function (m) { return !feitos[m]; });
+
+  if (!faltando.length) {
+    mostrarRelatorio_('Zumbis - todos os meses', [
+      'TODOS OS ' + lista.length + ' MESES JA FORAM VARRIDOS.',
+      '',
+      'Resultado acumulado esta na aba ' + ABA_ZUMBI_ + '.',
+      'Pra varrer de novo do zero, apague a propriedade ' + ZUMBI_PROGRESSO_ + '.'
+    ]);
+    return;
+  }
+
+  var alvo = faltando[0];
+  /* SO MARCA O MES QUANDO ELE FECHOU DE VERDADE.
+   *
+   * A primeira versao disto incrementava um contador a cada rodada e tratava
+   * qualquer mes com contador > 0 como pronto. Julho levou TRES rodadas -
+   * ou seja, teria sido dado como varrido depois da primeira, com 470
+   * suspeitos por conferir, e os meses seguintes esconderiam o buraco sem
+   * ninguem perceber. Marcar progresso que nao aconteceu e pior que nao
+   * marcar progresso nenhum: o relatorio fica limpo e errado.
+   *
+   * Agora o procurarZumbis devolve se fechou, e so o `true` registra. */
+  var fechou = procurarZumbis(alvo, alvo);
+  if (fechou) {
+    feitos[alvo] = 1;
+    props.setProperty(ZUMBI_PROGRESSO_, JSON.stringify(feitos));
+  }
+}
+
+/** Diz quais meses ja fecharam e quantos faltam. So le. */
+function verProgressoZumbis() {
+  var props = PropertiesService.getScriptProperties();
+  var feitos = {};
+  try { feitos = JSON.parse(props.getProperty(ZUMBI_PROGRESSO_) || '{}'); } catch (e) {}
+  var L = ['PROGRESSO DA VARREDURA DE ZUMBIS', ''];
+  var ks = Object.keys(feitos).sort();
+  if (!ks.length) { L.push('nenhum mes FECHADO ainda.'); }
+  ks.forEach(function (m) { L.push('  FECHADO  ' + m); });
+  L.push('');
+  L.push('Pra recomecar do zero, apague a propriedade ' + ZUMBI_PROGRESSO_);
+  L.push('em Configuracoes do projeto > Propriedades do script.');
+  mostrarRelatorio_('Progresso zumbis', L);
+}
