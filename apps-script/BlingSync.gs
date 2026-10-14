@@ -1694,115 +1694,108 @@ function preencherQuemVazio() {
  * ========================================================================== */
 function verAcertoJulho() {
   var L = [];
-  var token = getBlingAccessToken_();
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName(ABA_FLUXO);
 
   L.push('CART-ACERTO-JANJUL - o lancamento inteiro');
   L.push('');
 
-  /* PAGINA ATE O FIM. A primeira versao disto pediu limite=100 numa pagina
-     so e devolveu exatamente 100 contas - e eu quase li isso como "a janela
-     tem 100 contas e a nossa nao esta entre elas". 100 nao era a contagem,
-     era o TETO. A conta podia estar na pagina 2.
-     
-     O controle negativo que eu tinha (imprimir os 5 maiores valores) provava
-     que a janela devolveu DADO, e nao que devolveu TUDO. Sao perguntas
-     diferentes, e a que importava era a segunda. Resultado igual ao teto do
-     limite e sinal de truncamento, nunca de contagem - vale pra qualquer
-     listagem paginada.
-     
-     E a janela abriu: julho inteiro mais a primeira semana de agosto. A conta
-     e de 31/07 mas o VENCIMENTO pode nao ser a competencia, e varrer 5
-     semanas custa poucas chamadas. */
-  var lista = [];
-  var pagina = 1, truncou = false;
-  while (true) {
-    var url = 'https://api.bling.com.br/Api/v3/contas/pagar'
-      + '?pagina=' + pagina + '&limite=100'
-      + '&dataVencimentoInicial=2026-07-01&dataVencimentoFinal=2026-08-07';
-    var r = fetchBlingStatus_(url, token);
-    if (r.status !== 200 || !r.json || !r.json.data) {
-      mostrarRelatorio_('Acerto julho',
-        ['GET /contas/pagar devolveu HTTP ' + r.status + ' na pagina ' + pagina]);
-      return;
+  /* ACHO O ID NA PLANILHA, NAO VARRENDO A API.
+   *
+   * A versao anterior varria /contas/pagar por janela de vencimento e nao
+   * achou - e o motivo nao era a natureza do lancamento, era eu estar
+   * procurando pela chave errada. O Jobs lembrou do obvio: a linha JA ESTA na
+   * aba Fluxo de Caixa, que o syncBling preenche, e as colunas 13 e 14 guardam
+   * origemId e origemTipo. Ou seja, o id da conta esta a uma leitura de
+   * planilha de distancia.
+   *
+   * Isso tambem mata a duvida que a busca por janela criava: procurar por
+   * data e por valor deixa sempre a pergunta "sera que o filtro passou por
+   * cima?". Buscar pelo ID nao tem essa pergunta. Quando o identificador
+   * existe, procurar por atributo e escolher o caminho pior.
+   *
+   * E prova de passagem: se a linha esta na aba, ela veio do syncBling, que
+   * so le contas a pagar e a receber. Entao o acerto E conta, nao movimento
+   * de bordero - a hipotese que eu ia levantar estava descartada antes de eu
+   * levanta-la. */
+  if (!sh || sh.getLastRow() < 2) {
+    mostrarRelatorio_('Acerto julho', ['A aba ' + ABA_FLUXO + ' esta vazia.']);
+    return;
+  }
+
+  var n = sh.getLastRow() - 1;
+  var dados = sh.getRange(2, 1, n, COLS_FLUXO_).getValues();
+  var achados = [];
+  for (var k = 0; k < n; k++) {
+    var l = dados[k];
+    var desc = String(l[10] || '');
+    var val = Math.abs(Number(l[11]) || 0);
+    /* Casa pelo HISTORICO, que e o que identifica o lancamento, e aceita
+       tambem o valor exato - um dos dois basta. Dois criterios porque o
+       historico pode ter vindo truncado e o valor pode mudar se alguem
+       editar. */
+    if (desc.toUpperCase().indexOf('ACERTO-JANJUL') >= 0 || Math.abs(val - 2784.46) < 0.011) {
+      achados.push({ linha: k + 2, l: l });
     }
-    var bloco = r.json.data;
-    lista = lista.concat(bloco);
-    if (bloco.length < 100) break;
-    pagina++;
-    Utilities.sleep(350);
-    if (pagina > 40) { truncou = true; break; }   // trava, nao limite esperado
   }
 
-  L.push('paginas lidas ............................: ' + pagina);
-  L.push('contas de 01/07 a 07/08 ..................: ' + lista.length
-         + (truncou ? '   *** BATI NA TRAVA DE 40 PAGINAS - pode faltar ***' : ''));
-
-  /* Casa pelo VALOR, porque o historico nao vem na listagem. Tolerancia de um
-     centavo pra nao perder por arredondamento de ponto flutuante. */
-  var alvo = lista.filter(function (c) {
-    return Math.abs(Math.abs(Number(c.valor) || 0) - 2784.46) < 0.011;
-  });
-  L.push('com valor 2.784,46 .......................: ' + alvo.length);
-  /* Se o numero de contas bater exatamente num multiplo de 100, desconfiar:
-     pode ser teto e nao contagem. Aqui a paginacao ja trata, mas o aviso
-     fica pra quem ler o relatorio. */
-  if (lista.length % 100 === 0 && lista.length > 0) {
-    L.push('   (atencao: total e multiplo exato de 100 - conferir se paginou tudo)');
-  }
+  L.push('linhas na aba Fluxo de Caixa .............: ' + n);
+  L.push('candidatos (historico ou valor) ..........: ' + achados.length);
   L.push('');
 
-  if (!alvo.length) {
-    L.push('NAO ACHEI em 5 semanas de vencimento, lendo todas as paginas.');
-    L.push('Agora isso significa alguma coisa - na primeira tentativa eu li so');
-    L.push('100 contas de uma pagina e "nao achei" nao valia nada.');
-    L.push('');
-    L.push('O que sobra:');
-    L.push('  - a conta nao e CONTA A PAGAR: o espelho lanca acerto de carteira');
-    L.push('    como movimento de caixa/bordero, que nao aparece aqui;');
-    L.push('  - o vencimento esta fora de 01/07 a 07/08 (competencia nao e');
-    L.push('    vencimento, e um acerto pode vencer bem depois);');
-    L.push('  - ou ela foi apagada/alterada desde que o Jobs leu.');
-    L.push('');
-    L.push('O Jobs leu do Fluxo de Caixa do painel, que vem do syncBling. Se a');
-    L.push('linha existe la e nao existe aqui, a primeira hipotese e a boa.');
-    L.push('');
-    L.push('CONTROLE NEGATIVO, pra separar "nao achou" de "nao filtrou":');
-    L.push('os 5 maiores valores que a janela devolveu foram');
-    lista.map(function (c) { return Math.abs(Number(c.valor) || 0); })
-      .sort(function (a, b) { return b - a; })
-      .slice(0, 5)
-      .forEach(function (v) { L.push('   R$ ' + v.toFixed(2)); });
-    L.push('Se esta lista veio cheia, a janela funcionou e a conta e que nao');
-    L.push('esta nela. Se veio vazia, o filtro e que nao pegou.');
+  if (!achados.length) {
+    L.push('NAO ACHEI NA ABA. Isso e informativo, nao inconclusivo:');
+    L.push('a aba e preenchida pelo syncBling, entao se a linha nao esta aqui,');
+    L.push('ou o sync ainda nao rodou depois dela ser criada, ou ela foi');
+    L.push('apagada no Bling. Rode "Sincronizar Bling" e tente de novo.');
     mostrarRelatorio_('Acerto julho', L);
     return;
   }
 
-  alvo.forEach(function (c) {
-    var d = fetchBlingStatus_('https://api.bling.com.br/Api/v3/contas/pagar/' + c.id, token);
+  var token = getBlingAccessToken_();
+  achados.forEach(function (a) {
+    var l = a.l;
+    L.push('--- linha ' + a.linha + ' da aba -----------------------------');
+    L.push('  data .............: ' + l[0]);
+    L.push('  competencia ......: ' + l[14]);
+    L.push('  situacao .........: ' + l[2]);
+    L.push('  categoria ........: ' + l[4] + '  (grupo: ' + l[5] + ')');
+    L.push('  contato ..........: ' + l[8]);
+    L.push('  valor ............: R$ ' + (Number(l[11]) || 0).toFixed(2));
+    L.push('  descricao (aba) ..: ' + l[10]);
+    L.push('  origem ...........: ' + l[13] + ' #' + l[12]);
+    L.push('');
+
+    /* O historico completo so existe no GET por id - a listagem de /contas
+       devolve esse campo vazio. Por isso a ida a API, agora com o id na mao
+       em vez de uma janela de datas. */
+    if (!l[12]) { L.push('  (sem origemId na aba - nao da pra buscar o detalhe)'); return; }
+    var rota = String(l[13] || '').toLowerCase().indexOf('receber') >= 0 ? 'receber' : 'pagar';
+    var r = fetchBlingStatus_('https://api.bling.com.br/Api/v3/contas/' + rota + '/' + l[12], token);
     Utilities.sleep(350);
-    var o = (d.json && d.json.data) || {};
-    L.push('--- conta ' + c.id + ' ----------------------------------');
-    L.push('  valor ............: R$ ' + (Number(o.valor) || 0).toFixed(2));
-    L.push('  vencimento .......: ' + (o.vencimento || '?'));
-    L.push('  competencia ......: ' + (o.competencia || '(vazia)'));
-    L.push('  situacao .........: ' + (o.situacao || '?'));
-    L.push('  contato ..........: ' + ((o.contato && o.contato.nome) || '?'));
-    L.push('  categoria ........: ' + ((o.categoria && (o.categoria.descricao || o.categoria.id)) || '?'));
-    L.push('  numeroDocumento ..: ' + (o.numeroDocumento || '(vazio)'));
-    L.push('  HISTORICO:');
-    String(o.historico || '(vazio)').split(/\r?\n/).forEach(function (linha) {
-      L.push('    ' + linha);
+    if (r.status !== 200 || !r.json || !r.json.data) {
+      L.push('  GET /contas/' + rota + '/' + l[12] + ' -> HTTP ' + r.status);
+      L.push('  (404 aqui significa que a conta foi APAGADA no Bling depois do');
+      L.push('   ultimo sync - a aba guarda o retrato, o Bling nao tem mais.)');
+      L.push('');
+      return;
+    }
+    var o = r.json.data;
+    L.push('  DO BLING, pelo id ' + l[12] + ':');
+    L.push('    vencimento .....: ' + (o.vencimento || '?'));
+    L.push('    numeroDocumento : ' + (o.numeroDocumento || '(vazio)'));
+    L.push('    HISTORICO COMPLETO:');
+    String(o.historico || '(vazio)').split(String.fromCharCode(10)).forEach(function (t) {
+      L.push('      ' + t);
     });
-    if (o.origem) L.push('  origem ...........: ' + JSON.stringify(o.origem));
     L.push('');
   });
 
-  L.push('O QUE PROCURAR NO HISTORICO: se ele lista os meses ou os pedidos que');
-  L.push('corrige, da pra ratear o valor pelos meses de origem em vez de');
-  L.push('deixar tudo em julho. Se so disser "acerto", nao da - e aí o certo e');
-  L.push('anotar que julho carrega um acerto de jan a jul e NAO comparar julho');
-  L.push('com os outros meses, em vez de inventar um rateio.');
+  L.push('O QUE PROCURAR: se o historico listar meses ou pedidos, da pra');
+  L.push('ratear o valor pelos meses de origem. Se so disser "acerto", nao da');
+  L.push('- e aí o certo e anotar que julho carrega um acerto de jan a jul e');
+  L.push('parar de comparar julho com os outros meses, em vez de inventar um');
+  L.push('rateio que ninguem consegue defender.');
 
   mostrarRelatorio_('Acerto julho', L);
 }
