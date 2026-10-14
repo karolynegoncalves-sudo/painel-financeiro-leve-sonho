@@ -1984,7 +1984,7 @@ function procurarZumbis(de, ate) {
     shZ.getRange(shZ.getLastRow() + 1, 1, confirmados.length, 8).setValues(confirmados);
   }
 
-  L.push('CONFIRMADOS POR GET:');
+  L.push('NESTA RODADA:');
   L.push('  apagadas no Bling (404) ................: ' + confirmados.length);
   L.push('  vivas, so fora da janela da listagem ...: ' + vivosNoGet);
   L.push('  sem resposta (429 e afins) .............: ' + erros
@@ -2036,8 +2036,42 @@ function procurarZumbis(de, ate) {
     L.push('');
   }
 
+  /* ACUMULADO DE TODAS AS RODADAS, lido da aba.
+   *
+   * O relatorio mostrava so o que a rodada corrente achou, e na segunda
+   * rodada isso imprimiu "193" logo abaixo de "ja conferidos: 96" - convite
+   * pra ler 193 como o total quando o total era 289. Mesma familia do "100
+   * contas" que era o limite e nao a contagem: numero parcial apresentado
+   * sem dizer que e parcial. Quem le o relatorio quer saber o tamanho do
+   * problema, nao o tamanho da rodada. */
+  var totN = 0, totV = 0, totPorGrupo = {};
+  if (shZ.getLastRow() > 1) {
+    shZ.getRange(2, 1, shZ.getLastRow() - 1, 6).getValues().forEach(function (z) {
+      if (!z[1]) return;
+      totN++;
+      var v = Math.abs(Number(z[3]) || 0);
+      totV += v;
+      var g = String(z[5] || '(sem grupo)');
+      if (!totPorGrupo[g]) totPorGrupo[g] = { n: 0, v: 0 };
+      totPorGrupo[g].n++; totPorGrupo[g].v += v;
+    });
+  }
+  L.push('ACUMULADO DE TODAS AS RODADAS: ' + totN + ' zumbis, R$ ' + totV.toFixed(2));
+  Object.keys(totPorGrupo).sort(function (a, b) { return totPorGrupo[b].v - totPorGrupo[a].v; })
+    .forEach(function (g) {
+      var mexe = g.indexOf('ignorar na DRE') < 0 && g.indexOf('(sem mapear)') < 0;
+      L.push('  ' + (mexe ? 'MEXE  ' : 'nao   ')
+             + ('           R$ ' + totPorGrupo[g].v.toFixed(2)).slice(-14)
+             + '  ' + totPorGrupo[g].n + 'x  ' + g);
+    });
+  L.push('');
+
+  var faltam = suspeitos.length - (confirmados.length + vivosNoGet + erros);
   if (parou) {
-    L.push('*** PAREI POR TEMPO. Rode de novo - ele continua de onde parou. ***');
+    L.push('*** PAREI POR TEMPO. Faltam ~' + Math.max(0, faltam) + ' suspeitos nesta janela.');
+    L.push('    Rode de novo - ele continua de onde parou. ***');
+  } else {
+    L.push('JANELA COMPLETA: todos os suspeitos de ' + de + ' a ' + ate + ' foram conferidos.');
   }
   L.push('NAO APAGUEI NADA. So li e anotei na aba ' + ABA_ZUMBI_ + '.');
   mostrarRelatorio_('Zumbis ' + de + ' a ' + ate, L);
