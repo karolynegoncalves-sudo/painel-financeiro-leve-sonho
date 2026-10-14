@@ -1863,11 +1863,16 @@ function _zumbis_() {
   let sh = ss.getSheetByName(ABA_ZUMBI_);
   if (!sh) {
     sh = ss.insertSheet(ABA_ZUMBI_);
-    sh.getRange(1, 1, 1, 8).setValues([[
-      'tipo', 'origemId', 'data', 'valor', 'categoria', 'grupoDRE', 'descricao', 'conferidoEm'
+    sh.getRange(1, 1, 1, 9).setValues([[
+      'tipo', 'origemId', 'data', 'valor', 'categoria', 'grupoDRE', 'descricao',
+      'conferidoEm', 'status'
     ]]);
     sh.setFrozenRows(1);
     sh.hideSheet();
+  } else if (sh.getRange(1, 9).getValue() !== 'status') {
+    /* Aba criada antes da coluna de status existir: tudo que esta la e 404
+       confirmado, entao o padrao vazio ja significa 'zumbi'. */
+    sh.getRange(1, 9).setValue('status');
   }
   return sh;
 }
@@ -1921,10 +1926,24 @@ function procurarZumbis(de, ate) {
 
   // ---- 2. o que ja foi conferido antes
   const shZ = _zumbis_();
+  /* ANOTA TAMBEM OS VIVOS, e isto era um bug que fazia a varredura NUNCA
+   * TERMINAR.
+   *
+   * Antes a aba so guardava os 404. Resultado: a cada rodada os mesmos
+   * suspeitos VIVOS voltavam pra fila, na mesma ordem, consumiam o
+   * orcamento de tempo e os ultimos da fila nunca eram alcancados. Medido
+   * nas quatro rodadas de julho: a lista de suspeitos caiu 579 -> 483 ->
+   * 290 -> 172, exatamente pelos zumbis de cada rodada, nunca pelos vivos.
+   * A quarta rodada achou ZERO zumbis novos e ainda dizia "faltam 53" - a
+   * quinta faria o mesmo, pra sempre.
+   *
+   * Conferir e um resultado, mesmo quando a resposta e "esta vivo". Guardar
+   * so o achado e esquecer o descartado e o que transforma varredura
+   * retomavel em esteira infinita. */
   const jaConferido = {};
   if (shZ.getLastRow() > 1) {
-    shZ.getRange(2, 1, shZ.getLastRow() - 1, 2).getValues().forEach(function (l) {
-      if (l[1]) jaConferido[l[0] + ':' + String(l[1]).trim()] = 1;
+    shZ.getRange(2, 1, shZ.getLastRow() - 1, 9).getValues().forEach(function (l) {
+      if (l[1]) jaConferido[l[0] + ':' + String(l[1]).trim()] = String(l[8] || 'zumbi');
     });
   }
 
@@ -1958,13 +1977,19 @@ function procurarZumbis(de, ate) {
     return !vivos[c.tipo + ':' + c.id] && !jaConferido[c.tipo + ':' + c.id];
   });
   L.push('suspeitos (nao vieram na listagem) .......: ' + suspeitos.length);
-  L.push('ja conferidos em rodadas anteriores ......: '
-         + candidatos.filter(function (c) { return jaConferido[c.tipo + ':' + c.id]; }).length);
+  var jaZ = 0, jaV = 0;
+  candidatos.forEach(function (c) {
+    var st = jaConferido[c.tipo + ':' + c.id];
+    if (st === 'vivo') jaV++; else if (st) jaZ++;
+  });
+  L.push('ja conferidos: zumbis ' + jaZ + ', vivos ' + jaV
+         + '  (vivos tambem ficam anotados, senao voltariam pra fila)');
   L.push('');
 
   // ---- 4. confirma um a um. Suspeito nao e zumbi ate dar 404.
   const agora = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd HH:mm');
   const confirmados = [];
+  const vivosRegistro = [];
   let vivosNoGet = 0, erros = 0, parou = false;
   for (var i = 0; i < suspeitos.length; i++) {
     if (tempoGasto_() > TETO_TOTAL_MS) { parou = true; break; }
@@ -1972,16 +1997,19 @@ function procurarZumbis(de, ate) {
     var g = fetchBlingStatus_('https://api.bling.com.br/Api/v3/contas/' + c.tipo + '/' + c.id, token);
     Utilities.sleep(350);
     if (g.status === 404) {
-      confirmados.push([c.tipo, c.id, c.data, c.valor, c.cat, c.grupo, c.desc, agora]);
+      confirmados.push([c.tipo, c.id, c.data, c.valor, c.cat, c.grupo, c.desc, agora, 'zumbi']);
     } else if (g.status === 200) {
-      vivosNoGet++;     // estava fora da janela da listagem, nao apagada
+      vivosNoGet++;
+      // registra o descarte: sem isto ele volta pra fila na proxima rodada
+      vivosRegistro.push([c.tipo, c.id, c.data, c.valor, c.cat, c.grupo, c.desc, agora, 'vivo']);
     } else {
       erros++;          // 429 e afins: nao conclui nada, tenta na proxima rodada
     }
   }
 
-  if (confirmados.length) {
-    shZ.getRange(shZ.getLastRow() + 1, 1, confirmados.length, 8).setValues(confirmados);
+  const gravar = confirmados.concat(vivosRegistro);
+  if (gravar.length) {
+    shZ.getRange(shZ.getLastRow() + 1, 1, gravar.length, 9).setValues(gravar);
   }
 
   L.push('NESTA RODADA:');
@@ -2046,8 +2074,9 @@ function procurarZumbis(de, ate) {
    * problema, nao o tamanho da rodada. */
   var totN = 0, totV = 0, totPorGrupo = {};
   if (shZ.getLastRow() > 1) {
-    shZ.getRange(2, 1, shZ.getLastRow() - 1, 6).getValues().forEach(function (z) {
+    shZ.getRange(2, 1, shZ.getLastRow() - 1, 9).getValues().forEach(function (z) {
       if (!z[1]) return;
+      if (String(z[8] || 'zumbi') === 'vivo') return;   // descarte registrado
       totN++;
       var v = Math.abs(Number(z[3]) || 0);
       totV += v;
