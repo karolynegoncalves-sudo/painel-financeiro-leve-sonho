@@ -284,6 +284,11 @@ function onOpen() {
        de 2026-01-01. Antes de consertar, medir: quantos pedidos sao e se as
        fichas cobrem o mix de 2025. So le. */
     .addItem('Sondar 2025 (nov e dez) - so le, nao grava', 'sondar2025')
+    /* COFRE: congelar venda de periodo fechado ANTES de apagar pedido no
+       Bling pra liberar espaco. Depois de apagado nao ha de onde puxar. */
+    .addItem('Cofre 2025: o que ja esta congelado', 'verCofre2025')
+    .addItem('Cofre 2025: congelar novembro', 'congelarVendas2025Nov')
+    .addItem('Cofre 2025: congelar dezembro', 'congelarVendas2025Dez')
     /* Fechar 2025 na ordem: sync (ja com a janela nova) > receita > CMV. */
     .addItem('2025: gravar receita de nov e dez', 'gravarReceita2025')
     .addItem('2025: CMV de novembro (repetir ate fechar)', 'gerarCmvNov25')

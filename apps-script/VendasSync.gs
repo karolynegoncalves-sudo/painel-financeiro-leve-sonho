@@ -153,25 +153,64 @@ function criarGatilhoSyncVendas() {
   Logger.log('Gatilho criado: syncVendas a cada 2 horas.');
 }
 
-function getVendasRows_() {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_VENDAS);
-  if (!sheet || sheet.getLastRow() < 2) return [];
-  const dados = sheet.getRange(2, 1, sheet.getLastRow() - 1, 11).getValues();
+/** Uma linha de aba de venda vira objeto. Extraido pra a aba Vendas e o cofre
+ *  _Vendas_2025 serem lidos pelo MESMO mapeamento - duas leituras da mesma
+ *  linha divergem, e a divergencia apareceria como receita diferente conforme
+ *  o mes ser antigo ou novo. */
+function _linhaVendaParaObj_(l) {
   const tz = 'America/Sao_Paulo';
-  return dados.filter(function (l) { return l[0]; }).map(function (l) {
-    const d = l[1] instanceof Date ? Utilities.formatDate(l[1], tz, 'yyyy-MM-dd') : String(l[1]).slice(0, 10);
-    return {
-      pedidoId: String(l[0]),
-      data: d,
-      numero: String(l[2]),
-      numeroLoja: String(l[3]),
-      canal: String(l[5]),
-      cliente: String(l[6]),
-      situacao: String(l[8]),
-      contaReceita: String(l[9]) === 'sim',
-      total: Number(l[10]) || 0
-    };
-  });
+  const d = l[1] instanceof Date ? Utilities.formatDate(l[1], tz, 'yyyy-MM-dd') : String(l[1]).slice(0, 10);
+  return {
+    pedidoId: String(l[0]),
+    data: d,
+    numero: String(l[2]),
+    numeroLoja: String(l[3]),
+    canal: String(l[5]),
+    cliente: String(l[6]),
+    situacao: String(l[8]),
+    contaReceita: String(l[9]) === 'sim',
+    total: Number(l[10]) || 0
+  };
+}
+
+/**
+ * Venda de TODAS as fontes: a aba Vendas (cache do Bling, reconstruida a cada
+ * 2h) mais o cofre _Vendas_2025 (periodo fechado, congelado de proposito).
+ *
+ * A ABA VENDAS GANHA no conflito, e essa ordem importa. Ela e o estado atual
+ * do Bling: se um pedido foi cancelado depois de congelado, a versao viva e a
+ * certa. O cofre so responde pelo que o Bling nao devolve mais - seja porque
+ * esta fora da JANELA_VENDAS_DESDE, seja porque foi apagado pra liberar
+ * espaco.
+ *
+ * Nov e dez/2025 hoje estao nas DUAS (a janela vai ate 2025-11-01), e e por
+ * isso que a deduplicacao por pedidoId tem que existir antes de qualquer
+ * congelamento - sem ela, esses dois meses contariam dobrado na receita e no
+ * CMV, sem erro nenhum na tela.
+ */
+function getVendasRows_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const linhas = [];
+  const vistos = {};
+
+  const ler = function (nomeAba) {
+    const sh = ss.getSheetByName(nomeAba);
+    if (!sh || sh.getLastRow() < 2) return 0;
+    let n = 0;
+    sh.getRange(2, 1, sh.getLastRow() - 1, 11).getValues().forEach(function (l) {
+      if (!l[0]) return;
+      const pid = String(l[0]);
+      if (vistos[pid]) return;
+      vistos[pid] = 1;
+      linhas.push(_linhaVendaParaObj_(l));
+      n++;
+    });
+    return n;
+  };
+
+  ler(ABA_VENDAS);                                   // primeiro: o vivo vence
+  if (typeof ABA_VENDAS_2025_ === 'string') ler(ABA_VENDAS_2025_);
+  return linhas;
 }
 
 /* ============================================================================
@@ -1005,3 +1044,168 @@ function gravarReceita2025() {
 
 function gerarCmvNov25() { return gerarCmvMes('2025-11'); }
 function gerarCmvDez25() { return gerarCmvMes('2025-12'); }
+
+/* ============================================================================
+ * _Vendas_2025 - COFRE. Venda de periodo fechado, fora do alcance do sync.
+ *
+ * POR QUE EXISTE, e por que eu MUDEI DE IDEIA. Em 08/10/2026 eu rejeitei aba
+ * separada e aloguei a janela do syncVendas (de 2026-01-01 para 2025-11-01),
+ * com o argumento de que aba propria criaria duas fontes pra mesma pergunta.
+ *
+ * Esse argumento CAI quando o pedido vai ser APAGADO no Bling. Ela quer
+ * liberar espaco (o Bling estava em 97% em 07/10) e disse em 13/10: "acho
+ * melhor montarmos a DRE de 2025 tambem e depois excluir do Bling". Aí nao
+ * existem duas fontes, existe UMA - e ela precisa estar fora do alcance do
+ * syncVendas, que APAGA e reconstroi a aba Vendas inteira a cada 2 horas
+ * lendo so o que a API ainda devolve. Pedido apagado no Bling some da aba
+ * Vendas na rodada seguinte, em silencio.
+ *
+ * A aba Vendas e um CACHE do Bling. Esta aqui e um ARQUIVO. Coisas
+ * diferentes, e por isso duas abas.
+ *
+ * ORDEM OBRIGATORIA, e nao e detalhe: congelar ANTES de apagar no Bling.
+ * Depois de apagado nao ha de onde puxar.
+ *
+ * NAO MEXE NO BLING. So le pedido e escreve na planilha.
+ * ========================================================================== */
+const ABA_VENDAS_2025_ = '_Vendas_2025';
+
+function _vendas2025_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sh = ss.getSheetByName(ABA_VENDAS_2025_);
+  if (!sh) {
+    sh = ss.insertSheet(ABA_VENDAS_2025_);
+    sh.getRange(1, 1, 1, 12).setValues([[
+      'pedidoId', 'data', 'numero', 'numeroLoja', 'lojaId', 'canal',
+      'cliente', 'situacaoId', 'situacao', 'contaReceita', 'total', 'congeladoEm'
+    ]]);
+    sh.setFrozenRows(1);
+    sh.hideSheet();
+  }
+  return sh;
+}
+
+/**
+ * Congela um mes fechado. Idempotente: pedido que ja esta la nao entra de
+ * novo, entao pode rodar quantas vezes quiser e retomar se parar por tempo.
+ *
+ * `mes` no formato '2025-06'.
+ */
+function congelarVendasMes(mes) {
+  mes = String(mes || '').trim();
+  if (!/^\d{4}-\d{2}$/.test(mes)) {
+    mostrarRelatorio_('Congelar vendas', ['informe o mes: congelarVendasMes("2025-06")']);
+    return;
+  }
+
+  const L = [];
+  INICIO_SYNC_.t = Date.now();
+  const token = getBlingAccessToken_();
+  const sh = _vendas2025_();
+
+  // ---- o que ja esta congelado
+  const jaTem = {};
+  if (sh.getLastRow() > 1) {
+    sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues().forEach(function (l) {
+      if (l[0]) jaTem[String(l[0]).trim()] = 1;
+    });
+  }
+
+  const ultimoDia = new Date(Number(mes.slice(0, 4)), Number(mes.slice(5, 7)), 0).getDate();
+  const de = mes + '-01';
+  const ate = mes + '-' + ('0' + ultimoDia).slice(-2);
+
+  const agora = Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'yyyy-MM-dd HH:mm');
+  const novas = [];
+  let pagina = 1, vistos = 0, repetidos = 0, parou = false;
+
+  while (true) {
+    if (tempoGasto_() > TETO_TOTAL_MS) { parou = true; break; }
+    const url = 'https://api.bling.com.br/Api/v3/pedidos/vendas'
+      + '?pagina=' + pagina + '&limite=100'
+      + '&dataInicial=' + de + '&dataFinal=' + ate;
+    const resp = fetchBling_(url, token);
+    const lista = (resp && resp.data) || [];
+    if (!lista.length) break;
+
+    lista.forEach(function (p) {
+      vistos++;
+      const pid = String(p.id);
+      if (jaTem[pid]) { repetidos++; return; }
+      jaTem[pid] = 1;
+      const lojaId = (p.loja && p.loja.id) ? String(p.loja.id) : '';
+      const situacaoId = (p.situacao && p.situacao.id) ? Number(p.situacao.id) : 0;
+      /* MESMA REGRA DE `contaReceita` DO syncVendas, de proposito: exclui
+         Cancelado (12) e Financeiro Auxiliar (890573, o pedido-CLONE, que
+         contado como venda dobraria a receita). Se as duas abas aplicassem
+         regras diferentes, a receita mudaria conforme o mes ser antigo ou
+         novo, e ninguem ligaria uma coisa a outra. */
+      novas.push([
+        pid, p.data || '', p.numero || '', p.numeroLoja || '', lojaId,
+        CANAL_POR_LOJA[lojaId] || (lojaId ? 'Loja ' + lojaId : 'Venda direta'),
+        (p.contato && p.contato.nome) || '',
+        situacaoId, SITUACAO_VENDA[situacaoId] || String(situacaoId),
+        SITUACOES_NAO_CONTAM.indexOf(situacaoId) >= 0 ? 'nao' : 'sim',
+        Number(p.total) || 0, agora
+      ]);
+    });
+
+    if (lista.length < 100) break;
+    pagina++;
+    if (pagina > 100) break;
+  }
+
+  if (novas.length) {
+    sh.getRange(sh.getLastRow() + 1, 1, novas.length, 12).setValues(novas);
+  }
+
+  L.push('CONGELAR ' + mes + ' na ' + ABA_VENDAS_2025_);
+  L.push('');
+  L.push('pedidos lidos no Bling ...: ' + vistos);
+  L.push('ja estavam congelados ....: ' + repetidos);
+  L.push('congelados agora .........: ' + novas.length);
+  L.push('total na aba .............: ' + Math.max(0, sh.getLastRow() - 1));
+  L.push('');
+  if (parou) {
+    L.push('*** PAREI POR TEMPO. Clique no mesmo item de novo - ele retoma. ***');
+    L.push('Nada se perde: a chave e o pedidoId, nao a posicao.');
+  } else {
+    L.push('MES COMPLETO. Agora este mes sobrevive mesmo que o pedido seja');
+    L.push('apagado no Bling - a receita e o CMV passam a ler desta aba junto');
+    L.push('com a Vendas.');
+  }
+  L.push('');
+  L.push('NAO MEXI NO BLING. So li pedido e escrevi na planilha.');
+  mostrarRelatorio_('Congelar ' + mes, L);
+}
+
+function congelarVendas2025Nov() { return congelarVendasMes('2025-11'); }
+function congelarVendas2025Dez() { return congelarVendasMes('2025-12'); }
+
+/** Quanto de 2025 ja esta no cofre, por mes. So le. */
+function verCofre2025() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sh = ss.getSheetByName(ABA_VENDAS_2025_);
+  const L = ['COFRE _Vendas_2025', ''];
+  if (!sh || sh.getLastRow() < 2) {
+    L.push('vazio - nenhum mes congelado ainda.');
+    mostrarRelatorio_('Cofre 2025', L);
+    return;
+  }
+  const tz = 'America/Sao_Paulo';
+  const por = {};
+  sh.getRange(2, 1, sh.getLastRow() - 1, 11).getValues().forEach(function (l) {
+    if (!l[0]) return;
+    const d = l[1] instanceof Date ? Utilities.formatDate(l[1], tz, 'yyyy-MM') : String(l[1]).slice(0, 7);
+    if (!por[d]) por[d] = { n: 0, conta: 0, valor: 0 };
+    por[d].n++;
+    if (String(l[9]) === 'sim') { por[d].conta++; por[d].valor += Number(l[10]) || 0; }
+  });
+  L.push('mes       pedidos   contam    receita');
+  Object.keys(por).sort().forEach(function (m) {
+    L.push('  ' + m + ' ' + ('      ' + por[m].n).slice(-8)
+           + ('        ' + por[m].conta).slice(-9)
+           + ('            R$ ' + por[m].valor.toFixed(2)).slice(-15));
+  });
+  mostrarRelatorio_('Cofre 2025', L);
+}
