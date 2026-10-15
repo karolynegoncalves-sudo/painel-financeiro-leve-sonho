@@ -579,3 +579,12 @@ table.dre tr.dre-resultado td, table.dre tr.dre-resultado th{color:#EAF2EE;}
 .gv-acum-tit small{text-transform:none; letter-spacing:0; margin-left:6px;}
 .gv-acum-valor{font-family:'Fraunces',serif; font-weight:600; font-size:20px; margin:4px 0 6px;}
 .gv-acum-valor small{display:block; font-family:'Inter',sans-serif; font-weight:400; font-size:11px; color:var(--muted);}
+
+/* Categoria que abre na gaveta (15/10/2026). */
+tr.gv-cat{cursor:pointer;}
+tr.gv-cat:hover td{background:var(--panel-tint);}
+tr.gv-cat td small{display:block; font-size:10.5px; color:var(--muted);}
+.gv-seta{display:inline-block; width:12px; color:var(--muted); transition:transform .15s;}
+tr.gv-cat.aberta .gv-seta{transform:rotate(90deg);}
+tr.gv-cat-lanc > td{padding:0 0 10px 14px; background:var(--panel-tint);}
+tr.gv-cat-lanc .gv-lanc{margin:0; font-size:12px;}

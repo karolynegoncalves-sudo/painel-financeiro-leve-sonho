@@ -71,7 +71,7 @@ const MODO_PRECIF_ = new URLSearchParams(location.search).get('app') === 'precif
   if (!MODO_PRECIF_) return;
   document.title = 'Leve Sonho — Precificação';
   const man = document.querySelector('link[rel="manifest"]');
-  if (man) man.href = 'manifest-precificacao.json?v=20261007i';
+  if (man) man.href = 'manifest-precificacao.json?v=20261015a';
   const tit = document.querySelector('meta[name="apple-mobile-web-app-title"]');
   if (tit) tit.content = 'Preço LS';
   const h1Gate = document.querySelector('#loginGate h1');
@@ -813,6 +813,13 @@ function computeRange_(preset, monthStr, customStart, customEnd) {
   /* Ultimos 12 meses (07/10/2026): 12 meses de calendario contando o atual,
      do dia 1 de 11 meses atras ate hoje - mes inteiro, para os graficos
      mensais nao comecarem com um mes cortado. */
+  /* ANO (15/10/2026): o ano escolhido, de 1/jan a 31/dez - ou ate hoje no ano
+     corrente, para a DRE nao abrir colunas de meses que nao aconteceram. */
+  if (preset === 'ano' && monthStr) {
+    const ano = Number(monthStr);
+    const fim = ano === hoje.getFullYear() ? hoje : new Date(ano, 11, 31);
+    return [startOfDay_(new Date(ano, 0, 1)), endOfDay_(fim)];
+  }
   if (preset === 'ultimo_ano') {
     return [startOfDay_(new Date(hoje.getFullYear(), hoje.getMonth() - 11, 1)), endOfDay_(hoje)];
   }
@@ -856,7 +863,7 @@ function periodoAnterior_(start, end) {
 
 const FILTER_LABELS = {
   hoje: 'Hoje', ontem: 'Ontem', semana: 'Esta semana', semana_passada: 'Semana passada',
-  mes: 'Este mês', mes_passado: 'Mês passado', ultimo_ano: 'Últimos 12 meses', mes_selecionado: 'Mês selecionado', personalizado: 'Período personalizado'
+  mes: 'Este mês', mes_passado: 'Mês passado', ultimo_ano: 'Últimos 12 meses', ano: 'Ano', mes_selecionado: 'Mês selecionado', personalizado: 'Período personalizado'
 };
 
 /**
@@ -886,12 +893,22 @@ function ymdLocal_(dt) {
 }
 
 function renderFiltroBar_() {
-  const presets = ['hoje', 'ontem', 'semana', 'semana_passada', 'mes', 'mes_passado', 'ultimo_ano'];
+  const presets = ['hoje', 'ontem', 'semana', 'semana_passada', 'mes', 'mes_passado'];
+  /* Anos oferecidos: do primeiro ano que o painel baixa (JANELA_DESDE) ate o
+     atual. Ano mais antigo que a janela aparece com o aviso de periodo
+     incompleto (avisoJanela_), nao como zero. */
+  const anoAtual = new Date().getFullYear();
+  const anoIni = JANELA_DESDE ? Number(String(JANELA_DESDE).slice(0, 4)) : anoAtual;
+  const anos = [];
+  for (let a = anoAtual; a >= anoIni; a--) anos.push(String(a));
   const custIni = FILTER.preset === 'personalizado' ? toDateInputValue_(FILTER.start) : '';
   const custFim = FILTER.preset === 'personalizado' ? toDateInputValue_(FILTER.end) : '';
   return `
     <div class="filterbar">
       ${presets.map(p => `<button type="button" class="fbtn ${FILTER.preset === p ? 'active' : ''}" data-preset="${p}">${FILTER_LABELS[p]}</button>`).join('')}
+      <label class="flabel">Ano: <select id="filtroAno"><option value="">—</option>
+        ${anos.map(a => `<option value="${a}" ${FILTER.preset === 'ano' && FILTER.monthStr === a ? 'selected' : ''}>${a}</option>`).join('')}
+      </select></label>
       <label class="flabel">Mês: <input type="month" id="filtroMes" value="${FILTER.preset === 'mes_selecionado' ? FILTER.monthStr : ''}"></label>
       <label class="flabel">De <input type="date" id="filtroDe" value="${custIni}"> até <input type="date" id="filtroAte" value="${custFim}"></label>
       <span class="filtro-resumo">${fmtDataBR(FILTER.start)} – ${fmtDataBR(FILTER.end)}</span>
@@ -903,6 +920,8 @@ function ligarFiltroBar_(container) {
   container.querySelectorAll('.fbtn').forEach(btn => {
     btn.addEventListener('click', () => aplicarFiltro_(btn.dataset.preset));
   });
+  const anoSel = container.querySelector('#filtroAno');
+  if (anoSel) anoSel.addEventListener('change', () => { if (anoSel.value) aplicarFiltro_('ano', anoSel.value); });
   const mesInput = container.querySelector('#filtroMes');
   if (mesInput) mesInput.addEventListener('change', () => { if (mesInput.value) aplicarFiltro_('mes_selecionado', mesInput.value); });
   const deInput = container.querySelector('#filtroDe');
@@ -2216,8 +2235,8 @@ function corpoKpi_(tipo, lista) {
   const gs = Object.keys(por).sort((a, b) => Math.abs(por[b]) - Math.abs(por[a]));
   const maiores = lista.slice().sort((a, b) => Math.abs(val(b)) - Math.abs(val(a))).slice(0, 15);
   const corpo = `<h4>Por ${KPI_TIPOS_[tipo].porQue} <small>${gs.length}</small></h4><table class="simple gv-tab">`
-    + gs.map(g => `<tr><td>${escapeHtml_(g)}</td><td class="num">${F(por[g])}</td>
-        <td class="num gv-pct">${fmtPctSimples_(Math.abs(por[g]) / (Math.abs(total) || 1))}</td></tr>`).join('')
+    + catLinhasExpansiveis_(gs, por, total, (g) => lista.filter(x => String(grupo(x) || '—') === g), data, val,
+        vendas ? (x) => [x.numero ? 'pedido ' + x.numero : '—', x.cliente] : null)
     + `</table><h4>${vendas ? 'Os maiores pedidos' : 'Os maiores lançamentos'} <small>${lista.length} no total</small></h4>
     <table class="simple gv-tab gv-lanc">`
     + maiores.map(x => `<tr><td>${fmtDataBR(data(x))}</td>
@@ -2367,8 +2386,8 @@ function corpoFluxo_(linhas, porCategoria) {
     linhas.forEach(function (r) { porCat[r.categoria] = (porCat[r.categoria] || 0) + val(r); });
     const cats = Object.keys(porCat).sort((x, y) => Math.abs(porCat[y]) - Math.abs(porCat[x]));
     corpo += `<h4>Por categoria <small>${cats.length} categoria(s)</small></h4><table class="simple gv-tab">`
-      + cats.map(c => `<tr><td>${escapeHtml_(c || '(sem categoria)')}</td><td class="num">${F(porCat[c])}</td>
-          <td class="num gv-pct">${fmtPctSimples_(Math.abs(porCat[c]) / (Math.abs(total) || 1))}</td></tr>`).join('')
+      + catLinhasExpansiveis_(cats, porCat, total, (c) => linhas.filter(r => String(r.categoria) === c),
+          (r) => r.date, val)
       + '</table>';
   }
   const maiores = linhas.slice().sort((x, y) => y.valor - x.valor).slice(0, 15);
@@ -3041,8 +3060,8 @@ function corpoDfc_(linha, rows) {
     const maiores = linhas.slice().sort((x, y) => y.valor - x.valor).slice(0, 15);
     const corpo = `<h4>Por categoria <small>${cats.length} categoria(s)</small></h4>
       <table class="simple gv-tab">`
-      + cats.map(c => `<tr><td>${escapeHtml_(c || '(sem categoria)')}</td><td class="num">${F(porCat[c])}</td>
-          <td class="num gv-pct">${fmtPctSimples_(Math.abs(porCat[c]) / (Math.abs(total) || 1))}</td></tr>`).join('')
+      + catLinhasExpansiveis_(cats, porCat, total, (c) => linhas.filter(r => String(r.categoria) === c),
+          (r) => r.date, D.val)
       + `</table>
       <h4>Os maiores lançamentos <small>${linhas.length} no total</small></h4>
       <table class="simple gv-tab gv-lanc">`
@@ -3725,8 +3744,8 @@ function corpoGaveta_(item, ctx) {
 
       corpo = `<h4>Por categoria <small>${cats.length} categoria(s)</small></h4>
         <table class="simple gv-tab">`
-        + cats.map(c => `<tr><td>${escapeHtml_(c)}</td><td class="num">${F(porCat[c])}</td>
-            <td class="num gv-pct">${fmtPctSimples_(Math.abs(porCat[c]) / (Math.abs(total) || 1))}</td></tr>`).join('')
+        + catLinhasExpansiveis_(cats, porCat, total, (c) => linhas.filter(r => String(r.categoria) === c),
+            (r) => ctx.porCompetencia ? r.dateComp : r.date, (r) => (r.tipo === 'entrada' ? 1 : -1) * r.valor)
         + `</table>
         <h4>Os maiores lançamentos <small>${linhas.length} no período</small></h4>
         <table class="simple gv-tab gv-lanc">`
@@ -3774,6 +3793,32 @@ function abrirGaveta_(item, col) {
   mostrarGaveta_(item.nome, DRILL.porCompetencia ? 'competência' : 'caixa', tudo, mes, pctRec);
 }
 
+/* CATEGORIA QUE ABRE (15/10/2026). A Karol clicou em "Salarios" dentro de
+   Despesas com Pessoal querendo ver os lancamentos. Cada linha da tabela "Por
+   categoria" leva, logo abaixo e escondida, a lista completa daquela categoria
+   NO MESMO recorte da gaveta (mes ou periodo) - entao a lista soma exatamente o
+   valor da linha. O clique so mostra/esconde (ver mostrarGaveta_). */
+function catLinhasExpansiveis_(chaves, soma, total, membrosFn, dataFn, valFn, quemFn) {
+  const F = (v) => fmtBRL(v, 2);
+  const LIM = 200;
+  const quem = quemFn || function (r) { return [r.contato || r.categoria, r.descricao ? String(r.descricao).slice(0, 70) : '']; };
+  return chaves.map(function (c) {
+    const itens = membrosFn(c).slice().sort((a, b) => dataFn(b) - dataFn(a));
+    const lista = itens.slice(0, LIM).map(function (x) {
+      const q = quem(x);
+      return `<tr><td>${fmtDataBR(dataFn(x))}${x.aberta ? '<small>em aberto</small>' : ''}</td>
+        <td>${escapeHtml_(q[0] || '—')}${q[1] ? '<small>' + escapeHtml_(q[1]) + '</small>' : ''}</td>
+        <td class="num">${F(valFn(x))}</td></tr>`;
+    }).join('');
+    return `<tr class="gv-cat" title="Clique para ver os lançamentos"><td><span class="gv-seta">▸</span> ${escapeHtml_(c === 'undefined' || !c ? '(sem categoria)' : c)}
+        <small>${itens.length} lançamento(s)</small></td><td class="num">${F(soma[c])}</td>
+        <td class="num gv-pct">${fmtPctSimples_(Math.abs(soma[c]) / (Math.abs(total) || 1))}</td></tr>
+      <tr class="gv-cat-lanc" hidden><td colspan="3"><table class="simple gv-tab gv-lanc">${lista}</table>`
+      + (itens.length > LIM ? `<p class="gv-nota">Mostrando os ${LIM} mais recentes de ${itens.length}.</p>` : '')
+      + `</td></tr>`;
+  }).join('');
+}
+
 /* Desenha a gaveta: o mes clicado em cima (se houver) e o acumulado do
    periodo embaixo. Serve a DRE e a DFC - as duas abrem igual. */
 function mostrarGaveta_(titulo, regime, tudo, mes, pctFn) {
@@ -3805,6 +3850,14 @@ function mostrarGaveta_(titulo, regime, tudo, mes, pctFn) {
   fundo.hidden = false;
   fundo.style.display = 'block';
   document.getElementById('gvFechar').addEventListener('click', fecharGaveta_);
+  gv.querySelectorAll('tr.gv-cat').forEach(function (tr) {
+    tr.addEventListener('click', function () {
+      const prox = tr.nextElementSibling;
+      if (!prox || !prox.classList.contains('gv-cat-lanc')) return;
+      prox.hidden = !prox.hidden;
+      tr.classList.toggle('aberta', !prox.hidden);
+    });
+  });
   /* Esc fecha. Painel que cobre a tela precisa de uma saida que nao dependa de
      acertar um botao pequeno. */
   document.addEventListener('keydown', escFechaGaveta_);
