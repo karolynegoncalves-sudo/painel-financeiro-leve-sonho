@@ -23,7 +23,7 @@
  * TROQUE ESTA STRING quando mexer no que o doGet devolve. O painel mostra o
  * valor e avisa em vermelho quando nao encontra a marca que ele espera.
  */
-const BACKEND_VERSAO_ = '2026-10-15 saldos';
+const BACKEND_VERSAO_ = '2026-10-15 saldos+fantasmas';
 
 function doGet(e) {
   const params = (e && e.parameter) || {};
@@ -88,6 +88,7 @@ function doGet(e) {
       return jsonResponse_({ email: email, rows: r, despesas: despesasFixas_,
                              dreFontes: fontes,
                              saldos: sal_.saldos, saldosErro: sal_.saldosErro,
+                             fantasmas: getFantasmasInfo_(),
                              backend: diag + ' | janela=' + r.desde
                                       + ' ' + (r.rows || []).length + '/' + r.total
                                       + ' (li ' + (r.lidas || 0) + ', '
@@ -1170,6 +1171,63 @@ function _rodarLimparCachePrecificacao() {
  * errado sobre dinheiro em conta e pior que a ausencia dele.
  * ========================================================================== */
 const ARQ_SALDOS_ = 'saldos_conferidos.csv';
+
+/* ============================================================================
+ * O ULTIMO ZERAMENTO DAS CONTAS FANTASMA - um fato, nao duas datas.
+ *
+ * Tem geracao automatica de conta a receber rodando no Bling (causa
+ * desconhecida, ~19,3/dia, medida de zero a zero entre 07 e 14/10). Elas
+ * nascem com vencimento em +30 dias, entao as janelas do painel so comecam a
+ * ficar sujas 30 dias depois do ultimo zeramento - e o aviso tem que ligar
+ * nessa data, nem antes nem depois.
+ *
+ * POR QUE A DATA MORA AQUI E NAO LA. O Jobs tinha duas constantes na tela,
+ * SUJA_7D_DESDE_ e SUJA_15D_DESDE_, que estavam certas. Mas as duas sao
+ * DERIVADAS de um unico fato: a data do zeramento. Valor derivado guardado a
+ * mao em dois lugares diverge no dia em que alguem atualiza um e esquece o
+ * outro - e aqui o esquecimento e silencioso, porque as duas datas continuam
+ * parecendo plausiveis.
+ *
+ * Com o fato aqui, quando o Contas zerar de novo muda UMA data num lugar e as
+ * duas janelas se corrigem sozinhas. Guardar o fato e deixar a tela derivar e
+ * a diferenca entre "lembrar de atualizar duas coisas" e "nao precisar
+ * lembrar".
+ * ========================================================================== */
+var FANTASMAS_ZERADAS_EM_ = '2026-10-14';   // Contas apagou 135 (R$ 9.553,43)
+var FANTASMAS_POR_DIA_ = 19.29;             // medido de zero a zero, Shopee+ML
+var FANTASMA_TICKET_ = 70.77;
+var FANTASMA_PRAZO_DIAS_ = 30;              // vencimento nasce em +30d
+
+/** O que a tela precisa pra decidir sozinha quando avisar. */
+function _fantasmas_() {
+  var z = new Date(FANTASMAS_ZERADAS_EM_ + 'T12:00:00');
+  var primeiroVenc = new Date(z.getTime() + FANTASMA_PRAZO_DIAS_ * 86400000);
+  var iso = function (d) { return Utilities.formatDate(d, 'America/Sao_Paulo', 'yyyy-MM-dd'); };
+  return {
+    zeradasEm: FANTASMAS_ZERADAS_EM_,
+    primeiroVencimento: iso(primeiroVenc),
+    porDia: FANTASMAS_POR_DIA_ * FANTASMA_TICKET_,
+    // a janela de N dias comeca a sujar N dias antes do primeiro vencimento
+    sujaEm: function (n) { return iso(new Date(primeiroVenc.getTime() - n * 86400000)); }
+  };
+}
+
+/** Versao serializavel, pro pacote do fluxoCaixa. */
+function getFantasmasInfo_() {
+  try {
+    var f = _fantasmas_();
+    return {
+      zeradasEm: f.zeradasEm,
+      primeiroVencimento: f.primeiroVencimento,
+      reaisPorDia: Math.round(f.porDia * 100) / 100,
+      suja7d: f.sujaEm(7),
+      suja15d: f.sujaEm(15),
+      suja30d: f.sujaEm(30)
+    };
+  } catch (e) {
+    return null;        // tela mantem o aviso ligado se nao souber a data
+  }
+}
 
 /** A pasta da planilha. E onde o CSV tem que estar. */
 function _pastaDoPainel_() {
