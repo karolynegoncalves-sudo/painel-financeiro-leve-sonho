@@ -308,6 +308,14 @@ function onOpen() {
     /* Setembro foi preenchido a mao no dia 9 e ficou em 7,3% da receita,
        contra 23-28% dos outros meses. Repetir ate dizer que fechou. */
     .addItem('CMV: GERAR setembro/2026 (repetir ate fechar)', 'gerarCmvSetembro')
+    /* Jan a ago foram preenchidos A MAO em 09/09, e setembro, feito no mesmo
+       dia, estava errado em ~R$ 10 mil. Isto CALCULA e COMPARA sem gravar -
+       gravar antes de comparar destruiria a unica copia do trabalho da mao. */
+    .addItem('CMV: CONFERIR agosto (calcula, nao grava)', 'conferirCmvAgosto')
+    .addItem('CMV: CONFERIR julho (calcula, nao grava)', 'conferirCmvJulho')
+    /* Variacao nao se ve num mes so: categorias nas linhas, meses nas
+       colunas, ordenado pela amplitude. So le. */
+    .addItem('Pessoal: comparar abr a jul por categoria', 'pessoalAbrJul')
     .addItem('Servicos de terceiros jan-abr (quem recebeu)', 'terceirosJanAbr')
     .addItem('Servicos de terceiros jan-AGO (quem recebeu)', 'terceirosJanAgo')
     /* RESINCRONIZAR A RECLASSIFICACAO FEITA NO BLING (04/10/2026).

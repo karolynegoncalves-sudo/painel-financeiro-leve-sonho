@@ -2194,3 +2194,144 @@ function variaveisPorMes(mesFoco) {
 
 function variaveisResumo() { return variaveisPorMes(); }
 function variaveisAgosto() { return variaveisPorMes('2026-08'); }
+
+/* ============================================================================
+ * COMPARAR UM GRUPO DA DRE MES A MES, categoria por categoria.
+ *
+ * PERGUNTA DELA (15/10/2026): "despesa com pessoal de abril ate julho, houve
+ * muita variacao, consegue me mostrar o que e?"
+ *
+ * A gaveta da DRE ja abre UM mes por categoria. Mas variacao nao se enxerga
+ * num mes - se enxerga comparando, e comparar quatro gavetas significa
+ * guardar quatro telas de cabeca. Aqui as categorias sao linhas e os meses
+ * sao colunas, que e o formato em que a variacao aparece sozinha.
+ *
+ * LE POR COMPETENCIA, caindo pra data quando ela falta - a mesma regra da
+ * DRE. Ler por data daria outro numero e a comparacao nao bateria com a tela
+ * que gerou a pergunta.
+ *
+ * MOSTRA TAMBEM A CONTAGEM DE LANCAMENTOS, e isso nao e enfeite: foi a
+ * contagem, nao o valor, que resolveu o caso do Mercado Livre de junho (7
+ * linhas contra 28 e 54). Valor que dobra com a mesma quantidade de linhas e
+ * reajuste; valor que dobra com o dobro das linhas e gente nova ou mes com
+ * duas folhas.
+ *
+ * SO LE.
+ * ========================================================================== */
+function compararGrupoDre(grupo, de, ate) {
+  grupo = String(grupo || '').trim();
+  de = String(de || '').trim();
+  ate = String(ate || '').trim();
+  if (!grupo || !/^\d{4}-\d{2}$/.test(de) || !/^\d{4}-\d{2}$/.test(ate)) {
+    mostrarRelatorio_('Comparar grupo',
+      ['uso: compararGrupoDre("Despesas com Pessoal", "2026-04", "2026-07")']);
+    return;
+  }
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sh = ss.getSheetByName(ABA_FLUXO_CAIXA);
+  if (!sh || sh.getLastRow() < 2) {
+    mostrarRelatorio_('Comparar grupo', ['A aba ' + ABA_FLUXO_CAIXA + ' esta vazia.']);
+    return;
+  }
+
+  const tz = 'America/Sao_Paulo';
+  const mesDe = function (v) {
+    return v instanceof Date ? Utilities.formatDate(v, tz, 'yyyy-MM')
+                             : String(v || '').trim().slice(0, 7);
+  };
+
+  const dados = sh.getRange(2, 1, sh.getLastRow() - 1, COLS_FLUXO_).getValues();
+  const meses = {};
+  const porCat = {};
+  const maiores = {};
+
+  dados.forEach(function (l) {
+    if (String(l[5] || '').trim() !== grupo) return;
+    const m = mesDe(l[14] || l[0]);
+    if (!/^\d{4}-\d{2}$/.test(m) || m < de || m > ate) return;
+    meses[m] = 1;
+    const cat = String(l[4] || '(sem categoria)');
+    if (!porCat[cat]) porCat[cat] = {};
+    if (!porCat[cat][m]) porCat[cat][m] = { v: 0, n: 0 };
+    porCat[cat][m].v += Math.abs(Number(l[11]) || 0);
+    porCat[cat][m].n++;
+    if (!maiores[m]) maiores[m] = [];
+    maiores[m].push({ v: Math.abs(Number(l[11]) || 0), d: String(l[10] || ''),
+                      c: String(l[8] || ''), cat: cat });
+  });
+
+  const ms = Object.keys(meses).sort();
+  const L = [];
+  L.push(grupo.toUpperCase() + ' - ' + de + ' a ' + ate);
+  L.push('');
+  if (!ms.length) {
+    L.push('Nenhum lancamento desse grupo no periodo.');
+    L.push('');
+    L.push('CONTROLE NEGATIVO - os grupos que existem na aba sao:');
+    var gs = {};
+    dados.forEach(function (l) { if (l[5]) gs[String(l[5])] = 1; });
+    Object.keys(gs).sort().forEach(function (g) { L.push('   ' + g); });
+    L.push('Se o seu grupo nao esta nessa lista, o nome esta diferente.');
+    mostrarRelatorio_('Comparar grupo', L);
+    return;
+  }
+
+  const pad = function (x, n) { return (new Array(n + 1).join(' ') + x).slice(-n); };
+  var cab = pad('categoria', 32);
+  ms.forEach(function (m) { cab += pad(m.slice(2), 12); });
+  cab += pad('variacao', 12);
+  L.push(cab);
+  L.push(new Array(cab.length + 1).join('-'));
+
+  // ordena por quanto a categoria VARIOU, nao por quanto ela pesa - a
+  // pergunta e sobre variacao
+  const cats = Object.keys(porCat).sort(function (a, b) {
+    var fa = ms.map(function (m) { return (porCat[a][m] || { v: 0 }).v; });
+    var fb = ms.map(function (m) { return (porCat[b][m] || { v: 0 }).v; });
+    return (Math.max.apply(null, fb) - Math.min.apply(null, fb))
+         - (Math.max.apply(null, fa) - Math.min.apply(null, fa));
+  });
+
+  const totMes = {};
+  cats.forEach(function (c) {
+    var linha = pad(c.slice(0, 31), 32);
+    var vals = [];
+    ms.forEach(function (m) {
+      var o = porCat[c][m] || { v: 0, n: 0 };
+      vals.push(o.v);
+      totMes[m] = (totMes[m] || 0) + o.v;
+      linha += pad(o.v ? o.v.toFixed(0) + '/' + o.n : '-', 12);
+    });
+    var amp = Math.max.apply(null, vals) - Math.min.apply(null, vals);
+    linha += pad(amp ? '+' + amp.toFixed(0) : '-', 12);
+    L.push(linha);
+  });
+
+  L.push(new Array(cab.length + 1).join('-'));
+  var lt = pad('TOTAL', 32);
+  ms.forEach(function (m) { lt += pad((totMes[m] || 0).toFixed(0), 12); });
+  L.push(lt);
+  L.push('');
+  L.push('(valor/quantidade de lancamentos. A coluna "variacao" e a amplitude');
+  L.push(' da categoria no periodo, e a tabela esta ordenada por ela.)');
+  L.push('');
+
+  // os maiores lancamentos do mes que mais variou
+  var pico = ms.slice(1).reduce(function (a, m) {
+    return Math.abs((totMes[m] || 0) - (totMes[ms[0]] || 0))
+         > Math.abs((totMes[a] || 0) - (totMes[ms[0]] || 0)) ? m : a;
+  }, ms[ms.length - 1]);
+  L.push('OS 12 MAIORES DE ' + pico + ' (o mes mais distante de ' + ms[0] + '):');
+  (maiores[pico] || []).sort(function (a, b) { return b.v - a.v; })
+    .slice(0, 12).forEach(function (x) {
+      L.push('  R$ ' + pad(x.v.toFixed(2), 10) + '  ' + (x.c || '-').slice(0, 22)
+             + '  ' + x.d.slice(0, 28));
+    });
+
+  mostrarRelatorio_(grupo + ' ' + de + ' a ' + ate, L);
+}
+
+function pessoalAbrJul() {
+  return compararGrupoDre('Despesas com Pessoal', '2026-04', '2026-07');
+}

@@ -604,7 +604,25 @@ function _cmvStaging_() {
   return sh;
 }
 
-function gerarCmvMes(mes) {
+/**
+ * `somenteConferir` = true calcula tudo e NAO grava, so compara com o que ja
+ * esta na _CMV_Consumo.
+ *
+ * POR QUE ISSO EXISTE (15/10/2026). Jan a ago/2026 foram preenchidos A MAO em
+ * 09/09. Setembro foi preenchido no mesmo dia e estava errado em ~R$ 10 mil -
+ * 7,3% da receita contra 23 a 28% dos outros. Os outros PARECEM certos, mas
+ * ninguem comparou com o calculo pela ficha.
+ *
+ * E eu nao posso descobrir isso sobrescrevendo: se eu rodar e gravar, perco o
+ * numero da mao e com ele a possibilidade de comparar. Medir antes de gravar
+ * virou a regra da semana, e aqui ela e obrigatoria - o dado da mao e a unica
+ * copia que existe daquele trabalho de oito dias.
+ *
+ * O rascunho _CMV_Staging fica preenchido do mesmo jeito, entao conferir nao
+ * desperdica nada: se a gente decidir gravar depois, a rodada de verdade
+ * aproveita tudo e nao refaz chamada nenhuma.
+ */
+function gerarCmvMes(mes, somenteConferir) {
   mes = String(mes || '').trim();
   if (!/^\d{4}-\d{2}$/.test(mes)) {
     mostrarRelatorio_('CMV', ['informe o mes: gerarCmvMes("2026-09")']);
@@ -767,6 +785,33 @@ function gerarCmvMes(mes) {
     const a = porCanal[c];
     linhas.push([mes, c, a.custo, a.pecas, a.semFicha, agora, '', '', '', '']);
   });
+  if (somenteConferir) {
+    var calc = 0;
+    linhas.forEach(function (l) { calc += Number(l[2]) || 0; });
+    L.push('');
+    L.push('=== CONFERENCIA, NADA FOI GRAVADO ===');
+    L.push('');
+    L.push('  na aba (preenchido a mao) ..: R$ ' + antesValor.toFixed(2)
+           + '   em ' + antesPecas + ' peca(s)');
+    L.push('  calculado pela ficha .......: R$ ' + calc.toFixed(2)
+           + '   em ' + tp + ' peca(s)');
+    L.push('  diferenca ..................: R$ ' + (calc - antesValor).toFixed(2)
+           + (antesValor > 0 ? '   (' + ((calc / antesValor - 1) * 100).toFixed(1) + '%)' : ''));
+    L.push('');
+    if (ts > 0) {
+      L.push('  ATENCAO: ' + ts + ' peca(s) sem ficha entraram com custo ZERO,');
+      L.push('  entao o calculado esta SUBESTIMADO nesse tanto. A diferenca');
+      L.push('  acima e piso, nao medida exata.');
+      L.push('');
+    }
+    L.push('O rascunho _CMV_Staging ficou preenchido: se decidirmos gravar,');
+    L.push('a rodada de verdade nao refaz nenhuma chamada.');
+    logSync_('gerarCmvMes', 'conferido', mes + ': aba ' + antesValor.toFixed(2)
+             + ' x calc ' + calc.toFixed(2));
+    mostrarRelatorio_('CMV ' + mes + ' - CONFERENCIA', L);
+    return;
+  }
+
   apagar.sort(function (x, y) { return y - x; }).forEach(function (r) { alvo.deleteRow(r); });
   alvo.getRange(alvo.getLastRow() + 1, 1, linhas.length, 10).setValues(linhas);
   recalcularDre_();
@@ -792,6 +837,11 @@ function gerarCmvMes(mes) {
 }
 
 function gerarCmvSetembro() { return gerarCmvMes('2026-09'); }
+
+/* CONFERIR sem gravar. Agosto primeiro porque e o mes fechado mais recente
+   preenchido a mao - se a mao bater com a ficha ali, bate nos outros. */
+function conferirCmvAgosto() { return gerarCmvMes('2026-08', true); }
+function conferirCmvJulho()  { return gerarCmvMes('2026-07', true); }
 
 /* ============================================================================
  * SONDAR OS MESES FECHADOS DE 2025 - medir antes de construir.
