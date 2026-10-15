@@ -316,6 +316,9 @@ function onOpen() {
        gravar antes de comparar destruiria a unica copia do trabalho da mao. */
     .addItem('CMV: CONFERIR agosto (calcula, nao grava)', 'conferirCmvAgosto')
     .addItem('CMV: CONFERIR julho (calcula, nao grava)', 'conferirCmvJulho')
+    /* As 264 pecas de agosto que entram com custo zero. Abre SO os pedidos
+       que o rascunho ja marcou com semFicha > 0. */
+    .addItem('CMV: QUAIS pecas estao sem ficha (agosto)', 'semFichaAgosto')
     /* Variacao nao se ve num mes so: categorias nas linhas, meses nas
        colunas, ordenado pela amplitude. So le. */
     .addItem('Pessoal: comparar abr a jul por categoria', 'pessoalAbrJul')

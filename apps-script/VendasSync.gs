@@ -1268,3 +1268,151 @@ function verCofre2025() {
   });
   mostrarRelatorio_('Cofre 2025', L);
 }
+
+/* ============================================================================
+ * QUAIS SAO AS PECAS SEM FICHA - as 264 de agosto, por familia.
+ *
+ * O QUE ISTO RESPONDE. A conferencia de agosto mostrou 264 pecas de 1.188
+ * (22%) entrando com custo ZERO por falta de ficha, o que deixa o CMV
+ * calculado ~12% abaixo do real. Saber QUANTAS nao adianta - adianta saber
+ * QUAIS, porque cada familia cadastrada tira uma fatia do buraco de uma vez.
+ *
+ * SO VISITA OS PEDIDOS QUE INTERESSAM. O _CMV_Staging ja guarda, por pedido,
+ * quantas pecas ficaram sem ficha. Entao em vez de reprocessar os 733 pedidos
+ * de agosto, isto le o rascunho, pega SO os que tem semFicha > 0 e busca o
+ * detalhe deles. O trabalho de ontem paga o de hoje - era pra isso que o
+ * rascunho guardava a contagem por pedido em vez de so o total do mes.
+ *
+ * ORDENA POR PECAS, nao por quantidade de SKUs. Cadastrar a familia que
+ * aparece em 80 pecas vale oito vezes mais que a que aparece em 10, e a
+ * ordem da lista e o plano de trabalho.
+ *
+ * SO LE. Escreve so na aba de resultado, que e rascunho dela mesma.
+ * ========================================================================== */
+const ABA_SEM_FICHA_ = '_Sem_Ficha';
+
+function _semFicha_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sh = ss.getSheetByName(ABA_SEM_FICHA_);
+  if (!sh) {
+    sh = ss.insertSheet(ABA_SEM_FICHA_);
+    sh.getRange(1, 1, 1, 7).setValues([[
+      'mes', 'pedidoId', 'familia', 'codigo', 'descricao', 'pecas', 'lidoEm'
+    ]]);
+    sh.setFrozenRows(1);
+    sh.hideSheet();
+  }
+  return sh;
+}
+
+function listarPecasSemFicha(mes) {
+  mes = String(mes || '').trim();
+  if (!/^\d{4}-\d{2}$/.test(mes)) {
+    mostrarRelatorio_('Sem ficha', ['uso: listarPecasSemFicha("2026-08")']);
+    return;
+  }
+  const L = [];
+  INICIO_SYNC_.t = Date.now();
+
+  const shS = _cmvStaging_();
+  if (shS.getLastRow() < 2) {
+    mostrarRelatorio_('Sem ficha', ['O rascunho _CMV_Staging esta vazio.',
+      'Rode a conferencia do CMV do mes primeiro.']);
+    return;
+  }
+
+  const mesDoRascunho_ = function (v) {
+    return v instanceof Date
+      ? Utilities.formatDate(v, 'America/Sao_Paulo', 'yyyy-MM')
+      : String(v || '').trim().slice(0, 7);
+  };
+
+  // pedidos do mes QUE TEM peca sem ficha - os outros nao precisam ser abertos
+  const alvos = [];
+  const vistos = {};
+  shS.getRange(2, 1, shS.getLastRow() - 1, 6).getValues().forEach(function (l) {
+    if (mesDoRascunho_(l[0]) !== mes) return;
+    const pid = String(l[1] || '').trim();
+    if (!pid || vistos[pid]) return;
+    vistos[pid] = 1;
+    if ((Number(l[5]) || 0) > 0) alvos.push({ id: pid, canal: String(l[2] || ''), n: Number(l[5]) });
+  });
+
+  const sh = _semFicha_();
+  const feitos = {};
+  if (sh.getLastRow() > 1) {
+    sh.getRange(2, 1, sh.getLastRow() - 1, 2).getValues().forEach(function (l) {
+      if (l[1]) feitos[mesDoRascunho_(l[0]) + ':' + String(l[1]).trim()] = 1;
+    });
+  }
+  const faltam = alvos.filter(function (a) { return !feitos[mes + ':' + a.id]; });
+
+  L.push('PECAS SEM FICHA EM ' + mes);
+  L.push('');
+  L.push('pedidos do mes com peca sem ficha ....: ' + alvos.length);
+  L.push('ja abertos em rodadas anteriores .....: ' + (alvos.length - faltam.length));
+  L.push('');
+
+  const token = getBlingAccessToken_();
+  const cat = carregarCatalogosCusto_();
+  const agora = Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'yyyy-MM-dd HH:mm');
+  const novas = [];
+  let parou = false;
+
+  for (var k = 0; k < faltam.length; k++) {
+    if (tempoGasto_() > TETO_TOTAL_MS) { parou = true; break; }
+    const a = faltam[k];
+    const r = fetchBlingStatus_('https://api.bling.com.br/Api/v3/pedidos/vendas/' + a.id, token);
+    Utilities.sleep(320);
+    const d = r.json && r.json.data;
+    if (!d) continue;              // nao marca: a proxima rodada tenta de novo
+    (d.itens || []).forEach(function (it) {
+      const q = Number(it.quantidade) || 0;
+      if (!q) return;
+      const c = custoDoSku_(String(it.codigo || ''), String(it.descricao || ''), a.canal, cat);
+      if (c && c.custo > 0) return;          // tem ficha, nao interessa aqui
+      novas.push([mes, a.id, (c && c.familia) || '(sem familia)',
+                  String(it.codigo || ''), String(it.descricao || '').slice(0, 80), q, agora]);
+    });
+  }
+
+  if (novas.length) sh.getRange(sh.getLastRow() + 1, 1, novas.length, 7).setValues(novas);
+
+  // ---- agrega TUDO que esta na aba para o mes, nao so esta rodada
+  const porFam = {};
+  let totPecas = 0;
+  sh.getRange(2, 1, Math.max(0, sh.getLastRow() - 1), 7).getValues().forEach(function (l) {
+    if (!l[1] || mesDoRascunho_(l[0]) !== mes) return;
+    const f = String(l[2] || '(sem familia)');
+    if (!porFam[f]) porFam[f] = { pecas: 0, skus: {}, ex: '' };
+    porFam[f].pecas += Number(l[5]) || 0;
+    porFam[f].skus[String(l[3] || '')] = 1;
+    if (!porFam[f].ex) porFam[f].ex = String(l[4] || '');
+    totPecas += Number(l[5]) || 0;
+  });
+
+  L.push('ACUMULADO: ' + totPecas + ' peca(s) sem ficha, em '
+         + Object.keys(porFam).length + ' familia(s)');
+  L.push('');
+  L.push('   pecas  SKUs  familia              exemplo');
+  L.push('   -----  ----  -------------------  ------------------------------');
+  const pad = function (x, n) { return (new Array(n + 1).join(' ') + x).slice(-n); };
+  Object.keys(porFam).sort(function (a, b) { return porFam[b].pecas - porFam[a].pecas; })
+    .forEach(function (f) {
+      const o = porFam[f];
+      L.push('   ' + pad(o.pecas, 5) + '  ' + pad(Object.keys(o.skus).length, 4) + '  '
+             + (f + '                   ').slice(0, 19) + '  ' + o.ex.slice(0, 30));
+    });
+  L.push('');
+  L.push('ORDENADO POR PECAS, que e a ordem de trabalho: cadastrar a familia do');
+  L.push('topo tira a maior fatia do buraco de uma vez.');
+  L.push('');
+  if (parou) {
+    L.push('*** PAREI POR TEMPO. Faltam ' + (faltam.length - k) + ' pedido(s). Rode de novo. ***');
+  } else {
+    L.push('COMPLETO: todos os pedidos de ' + mes + ' com peca sem ficha foram abertos.');
+  }
+  mostrarRelatorio_('Sem ficha ' + mes, L);
+}
+
+function semFichaAgosto() { return listarPecasSemFicha('2026-08'); }
