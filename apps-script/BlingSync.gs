@@ -1953,7 +1953,26 @@ function procurarZumbis(de, ate) {
      chamadas e o teto de 6 minutos mataria a funcao no meio. */
   const vivos = {};
   const token = getBlingAccessToken_();
-  ['pagar', 'receber'].forEach(function (tipo) {
+
+  /* SO VALE LISTAR QUANDO HA MUITA LINHA.
+   *
+   * A listagem existe pra evitar um GET por linha. Mas ela custa o mesmo
+   * independente do tamanho do mes: em 2024-07, com 55 linhas na aba, ela
+   * devolveu 1.777 contas vivas e consumiu o orcamento INTEIRO - o laco de
+   * confirmacao nem comecou, e como a listagem nao e memorizada, toda rodada
+   * refazia as 1.777 e nunca sobrava tempo. Segunda esteira infinita, e pior
+   * que a primeira, porque nesta nem o primeiro suspeito era conferido.
+   *
+   * 55 GETs custam uns 20 segundos. A otimizacao custava mais que o problema
+   * que resolve. Abaixo do piso, vai direto no GET. */
+  const PISO_LISTAGEM_ = 150;
+  const vaiListar = candidatos.length > PISO_LISTAGEM_;
+  L.push(vaiListar
+    ? 'estrategia ...............................: listar primeiro (' + candidatos.length + ' linhas)'
+    : 'estrategia ...............................: GET direto (' + candidatos.length
+      + ' linhas, menos que o piso de ' + PISO_LISTAGEM_ + ')');
+
+  if (vaiListar) ['pagar', 'receber'].forEach(function (tipo) {
     var pagina = 1;
     while (true) {
       if (tempoGasto_() > TETO_TOTAL_MS) break;
@@ -1971,7 +1990,17 @@ function procurarZumbis(de, ate) {
       if (pagina > 60) break;
     }
   });
-  L.push('contas vivas na listagem do periodo ......: ' + Object.keys(vivos).length);
+  if (vaiListar) {
+    L.push('contas vivas na listagem do periodo ......: ' + Object.keys(vivos).length);
+    /* Se a listagem foi cortada pelo tempo, `vivos` esta incompleto e mais
+       linhas parecem suspeitas do que realmente sao. Dizer isso importa: sem
+       o aviso, o numero de suspeitos engana. */
+    if (tempoGasto_() > TETO_TOTAL_MS) {
+      L.push('   *** a listagem foi CORTADA pelo tempo - a lista de suspeitos');
+      L.push('       abaixo esta inflada. O GET individual ainda protege o');
+      L.push('       resultado, mas rode de novo pra encurtar a fila. ***');
+    }
+  }
 
   const suspeitos = candidatos.filter(function (c) {
     return !vivos[c.tipo + ':' + c.id] && !jaConferido[c.tipo + ':' + c.id];
@@ -2076,7 +2105,8 @@ function procurarZumbis(de, ate) {
   if (shZ.getLastRow() > 1) {
     shZ.getRange(2, 1, shZ.getLastRow() - 1, 9).getValues().forEach(function (z) {
       if (!z[1]) return;
-      if (String(z[8] || 'zumbi') === 'vivo') return;   // descarte registrado
+      var st = String(z[8] || 'zumbi');
+      if (st === 'vivo' || st === 'removido') return;   // descarte e remocao nao somam
       totN++;
       var v = Math.abs(Number(z[3]) || 0);
       totV += v;
@@ -2225,12 +2255,19 @@ function removerZumbiPorId(tipo, id) {
   var guardadas = [];
   linhas.forEach(function (ln) {
     var l = sh.getRange(ln, 1, 1, COLS_FLUXO_).getValues()[0];
+    /* STATUS 'removido', nao vazio. Status vazio e lido como 'zumbi' pelo
+       acumulado (pra compatibilidade com as linhas antigas), entao gravar o
+       registro de remocao sem status fazia o mesmo lancamento ser contado
+       DUAS vezes - uma como achado da varredura, outra como remocao. Foi o
+       que inflou os MEXE de R$ 2.784,46 pra R$ 5.568,92, exatamente o dobro.
+       Eu criei a coluna de status e nao preenchi no unico lugar que mais
+       precisava dela. */
     guardadas.push([tipo, id, l[0], l[11], l[4], l[5],
-                    'REMOVIDO DA ABA | ' + String(l[10] || ''), agora]);
+                    'REMOVIDO DA ABA | ' + String(l[10] || ''), agora, 'removido']);
     L.push('  linha ' + ln + ': R$ ' + (Number(l[11]) || 0).toFixed(2)
            + '  ' + l[4] + '  ' + String(l[10] || '').slice(0, 30));
   });
-  shZ.getRange(shZ.getLastRow() + 1, 1, guardadas.length, 8).setValues(guardadas);
+  shZ.getRange(shZ.getLastRow() + 1, 1, guardadas.length, 9).setValues(guardadas);
 
   /* De baixo pra cima: apagar de cima desloca as linhas de baixo e os indices
      que eu guardei deixariam de valer. */
