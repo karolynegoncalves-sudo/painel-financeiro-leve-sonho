@@ -147,9 +147,15 @@ function syncVendas() {
 /** Roda syncVendas junto com o sync financeiro, de 2 em 2 horas. */
 function criarGatilhoSyncVendas() {
   ScriptApp.getProjectTriggers()
-    .filter(function (t) { return t.getHandlerFunction() === 'syncVendas'; })
+    .filter(function (t) {
+      var h = t.getHandlerFunction();
+      return h === 'syncVendas' || h === 'syncVendasEReceita';
+    })
     .forEach(function (t) { ScriptApp.deleteTrigger(t); });
-  ScriptApp.newTrigger('syncVendas').timeBased().everyHours(2).create();
+  /* Chama o PAR sync+receita, nao o syncVendas sozinho: a _Receita_Pedidos
+     tem que andar junto com a aba Vendas, senao a DRE fica para tras do que
+     a tela de canais mostra - foi o que aconteceu com outubro. */
+  ScriptApp.newTrigger('syncVendasEReceita').timeBased().everyHours(2).create();
   Logger.log('Gatilho criado: syncVendas a cada 2 horas.');
 }
 
@@ -565,8 +571,59 @@ function refazerReceitaMes(mes, forcar) {
 function refazerReceitaSetembro() { return refazerReceitaMes('2026-09'); }
 
 function _rodarConferirReceita() { return conferirReceitaPedidos(); }
+/**
+ * O mes corrente se REFAZ, nao se grava uma vez.
+ *
+ * O BUG (achado em 15/10/2026, porque ela viu a receita por canal de outubro
+ * maior que a da DRE). Isto chamava gravarReceitaPedidos, que RECUSA
+ * sobrescrever mes que ja existe - a recusa e certa para mes FECHADO, onde
+ * regravar apagaria historico conferido.
+ *
+ * Mas no mes CORRENTE a recusa congela o numero no dia em que alguem clicou
+ * primeiro. Outubro foi gravado cedo, com o que tinha vendido ate ali, e
+ * ficou parado enquanto a aba Vendas seguia crescendo. A tela de canais le a
+ * aba Vendas (viva) e a DRE le a _Receita_Pedidos (congelada) - dai a
+ * divergencia que ela viu.
+ *
+ * E e pior que nao ter gravado: numero velho e plausivel, ausencia e
+ * visivel. Mes sem linha nenhuma apareceria como zero e alguem perguntaria.
+ *
+ * O refazerReceitaMes substitui as linhas do mes e traz a trava de contagem
+ * de pedidos junto - que no mes corrente protege contra a aba Vendas vir
+ * vazia ou quebrada, ja que o numero de pedidos do mes so cresce.
+ */
 function gravarReceitaMesCorrente() {
-  return gravarReceitaPedidos(Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'yyyy-MM'));
+  return refazerReceitaMes(Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'yyyy-MM'));
+}
+
+/* ==========================================================================
+ * E O MES CORRENTE PASSA A SE ESCREVER SOZINHO.
+ *
+ * Esta e a TERCEIRA vez que a mesma lacuna morde: setembro (07/10, R$ 43 mil
+ * de diferenca), nov e dez/2025 (R$ 111.934 contando como zero) e agora
+ * outubro. Nos tres a causa foi a mesma - a _Receita_Pedidos so muda quando
+ * alguem lembra de clicar, e a DRE inteira depende dela.
+ *
+ * Lacuna que morde tres vezes nao se resolve lembrando melhor. O syncVendas
+ * ja roda de 2 em 2 horas e ja reconstroi a aba Vendas; escrever a receita do
+ * mes corrente logo depois custa segundos e garante que as duas nunca
+ * divirjam.
+ *
+ * SO O MES CORRENTE. Mes fechado continua protegido pela recusa do
+ * gravarReceitaPedidos - ali regravar sozinho apagaria numero conferido, que
+ * e o oposto do que se quer.
+ * ========================================================================== */
+function syncVendasEReceita() {
+  var n = syncVendas();
+  try {
+    /* Sem flag de silencio: o mostrarRelatorio_ ja cai pro Logger quando
+       nao ha tela (gatilho roda sem navegador). Parametro que promete um
+       comportamento que nao existe engana quem le a assinatura. */
+    refazerReceitaMes(Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'yyyy-MM'));
+  } catch (e) {
+    logSync_('syncVendasEReceita', 'erro', 'receita do mes corrente: ' + String(e));
+  }
+  return n;
 }
 
 /* ============================================================================
