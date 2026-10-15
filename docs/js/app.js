@@ -71,7 +71,7 @@ const MODO_PRECIF_ = new URLSearchParams(location.search).get('app') === 'precif
   if (!MODO_PRECIF_) return;
   document.title = 'Leve Sonho — Precificação';
   const man = document.querySelector('link[rel="manifest"]');
-  if (man) man.href = 'manifest-precificacao.json?v=20261015b';
+  if (man) man.href = 'manifest-precificacao.json?v=20261015c';
   const tit = document.querySelector('meta[name="apple-mobile-web-app-title"]');
   if (tit) tit.content = 'Preço LS';
   const h1Gate = document.querySelector('#loginGate h1');
@@ -1417,26 +1417,29 @@ function projecaoCaixa_(dias) {
   const hoje = startOfDay_(new Date());
   const limite = endOfDay_(addDays_(hoje, dias));
   let aReceber = 0, aPagar = 0, vencidoReceber = 0, vencidoPagar = 0;
+  /* Contagens junto dos valores (15/10/2026): ver AVISO_A_RECEBER_. */
+  let nReceber = 0, nPagar = 0, nVencidoReceber = 0, nVencidoPagar = 0;
   (FLUXO_ROWS || []).forEach(r => {
     if (!r.aberta) return;
     if (r.date < hoje) {
-      if (r.tipo === 'entrada') vencidoReceber += r.valor; else vencidoPagar += r.valor;
+      if (r.tipo === 'entrada') { vencidoReceber += r.valor; nVencidoReceber++; }
+      else { vencidoPagar += r.valor; nVencidoPagar++; }
       return;
     }
     if (r.date > limite) return;
-    if (r.tipo === 'entrada') aReceber += r.valor; else aPagar += r.valor;
+    if (r.tipo === 'entrada') { aReceber += r.valor; nReceber++; } else { aPagar += r.valor; nPagar++; }
   });
-  return { aReceber, aPagar, vencidoReceber, vencidoPagar, necessidade: aPagar - aReceber };
+  return { aReceber, aPagar, vencidoReceber, vencidoPagar, necessidade: aPagar - aReceber,
+           nReceber, nPagar, nVencidoReceber, nVencidoPagar };
 }
 
 /** 3) PMR: quantos dias, em media, o dinheiro leva pra chegar depois da venda. */
 function pmr_(rows) {
-  const aReceber = (FLUXO_ROWS || [])
-    .filter(r => r.aberta && r.tipo === 'entrada')
-    .reduce((s, r) => s + r.valor, 0);
+  const abertas = (FLUXO_ROWS || []).filter(r => r.aberta && r.tipo === 'entrada');
+  const aReceber = abertas.reduce((s, r) => s + r.valor, 0);
   const receita = totais_(rows).receitaBruta;
   const dias = Math.round((FILTER.end - FILTER.start) / 86400000) + 1;
-  return { aReceber, receita, pmr: receita ? (aReceber / receita) * dias : 0 };
+  return { aReceber, receita, pmr: receita ? (aReceber / receita) * dias : 0, nReceber: abertas.length };
 }
 
 /**
@@ -1660,6 +1663,20 @@ function pontoEquilibrio_() {
    sobreviver ao redesenho quando a pessoa troca a opcao. */
 const HOJE_F = { tipo: '' };
 
+/* A RECEBER EM INVESTIGACAO (15/10/2026). O Bling esta criando contas a
+   receber de Shopee e Mercado Livre sozinho - ~19 por dia, ~R$ 1.400/dia,
+   medido pelo Contas entre 07 e 14/10 - e a causa ainda nao e conhecida.
+   Toda tela que soma conta a receber EM ABERTO herda isso pra mais: o "a
+   receber", o "precisa nos 7 dias" (que sai MENOR do que e - o unico que
+   pode ser lido como "esta tranquilo") e o PMR. Nao ha criterio que separe
+   as suspeitas na tela (canal so sai do idOrigem), entao a defesa e mostrar
+   a CONTAGEM ao lado do valor e este aviso. Desligar (false) quando o Contas
+   resolver. Texto combinado com o DRE: a causa esta no Bling, nao no canal. */
+const AVISO_A_RECEBER_ = true;
+const TEXTO_AVISO_A_RECEBER_ = 'O a receber inclui contas de Shopee e Mercado Livre criadas automaticamente '
+  + 'no Bling, em investigação — por isso ele aparece maior do que é, e o que falta pagar, menor. '
+  + 'Veja a contagem ao lado de cada valor.';
+
 function renderHoje(el) {
   const p7 = projecaoCaixa_(7);
   const p15 = projecaoCaixa_(15);
@@ -1685,27 +1702,28 @@ function renderHoje(el) {
         <div class="kpi-value">${p7.necessidade > 0 ? fmtBRL(p7.necessidade) : fmtBRL(0)}</div>
         <div class="kpi-foot">${p7.necessidade > 0
           ? 'Sai mais do que entra na semana'
-          : 'A semana se paga sozinha'}</div>
+          : 'A semana se paga sozinha'}${AVISO_A_RECEBER_ ? ' <span style="color:#b26a00;">⚠ conta com o a receber inflado</span>' : ''}</div>
       </div>
       <div class="kpi">
         <div class="kpi-label">A pagar · 7 dias</div>
         <div class="kpi-value val-out">${fmtBRL(p7.aPagar)}</div>
-        <div class="kpi-foot">30 dias: ${fmtBRL(p30.aPagar)}</div>
+        <div class="kpi-foot">${p7.nPagar} conta(s) · 30 dias: ${fmtBRL(p30.aPagar)} (${p30.nPagar})</div>
       </div>
       <div class="kpi">
         <div class="kpi-label">A receber · 7 dias</div>
         <div class="kpi-value val-in">${fmtBRL(p7.aReceber)}</div>
-        <div class="kpi-foot">30 dias: ${fmtBRL(p30.aReceber)}</div>
+        <div class="kpi-foot">${p7.nReceber} conta(s) · 30 dias: ${fmtBRL(p30.aReceber)} (${p30.nReceber})${AVISO_A_RECEBER_ ? ' <span style="color:#b26a00;">⚠</span>' : ''}</div>
       </div>
       <div class="kpi ${atrasadas.length ? 'bad' : 'ok'}">
         <div class="kpi-label">Vencidas em aberto</div>
         <div class="kpi-value">${atrasadas.length}</div>
         <div class="kpi-foot">${atrasadas.length
-          ? fmtBRL(p7.vencidoPagar) + ' a pagar · ' + fmtBRL(p7.vencidoReceber) + ' a receber'
+          ? fmtBRL(p7.vencidoPagar) + ' a pagar (' + p7.nVencidoPagar + ') · ' + fmtBRL(p7.vencidoReceber) + ' a receber (' + p7.nVencidoReceber + ')'
           : 'Nada atrasado'}</div>
       </div>
     </div>
 
+    ${AVISO_A_RECEBER_ ? `<div class="alerta warn"><b>Atenção ao a receber.</b> ${TEXTO_AVISO_A_RECEBER_}</div>` : ''}
     ${p15.necessidade > 0 ? `<div class="alerta warn">Nos próximos 15 dias sai <b>${fmtBRL(p15.necessidade)}</b> a mais do que entra. Confira se o saldo em conta cobre.</div>` : ''}
 
     <div class="alerta info">
@@ -1980,7 +1998,8 @@ function renderKpis(el, rows) {
       <div class="kpi ${indPmr.pmr <= 15 ? 'ok' : 'warn'}">
         <div class="kpi-label">PMR — prazo de recebimento</div>
         <div class="kpi-value">${indPmr.pmr.toFixed(0)} dias</div>
-        <div class="kpi-foot">${fmtBRL(indPmr.aReceber)} vendidos e ainda não recebidos</div>
+        <div class="kpi-foot">${fmtBRL(indPmr.aReceber)} vendidos e ainda não recebidos (${indPmr.nReceber} contas)${AVISO_A_RECEBER_
+          ? '<br><span style="color:#b26a00;">⚠ inflado: ' + escapeHtml_(TEXTO_AVISO_A_RECEBER_.split(' — ')[0]) + '</span>' : ''}</div>
       </div>
       <div class="kpi ${eq.cobertura >= 1 ? 'ok' : (eq.cobertura >= 0.7 ? 'warn' : 'bad')}">
         <div class="kpi-label">Ponto de equilíbrio</div>
