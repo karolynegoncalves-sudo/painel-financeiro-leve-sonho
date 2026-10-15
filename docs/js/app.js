@@ -71,7 +71,7 @@ const MODO_PRECIF_ = new URLSearchParams(location.search).get('app') === 'precif
   if (!MODO_PRECIF_) return;
   document.title = 'Leve Sonho — Precificação';
   const man = document.querySelector('link[rel="manifest"]');
-  if (man) man.href = 'manifest-precificacao.json?v=20261015f';
+  if (man) man.href = 'manifest-precificacao.json?v=20261015g';
   const tit = document.querySelector('meta[name="apple-mobile-web-app-title"]');
   if (tit) tit.content = 'Preço LS';
   const h1Gate = document.querySelector('#loginGate h1');
@@ -1756,6 +1756,34 @@ function aReceberSujo_(chave, fallback) {
   return ymdLocal_(new Date()) >= String(desde).slice(0, 10);
 }
 
+/* MARCA de conta a receber suspeita (15/10/2026), criterio do Contas pelo
+   historico, 20/20 na amostra: legitima = TEM "Metodo de pagamento" e NAO TEM
+   "Pedidos Vinculados". So MARCA - nunca tira do total: legitima marcada como
+   fantasma sumiria dinheiro real do a receber, o erro do lado perigoso.
+   ATENCAO: a metade Shopee da regra e por AUSENCIA de campo. Se a integracao
+   passar a escrever o metodo, toda fantasma da Shopee vira "legitima" de uma
+   vez, sem erro nenhum - por isso contagem zero NAO apaga o aviso: vira
+   "nenhuma suspeita - se mudou de repente, conferir o filtro". */
+function contaReceberSuspeita_(r) {
+  if (!r || r.tipo !== 'entrada' || !ehRecebimento_(r.grupoDRE)) return false;
+  const h = String(r.descricao || '');
+  return !(/M[ée]todo de pagamento/i.test(h) && !/Pedidos Vinculados/i.test(h));
+}
+function avisoSuspeitas_() {
+  if (!AVISO_A_RECEBER_) return '';
+  const abertas = (FLUXO_ROWS || []).filter(r => r.aberta && r.tipo === 'entrada' && ehRecebimento_(r.grupoDRE));
+  if (!abertas.length) return '';
+  const susp = abertas.filter(contaReceberSuspeita_);
+  const v = susp.reduce((t, r) => t + r.valor, 0);
+  return susp.length
+    ? `<div class="alerta warn"><b>${susp.length} de ${abertas.length}</b> contas a receber de venda em aberto
+        (${fmtBRL(v, 2)}) parecem ter sido criadas automaticamente no Bling — marcadas com ⚠ nas listas abaixo.
+        Elas continuam somadas nos totais até o Contas confirmar.</div>`
+    : `<div class="alerta info">Nenhuma conta a receber suspeita encontrada entre ${abertas.length} em aberto.
+        Se isso mudou de repente sem ninguém ter resolvido a causa, conferir o filtro (a regra depende de um campo
+        que a Shopee hoje não escreve).</div>`;
+}
+
 function renderHoje(el) {
   const p7 = projecaoCaixa_(7);
   const p15 = projecaoCaixa_(15);
@@ -1804,6 +1832,7 @@ function renderHoje(el) {
     </div>
 
     ${AVISO_A_RECEBER_ ? `<div class="alerta warn"><b>Atenção ao a receber.</b> ${TEXTO_AVISO_A_RECEBER_}</div>` : ''}
+    ${avisoSuspeitas_()}
     ${p15.necessidade > 0 ? `<div class="alerta warn">Nos próximos 15 dias sai <b>${fmtBRL(p15.necessidade)}</b> a mais do que entra${aReceberSujo_('suja15d', SUJA_15D_DESDE_) ? ' (e o que entra pode estar inflado)' : ''}. Confira se o saldo em conta cobre.</div>` : ''}
 
     ${SALDOS !== null ? blocoSaldos_() : `<div class="alerta info">
@@ -1840,7 +1869,7 @@ function renderHoje(el) {
 
   const linhaConta = (r) => `<tr>
       <td>${fmtDataBR(r.date)}</td>
-      <td>${escapeHtml_(r.contato || '—')}</td>
+      <td>${escapeHtml_(r.contato || '—')}${AVISO_A_RECEBER_ && contaReceberSuspeita_(r) ? ' <span title="Pode ter sido criada automaticamente no Bling" style="color:#b26a00;">⚠ suspeita</span>' : ''}</td>
       <td>${escapeHtml_(r.categoria)}</td>
       <td class="num ${r.tipo === 'entrada' ? 'val-in' : 'val-out'}">${r.tipo === 'entrada' ? '' : '\u2212'}${fmtBRL(r.valor, 2)}</td>
     </tr>`;
