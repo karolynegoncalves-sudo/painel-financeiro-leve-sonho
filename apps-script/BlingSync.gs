@@ -2374,3 +2374,109 @@ function verProgressoZumbis() {
   L.push('em Configuracoes do projeto > Propriedades do script.');
   mostrarRelatorio_('Progresso zumbis', L);
 }
+
+/* ============================================================================
+ * GATILHO DA VARREDURA DE ZUMBIS - porque 66 cliques nao e resposta.
+ *
+ * A CONTA QUE MOTIVOU ISTO (15/10/2026). A varredura leva ~5 min por rodada,
+ * e nao por desenho: cada GET esta levando ~8 segundos porque o Bling devolve
+ * 429 e o fetchBlingStatus_ retenta com espera de 1,5 / 3 / 4,5 s. O Bling
+ * esta saturado pelas outras sessoes. Sao ~22 meses na aba, umas 3 rodadas por
+ * mes = ~66 cliques dela, cada um esperando 5 minutos. Cinco horas de relogio
+ * com ela clicando.
+ *
+ * Trabalho retomavel que leva horas nao se entrega como botao. Vira gatilho.
+ *
+ * SE DESINSTALA SOZINHO quando acaba. Gatilho que fica rodando pra sempre
+ * depois de terminar consome cota do Apps Script e, pior, ninguem lembra que
+ * ele existe - e um dia alguem debuga um 429 sem saber que tem um robo
+ * varrendo de 10 em 10 minutos.
+ * ========================================================================== */
+function instalarGatilhoZumbis() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'rodadaZumbisAutomatica') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('rodadaZumbisAutomatica').timeBased().everyMinutes(10).create();
+  mostrarRelatorio_('Zumbis automatico', [
+    'GATILHO INSTALADO: uma rodada a cada 10 minutos.',
+    '',
+    'Ele para sozinho quando todos os meses fecharem, e registra cada rodada',
+    'na aba ' + ABA_SYNC_LOG + ' pra dar pra acompanhar sem ficar olhando.',
+    '',
+    'Pra ver o andamento: "Zumbis: quais meses ja fecharam".',
+    'Pra parar antes: "Zumbis: PARAR o automatico".',
+    '',
+    'POR QUE 10 MINUTOS e nao 1: cada rodada gasta 5 min de chamada ao Bling,',
+    'e o limite de 3 req/s vale pra conta inteira, somando todas as conversas.',
+    'Rodar colado atrapalharia os outros chats e so geraria mais 429.'
+  ]);
+}
+
+function pararGatilhoZumbis() {
+  var n = 0;
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'rodadaZumbisAutomatica') { ScriptApp.deleteTrigger(t); n++; }
+  });
+  mostrarRelatorio_('Zumbis automatico', [
+    n ? 'PARADO. Removi ' + n + ' gatilho(s).' : 'Nao havia gatilho instalado.',
+    '',
+    'O progresso fica guardado - pode retomar no clique ou reinstalar o',
+    'gatilho quando quiser.'
+  ]);
+}
+
+/**
+ * O que o gatilho chama. Roda UMA rodada e se desinstala quando nao sobra mes.
+ *
+ * NAO CHAMA mostrarRelatorio_ DIRETO de proposito - gatilho roda sem
+ * navegador, e o getUi() nao existe la. O mostrarRelatorio_ ficou tolerante a
+ * isso (ver o try nele), mas eu nao quero depender disso aqui: quem precisa
+ * saber o que aconteceu numa execucao automatica e o LOG, nao um modal que
+ * ninguem vai ver.
+ */
+function rodadaZumbisAutomatica() {
+  var props = PropertiesService.getScriptProperties();
+  var feitos = {};
+  try { feitos = JSON.parse(props.getProperty(ZUMBI_PROGRESSO_) || '{}'); } catch (e) {}
+
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName(ABA_FLUXO_CAIXA);
+  if (!sh || sh.getLastRow() < 2) { logSync_('zumbisAuto', 'erro', 'aba vazia'); return; }
+
+  var tz = 'America/Sao_Paulo';
+  var meses = {};
+  sh.getRange(2, 1, sh.getLastRow() - 1, COLS_FLUXO_).getValues().forEach(function (l) {
+    var v = l[14] || l[0];
+    var m = v instanceof Date ? Utilities.formatDate(v, tz, 'yyyy-MM')
+                              : String(v || '').trim().slice(0, 7);
+    if (/^\d{4}-\d{2}$/.test(m)) meses[m] = 1;
+  });
+  var lista = Object.keys(meses).sort();
+  var faltando = lista.filter(function (m) { return !feitos[m]; });
+
+  if (!faltando.length) {
+    /* ACABOU: se desinstala. */
+    ScriptApp.getProjectTriggers().forEach(function (t) {
+      if (t.getHandlerFunction() === 'rodadaZumbisAutomatica') ScriptApp.deleteTrigger(t);
+    });
+    logSync_('zumbisAuto', 'ok', 'TERMINOU os ' + lista.length
+             + ' meses. Gatilho removido sozinho.');
+    return;
+  }
+
+  var alvo = faltando[0];
+  var fechou = false;
+  try {
+    fechou = procurarZumbis(alvo, alvo);
+  } catch (err) {
+    logSync_('zumbisAuto', 'erro', alvo + ': ' + String(err));
+    return;
+  }
+  if (fechou) {
+    feitos[alvo] = 1;
+    props.setProperty(ZUMBI_PROGRESSO_, JSON.stringify(feitos));
+  }
+  logSync_('zumbisAuto', fechou ? 'ok' : 'parcial',
+           alvo + (fechou ? ' FECHOU' : ' continua') + '. Faltam '
+           + (faltando.length - (fechou ? 1 : 0)) + ' mes(es).');
+}

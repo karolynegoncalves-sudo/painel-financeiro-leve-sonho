@@ -284,8 +284,17 @@ function mostrarRelatorio_(titulo, linhas) {
   Logger.log(txt);
   const html = '<pre style="font:12px/1.45 Menlo,Consolas,monospace;white-space:pre;'
              + 'overflow:auto;margin:0;">' + txt.replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</pre>';
-  SpreadsheetApp.getUi().showModalDialog(
-    HtmlService.createHtmlOutput(html).setWidth(900).setHeight(560), titulo);
+  /* TOLERANTE A NAO TER TELA. Gatilho de tempo roda sem navegador e o
+     getUi() nao existe la - sem este try, qualquer funcao que chame
+     mostrarRelatorio_ MORRE no meio quando rodar automatica, depois de ja
+     ter gastado as chamadas e gravado o progresso pela metade. O Logger
+     acima ja guardou o texto. */
+  try {
+    SpreadsheetApp.getUi().showModalDialog(
+      HtmlService.createHtmlOutput(html).setWidth(900).setHeight(560), titulo);
+  } catch (e) {
+    Logger.log('(sem interface - rodando por gatilho; relatorio so no log)');
+  }
 }
 
 function conferirReceitaPedidos() {

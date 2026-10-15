@@ -287,6 +287,9 @@ function onOpen() {
     .addItem('Zumbis: contas que sumiram do Bling (julho)', 'procurarZumbisJulho')
     .addItem('Zumbis: varrer TODOS os meses (repetir ate fechar)', 'procurarZumbisTodos')
     .addItem('Zumbis: quais meses ja fecharam', 'verProgressoZumbis')
+    /* ~22 meses x ~3 rodadas de 5 min = ~66 cliques. Vira gatilho. */
+    .addItem('Zumbis: RODAR SOZINHO de 10 em 10 min', 'instalarGatilhoZumbis')
+    .addItem('Zumbis: PARAR o automatico', 'pararGatilhoZumbis')
     /* A unica linha de Despesas Variaveis sem lastro no Bling. Reconfirma o
        404 antes de apagar e guarda o retrato na _Zumbis. */
     .addItem('Zumbis: REMOVER o acerto de julho (2.784,46)', 'removerAcertoJulho')
