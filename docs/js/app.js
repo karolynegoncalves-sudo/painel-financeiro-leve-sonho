@@ -71,7 +71,7 @@ const MODO_PRECIF_ = new URLSearchParams(location.search).get('app') === 'precif
   if (!MODO_PRECIF_) return;
   document.title = 'Leve Sonho — Precificação';
   const man = document.querySelector('link[rel="manifest"]');
-  if (man) man.href = 'manifest-precificacao.json?v=20261015c';
+  if (man) man.href = 'manifest-precificacao.json?v=20261015d';
   const tit = document.querySelector('meta[name="apple-mobile-web-app-title"]');
   if (tit) tit.content = 'Preço LS';
   const h1Gate = document.querySelector('#loginGate h1');
@@ -447,6 +447,10 @@ function aplicarLogin_(data, chave0) {
      24/08/2026: buscar as 24 linhas delas numa chamada separada custava
      2,26s - quase tudo pedagio do Web App, nao leitura. */
   precifDespesasFixas = data.despesas || [];
+  /* Saldos conferidos pelo Caixa (15/10/2026). undefined = backend antigo,
+     sem o campo; [] + saldosErro = arquivo ausente ou ilegivel. */
+  SALDOS = Array.isArray(data.saldos) ? data.saldos : null;
+  SALDOS_ERRO = data.saldosErro || null;
   DRE_FONTES = (data.dreFontes && data.dreFontes.receita)
     ? data.dreFontes : { receita: [], cmv: [] };
   /* Que versao do Apps Script respondeu. Salvar o codigo nao publica: o Web App
@@ -1663,6 +1667,58 @@ function pontoEquilibrio_() {
    sobreviver ao redesenho quando a pessoa troca a opcao. */
 const HOJE_F = { tipo: '' };
 
+/* SALDO POR CONTA (15/10/2026). O numero e do Caixa, conferido contra
+   extrato/export/API e gravado em saldos_conferidos.csv; o DRE o poe no
+   pacote do fluxoCaixa. Regras combinadas com os dois:
+   - cada conta com o SEU "conferido ate" - nunca um carimbo geral;
+   - bancos e carteiras de canal SEPARADOS, sem total geral: carteira e dinheiro
+     que ainda vai cair, somar com banco da um numero que nao se pode gastar;
+   - conta que movimenta todo dia e esta mais de 1 dia sem conferir fica
+     amarela: data sozinha nao grita (foram 5 dias sem fecho em 08-13/10, e
+     um furo de R$ 2.980 passou nesse intervalo);
+   - sem projecao saldo + a receber - a pagar: o a receber esta inflado (ver
+     AVISO_A_RECEBER_). */
+let SALDOS = null;
+let SALDOS_ERRO = null;
+
+function blocoSaldos_() {
+  if (SALDOS === null) return '';   // backend sem o campo: nao promete nada
+  const F = (v) => fmtBRL(v, 2);
+  if (!SALDOS.length) {
+    return `<div class="alerta warn"><b>Saldos indisponíveis agora.</b> ${escapeHtml_(SALDOS_ERRO || 'O arquivo de saldos do Caixa não foi encontrado.')}</div>`;
+  }
+  const hoje = startOfDay_(new Date());
+  const linha = function (c) {
+    const dt = /^\d{4}-\d{2}-\d{2}$/.test(String(c.conferidoAte || '')) ? new Date(c.conferidoAte + 'T00:00:00') : null;
+    const dias = dt ? Math.round((hoje - dt) / 864e5) : null;
+    const diaria = String(c.movimentaDiario || '').toUpperCase() === 'S';
+    const velho = dt === null || (diaria && dias > 1);
+    const quando = dt === null ? 'sem data de conferência'
+      : 'conferido até ' + fmtDataBR(dt) + (dias > 0 ? ' · há ' + dias + ' dia' + (dias > 1 ? 's' : '') : ' · hoje');
+    return `<tr class="${velho ? 'saldo-velho' : ''}"><td>${escapeHtml_(c.conta)}
+        <small>${escapeHtml_(c.origem || '')}</small></td>
+      <td class="num">${F(Number(c.saldo) || 0)}</td>
+      <td class="saldo-quando">${velho ? '⚠ ' : ''}${quando}</td></tr>`;
+  };
+  const grupo = function (tipo, titulo, nota) {
+    const cs = SALDOS.filter(c => String(c.tipo || '').toLowerCase() === tipo);
+    if (!cs.length) return '';
+    const sub = cs.reduce((t, c) => t + (Number(c.saldo) || 0), 0);
+    return `<div class="saldo-grupo"><h4>${titulo} <small>${nota}</small></h4>
+      <table class="simple">${cs.map(linha).join('')}
+      <tr class="dre-subtotal"><th>Subtotal</th><th class="num">${F(sub)}</th><th></th></tr></table></div>`;
+  };
+  return `<div class="panel saldos">
+    <h3>Saldo das contas</h3>
+    <div class="sub">Conferido pelo Caixa contra extrato do banco, export ou API — cada conta com a sua data. Amarelo: conta que mexe todo dia e está há mais de 1 dia sem conferir.</div>
+    ${SALDOS_ERRO ? `<div class="alerta warn">${escapeHtml_(SALDOS_ERRO)}</div>` : ''}
+    <div class="grid-2">
+      ${grupo('banco', 'Bancos', 'dinheiro disponível')}
+      ${grupo('carteira', 'Carteiras dos canais', 'ainda vai cair no banco — não somar com os bancos')}
+    </div>
+  </div>`;
+}
+
 /* A RECEBER EM INVESTIGACAO (15/10/2026). O Bling esta criando contas a
    receber de Shopee e Mercado Livre sozinho - ~19 por dia, ~R$ 1.400/dia,
    medido pelo Contas entre 07 e 14/10 - e a causa ainda nao e conhecida.
@@ -1726,12 +1782,12 @@ function renderHoje(el) {
     ${AVISO_A_RECEBER_ ? `<div class="alerta warn"><b>Atenção ao a receber.</b> ${TEXTO_AVISO_A_RECEBER_}</div>` : ''}
     ${p15.necessidade > 0 ? `<div class="alerta warn">Nos próximos 15 dias sai <b>${fmtBRL(p15.necessidade)}</b> a mais do que entra. Confira se o saldo em conta cobre.</div>` : ''}
 
-    <div class="alerta info">
+    ${SALDOS !== null ? blocoSaldos_() : `<div class="alerta info">
       <b>O saldo em conta não aparece aqui de propósito.</b> A API do Bling não expõe os lançamentos
       avulsos do Caixas e Bancos, então qualquer saldo que eu calculasse viria errado — e errado pra
       mais. Os valores acima saem do vencimento das contas, que é informação confiável.
       Pra ver saldo, use o Caixas e Bancos do Bling.
-    </div>
+    </div>`}
 
     <div class="tbl-filtros" style="margin-bottom:12px;">
       <select id="hjTipo">
@@ -2305,6 +2361,7 @@ function renderFluxoCaixa(el, rows) {
     </div>
     ${renderFiltroBar_()}
     ${avisoJanela_()}
+    ${blocoSaldos_()}
     ${!rows.length ? '<div class="state-msg">Sem lançamentos nesse período.</div>' : `
     <div class="grid-2">
       <div class="panel">
