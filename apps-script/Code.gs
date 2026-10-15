@@ -23,7 +23,7 @@
  * TROQUE ESTA STRING quando mexer no que o doGet devolve. O painel mostra o
  * valor e avisa em vermelho quando nao encontra a marca que ele espera.
  */
-const BACKEND_VERSAO_ = '2026-10-07 leitura-unica';
+const BACKEND_VERSAO_ = '2026-10-15 saldos';
 
 function doGet(e) {
   const params = (e && e.parameter) || {};
@@ -79,8 +79,15 @@ function doGet(e) {
          ja ter rodado acima - duas leituras da mesma aba por requisicao, o
          tempo todo. Apareceu so porque eu precisei da variavel pra cronometrar:
          medir achou o desperdicio antes de medir qualquer coisa. */
+      /* SALDOS no mesmo pacote, pelo motivo de sempre: cada chamada ao Web
+         App custa ~2s de pedagio fixo. Le um CSV pequeno da pasta da
+         planilha; se nao existir, devolve [] e o motivo em saldosErro, pra
+         tela dizer "indisponivel" e NUNCA mostrar zero. Zero e um numero, e
+         numero errado sobre dinheiro em conta e pior que a ausencia dele. */
+      const sal_ = getSaldosConferidos_();
       return jsonResponse_({ email: email, rows: r, despesas: despesasFixas_,
                              dreFontes: fontes,
+                             saldos: sal_.saldos, saldosErro: sal_.saldosErro,
                              backend: diag + ' | janela=' + r.desde
                                       + ' ' + (r.rows || []).length + '/' + r.total
                                       + ' (li ' + (r.lidas || 0) + ', '
@@ -293,6 +300,9 @@ function onOpen() {
     /* Provisao clonada pro futuro: nao toca a DRE, mas suja a DFC e a
        projecao com valor que ja se sabe errado. So le. */
     .addItem('Series clonadas (provisao) nos proximos 24 meses', 'seriesClonadas24m')
+    /* Diz a pasta exata onde o Caixa grava o saldos_conferidos.csv - o
+       caminho se descobre sozinho, ninguem digita id de pasta. */
+    .addItem('Saldos: onde o Caixa deve gravar o CSV', 'ondeGravarSaldos')
     /* A unica linha de Despesas Variaveis sem lastro no Bling. Reconfirma o
        404 antes de apagar e guarda o retrato na _Zumbis. */
     .addItem('Zumbis: REMOVER o acerto de julho (2.784,46)', 'removerAcertoJulho')
@@ -1133,4 +1143,142 @@ function limparCachePrecificacao_() {
 function _rodarLimparCachePrecificacao() {
   limparCachePrecificacao_();
   Logger.log('Cache da precificação limpo. A próxima abertura lê a planilha de novo.');
+}
+
+/* ============================================================================
+ * SALDOS CONFERIDOS - lidos de um CSV que o Caixa grava.
+ *
+ * POR QUE EXISTE. A API do Bling nao expoe Caixas e Bancos, entao o painel
+ * nunca mostrou saldo de conta - a aba Hoje diz isso de proposito. A Karol
+ * pediu o saldo em 15/10. O caminho combinado: o Caixa grava o que ele JA
+ * confere em cada fecho, o painel so le e mostra com a data ao lado.
+ *
+ * A PASTA SE ACHA SOZINHA. Nao tem id de pasta no codigo nem caminho
+ * digitado: o CSV mora na MESMA pasta da planilha, e o script descobre qual e
+ * pelo proprio arquivo. Caminho hardcoded quebra quando alguem move a pasta,
+ * e quebra em silencio - o leitor devolve "nao encontrei" e parece que o
+ * Caixa nao gravou. Pra ninguem precisar adivinhar, o ondeGravarSaldos()
+ * imprime o nome, o id e o link da pasta.
+ *
+ * SALDO VELHO NAO PODE PARECER SALDO NOVO. Por isso `conferidoAte` vem por
+ * CONTA e nao um carimbo geral: Sicoob conferido hoje e Nubank de tres dias
+ * atras nao podem ser somados sem distincao - e vao querer somar, porque
+ * somar e o natural.
+ *
+ * E ARQUIVO AUSENTE NAO VIRA ZERO. Devolve lista vazia mais `saldosErro` com
+ * o motivo, pra tela dizer "indisponivel". Zero e um numero, e um numero
+ * errado sobre dinheiro em conta e pior que a ausencia dele.
+ * ========================================================================== */
+const ARQ_SALDOS_ = 'saldos_conferidos.csv';
+
+/** A pasta da planilha. E onde o CSV tem que estar. */
+function _pastaDoPainel_() {
+  const arq = DriveApp.getFileById(SpreadsheetApp.getActiveSpreadsheet().getId());
+  const pais = arq.getParents();
+  return pais.hasNext() ? pais.next() : null;
+}
+
+/** Menu: diz exatamente onde gravar, pra ninguem adivinhar caminho. */
+function ondeGravarSaldos() {
+  const p = _pastaDoPainel_();
+  if (!p) {
+    mostrarRelatorio_('Saldos', ['Nao consegui achar a pasta da planilha.']);
+    return;
+  }
+  mostrarRelatorio_('Onde gravar os saldos', [
+    'O CSV tem que se chamar exatamente:',
+    '    ' + ARQ_SALDOS_,
+    '',
+    'e ficar nesta pasta:',
+    '    nome: ' + p.getName(),
+    '    id ..: ' + p.getId(),
+    '    link: ' + p.getUrl(),
+    '',
+    'CABECALHO (separador ponto e virgula):',
+    '    conta;tipo;saldo;conferido_ate;origem;movimenta_diario;gravado_em',
+    '',
+    'tipo ............: banco ou carteira',
+    'saldo ...........: aceita 1234.56 ou 1.234,56',
+    'conferido_ate ...: AAAA-MM-DD, POR CONTA (nao um carimbo geral)',
+    'movimenta_diario : S ou N',
+    '',
+    'O arquivo e reescrito inteiro a cada fecho. Se ele nao existir, o painel',
+    'mostra "saldos indisponiveis" - nunca zero.'
+  ]);
+}
+
+/**
+ * Le o CSV. Devolve { saldos: [...], saldosErro: string|null }.
+ * Nunca lanca: erro de leitura vira saldosErro, porque isto roda dentro do
+ * pacote do login e nao pode derrubar a tela inteira por causa de um CSV.
+ */
+function getSaldosConferidos_() {
+  try {
+    const pasta = _pastaDoPainel_();
+    if (!pasta) return { saldos: [], saldosErro: 'nao achei a pasta da planilha' };
+
+    const it = pasta.getFilesByName(ARQ_SALDOS_);
+    if (!it.hasNext()) {
+      return { saldos: [], saldosErro: 'arquivo ' + ARQ_SALDOS_ + ' nao encontrado em "'
+               + pasta.getName() + '"' };
+    }
+    const arq = it.next();
+    const txt = arq.getBlob().getDataAsString('UTF-8');
+    const linhas = txt.split(/\r?\n/).filter(function (l) { return l.trim() !== ''; });
+    if (linhas.length < 2) {
+      return { saldos: [], saldosErro: ARQ_SALDOS_ + ' esta vazio ou so tem cabecalho' };
+    }
+
+    const cab = linhas[0].split(';').map(function (c) { return c.trim().toLowerCase(); });
+    const col = function (nome) { return cab.indexOf(nome); };
+    const iConta = col('conta'), iSaldo = col('saldo'), iAte = col('conferido_ate');
+    if (iConta < 0 || iSaldo < 0 || iAte < 0) {
+      return { saldos: [], saldosErro: 'cabecalho sem conta/saldo/conferido_ate. Veio: ' + cab.join(';') };
+    }
+    const iTipo = col('tipo'), iOrig = col('origem'),
+          iMov = col('movimenta_diario'), iGrav = col('gravado_em');
+
+    /* NUMERO BRASILEIRO E AMERICANO NO MESMO ARQUIVO. "1.234,56" e "1234.56"
+       sao os dois plausiveis dependendo de quem exportou, e trocar um pelo
+       outro muda o saldo por mil. Decide pela ULTIMA pontuacao: se a virgula
+       vier depois do ponto, ela e o decimal. */
+    const num = function (t) {
+      var s = String(t || '').trim().replace(/[R$\s]/g, '');
+      if (!s) return 0;
+      var ultVirg = s.lastIndexOf(','), ultPonto = s.lastIndexOf('.');
+      if (ultVirg > ultPonto) s = s.replace(/\./g, '').replace(',', '.');
+      else s = s.replace(/,/g, '');
+      var v = Number(s);
+      return isNaN(v) ? 0 : v;
+    };
+
+    const saldos = [];
+    const ruins = [];
+    for (var i = 1; i < linhas.length; i++) {
+      const c = linhas[i].split(';');
+      const nome = String(c[iConta] || '').trim();
+      if (!nome) continue;
+      const ate = String(c[iAte] || '').trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(ate)) ruins.push(nome + ' (conferido_ate "' + ate + '")');
+      saldos.push({
+        conta: nome,
+        tipo: iTipo >= 0 ? String(c[iTipo] || '').trim() : '',
+        saldo: num(c[iSaldo]),
+        conferidoAte: ate,
+        origem: iOrig >= 0 ? String(c[iOrig] || '').trim() : '',
+        movimentaDiario: iMov >= 0 ? String(c[iMov] || '').trim().toUpperCase() === 'S' : null,
+        gravadoEm: iGrav >= 0 ? String(c[iGrav] || '').trim() : ''
+      });
+    }
+
+    /* Data invalida NAO vira saldo silencioso: sem a data, a tela nao tem como
+       avisar que o numero e velho, e saldo velho sem aviso e o erro que este
+       campo inteiro existe pra evitar. */
+    if (ruins.length) {
+      return { saldos: saldos, saldosErro: 'conferido_ate invalido em: ' + ruins.join(', ') };
+    }
+    return { saldos: saldos, saldosErro: null };
+  } catch (e) {
+    return { saldos: [], saldosErro: 'erro lendo ' + ARQ_SALDOS_ + ': ' + String(e) };
+  }
 }
