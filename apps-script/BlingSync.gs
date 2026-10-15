@@ -2106,7 +2106,14 @@ function procurarZumbis(de, ate) {
     shZ.getRange(2, 1, shZ.getLastRow() - 1, 9).getValues().forEach(function (z) {
       if (!z[1]) return;
       var st = String(z[8] || 'zumbi');
-      if (st === 'vivo' || st === 'removido') return;   // descarte e remocao nao somam
+      /* Reconhece a remocao pela DESCRICAO tambem, nao so pelo status.
+         A linha gravada em 14/10, antes de eu preencher o status, ficou com
+         status vazio - que o acumulado le como 'zumbi'. Consertar so o codigo
+         de escrita deixaria esse registro contando em dobro pra sempre, e
+         pedir pra ela editar a planilha na mao seria transferir o meu erro.
+         A descricao ja marca 'REMOVIDO DA ABA' desde o primeiro dia. */
+      var ehRemocao = String(z[6] || '').indexOf('REMOVIDO DA ABA') === 0;
+      if (st === 'vivo' || st === 'removido' || ehRemocao) return;
       totN++;
       var v = Math.abs(Number(z[3]) || 0);
       totV += v;
