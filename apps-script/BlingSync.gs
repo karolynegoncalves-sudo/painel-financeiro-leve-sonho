@@ -199,31 +199,19 @@ var DAS_POR_COMPETENCIA_ = {
   // porque o dia 20 caiu num domingo - ou seja, nao foi gerada em atraso e o
   // total NAO tem juros de mora (ao contrario de julho).
   '2026-08': 3993.05,
-  /* setembro: ESTIMADO, com a receita JA CORRIGIDA de 07/10 (o mes estava
-     pela metade na _Receita_Pedidos ate hoje).
+  /* setembro: GUIA, R$ 4.498,72, vencimento 20/10/2026, passada pelo Contas
+     em 15/10. Competencia 09 e vencimento 20/10 = guia no prazo, entao e
+     principal puro, sem mora. CONFERIR no PDF mesmo assim (Drive > Impostos >
+     Simples Nacional > 2026 > 09 Setembro): se houver linha de multa ou
+     juros, aquela parte vai pra JUROS_MORA_IMPOSTO_ e nao aqui.
 
-        67.554,29 - 9.623,69 (site) = 57.930,60  x  7,76%  =  4.496,75
-
-     OS 7,76% SAO A RAZAO AGREGADA, e isso importa: e a soma das oito guias
-     dividida pela soma das oito bases, nao a aliquota de um mes. Eu cheguei a
-     gravar aqui 4.639,31, estimado pelos 8,01% que a guia de agosto deu
-     sozinha, dizendo que a aliquota tinha subido. Estava errado.
-
-     A serie jan-ago na base do painel e: 5,83 | 7,04 | 8,01 | 7,76 | 8,86 |
-     7,65 | 8,92 | 8,01. Tres pontos de amplitude. A aliquota do Simples
-     SOBE DEVAGAR com o RBT12 e nao consegue pular de 8,86 pra 7,65 pra 8,92
-     em tres meses - entao o que balanca nao e a aliquota, e a minha BASE.
-
-     De onde vem o balanco: a base declarada e por NOTA EMITIDA e a minha e
-     por DATA DO PEDIDO. Pedido que vira nota no mes seguinte sai de um mes e
-     entra no outro. Medindo contra uma aliquota plana de 7,8%, o erro da
-     base vai de +12.200 (jan) a -7.133 (jul) e soma so +2.063 em oito meses:
-     erra para os dois lados e quase zera no agregado. Por isso a razao
-     agregada presta e o mes solto nao presta.
-
-     A estimativa de setembro carrega +-R$ 250 de incerteza por causa disso.
-     Nao vale continuar calibrando: a guia sai dia 20/10 e troca o numero. */
-  '2026-09': 4496.75
+     A ESTIMATIVA ACERTOU POR R$ 1,97. Eu tinha 4.496,75, calculado pela razao
+     AGREGADA de 7,76% sobre 57.930,60 de base. Vale registrar porque em 07/10
+     eu quase gravei 4.639,31, estimado pelos 8,01% que a guia de agosto deu
+     SOZINHA - esse teria errado R$ 140,59. A agregada errou 0,04%, a de um
+     mes erraria 3,1%. A regra "nunca estimar um mes pela aliquota do mes
+     anterior" nao e cautela: e 70x mais precisa. */
+  '2026-09': 4498.72
 };
 
 /* ----------------------------------------------------------------------------
@@ -470,9 +458,9 @@ function verImpostoEstimado() {
   L.push('de guia ....: R$ ' + tg.toFixed(2));
   L.push('estimado ...: R$ ' + te.toFixed(2));
   L.push('');
-  L.push('A ESTIMATIVA e 7,76% sobre a receita do painel MENOS a venda do site,');
-  L.push('que nao entra na base declarada. A aliquota foi medida nas seis guias');
-  L.push('de 2026 e a razao AGREGADA, nao a de um mes - ver o conferirImposto.');
+  L.push('A ESTIMATIVA e a razao AGREGADA (hoje 7,76%) sobre a receita do painel');
+  L.push('MENOS a venda do site, que nao entra na base declarada. Em setembro essa');
+  L.push('formula errou R$ 1,97 em R$ 4.498,72 - ver o conferirImposto.');
   L.push('');
   L.push('Trocar pela guia assim que o boleto sair: o numero estimado acerta a');
   L.push('ordem de grandeza e nao acerta o centavo - em julho a minha');
@@ -498,7 +486,9 @@ var JUROS_MORA_IMPOSTO_ = {
  *  verImpostoEstimado e no conferirImposto. ESTE e o unico mapa - nao criar
  *  outro em lugar nenhum (ver o comentario la em cima, perto do
  *  DAS_POR_COMPETENCIA_). */
-var DAS_ESTIMADO_ = { '2026-09': 1 };   // agosto saiu daqui em 07/10: a guia chegou
+/* VAZIO em 15/10/2026: setembro era o ultimo estimado e a guia chegou.
+   Quando outubro entrar sem guia, poe '2026-10': 1 aqui. */
+var DAS_ESTIMADO_ = {};
 
 const JANELA_SYNC_DESDE = '2025-01-01';
 
