@@ -316,6 +316,7 @@ function onOpen() {
     /* Variacao nao se ve num mes so: categorias nas linhas, meses nas
        colunas, ordenado pela amplitude. So le. */
     .addItem('Pessoal: comparar abr a jul por categoria', 'pessoalAbrJul')
+    .addItem('Administrativas: comparar jan a jul por categoria', 'administrativasJanJul')
     .addItem('Servicos de terceiros jan-abr (quem recebeu)', 'terceirosJanAbr')
     .addItem('Servicos de terceiros jan-AGO (quem recebeu)', 'terceirosJanAgo')
     /* RESINCRONIZAR A RECLASSIFICACAO FEITA NO BLING (04/10/2026).

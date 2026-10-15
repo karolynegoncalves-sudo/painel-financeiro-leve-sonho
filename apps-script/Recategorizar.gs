@@ -2278,9 +2278,14 @@ function compararGrupoDre(grupo, de, ate) {
   }
 
   const pad = function (x, n) { return (new Array(n + 1).join(' ') + x).slice(-n); };
-  var cab = pad('categoria', 32);
-  ms.forEach(function (m) { cab += pad(m.slice(2), 12); });
-  cab += pad('variacao', 12);
+  /* Com 7 meses, coluna de 12 estoura a largura do modal e a tabela vira
+     sopa. Estreita quando o periodo e longo - tabela que nao cabe na tela
+     nao e tabela. */
+  const LC = ms.length > 5 ? 10 : 12;
+  const LN = ms.length > 5 ? 28 : 32;
+  var cab = pad('categoria', LN);
+  ms.forEach(function (m) { cab += pad(m.slice(2), LC); });
+  cab += pad('variacao', LC);
   L.push(cab);
   L.push(new Array(cab.length + 1).join('-'));
 
@@ -2295,22 +2300,22 @@ function compararGrupoDre(grupo, de, ate) {
 
   const totMes = {};
   cats.forEach(function (c) {
-    var linha = pad(c.slice(0, 31), 32);
+    var linha = pad(c.slice(0, LN - 1), LN);
     var vals = [];
     ms.forEach(function (m) {
       var o = porCat[c][m] || { v: 0, n: 0 };
       vals.push(o.v);
       totMes[m] = (totMes[m] || 0) + o.v;
-      linha += pad(o.v ? o.v.toFixed(0) + '/' + o.n : '-', 12);
+      linha += pad(o.v ? o.v.toFixed(0) + '/' + o.n : '-', LC);
     });
     var amp = Math.max.apply(null, vals) - Math.min.apply(null, vals);
-    linha += pad(amp ? '+' + amp.toFixed(0) : '-', 12);
+    linha += pad(amp ? '+' + amp.toFixed(0) : '-', LC);
     L.push(linha);
   });
 
   L.push(new Array(cab.length + 1).join('-'));
-  var lt = pad('TOTAL', 32);
-  ms.forEach(function (m) { lt += pad((totMes[m] || 0).toFixed(0), 12); });
+  var lt = pad('TOTAL', LN);
+  ms.forEach(function (m) { lt += pad((totMes[m] || 0).toFixed(0), LC); });
   L.push(lt);
   L.push('');
   L.push('(valor/quantidade de lancamentos. A coluna "variacao" e a amplitude');
@@ -2334,4 +2339,11 @@ function compararGrupoDre(grupo, de, ate) {
 
 function pessoalAbrJul() {
   return compararGrupoDre('Despesas com Pessoal', '2026-04', '2026-07');
+}
+
+/* Jan a jul, e nao mai a jun, de proposito: ela disse que maio e junho
+   "discrepam dos demais", entao os DEMAIS precisam estar na tela. Comparacao
+   sem a linha de base nao mostra discrepancia nenhuma - mostra dois numeros. */
+function administrativasJanJul() {
+  return compararGrupoDre('Despesas Administrativas', '2026-01', '2026-07');
 }
