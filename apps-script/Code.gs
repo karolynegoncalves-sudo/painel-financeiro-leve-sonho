@@ -235,164 +235,110 @@ function seedDespesasFixasReais_() {
 }
 
 function onOpen() {
+  /* MENU EM TRES NIVEIS, reorganizado em 15/10/2026 a pedido dela: "ja tem
+   * varias que nao usamos mais... organizar essa lista e deixar em cima as
+   * que ainda nao rodamos".
+   *
+   * Eram 58 itens numa lista plana, misturando o que ela precisa clicar HOJE
+   * com diagnostico de uma vez so de tres semanas atras. Num menu assim o
+   * custo nao e o tamanho - e ela ter que LER 58 linhas pra achar uma.
+   *
+   * NADA FOI APAGADO. O que ja rodou foi pro submenu "Ja rodados", porque
+   * funcao de medicao antiga e o que permite refazer a conta quando alguem
+   * duvida do numero - e esta semana inteira foi feita disso. O que sai do
+   * topo e a ATENCAO dela, nao a ferramenta.
+   *
+   * COMO MANTER: quando um item do topo for concluido, mover pra "Ja
+   * rodados". Quando surgir pendencia nova, ela entra no topo numerada. O
+   * topo e a lista de trabalho, nao um indice. */
   const ui = SpreadsheetApp.getUi();
   ui.createMenu('Painel Financeiro')
-    .addItem('Sincronizar Bling agora', 'syncBling')
-    .addItem('Instalar sincronização automática (2h)', 'criarGatilhoSync')
+
+    /* ---- O QUE FALTA FAZER. Numerado na ordem que faz sentido rodar. ---- */
+    .addItem('1. Cofre 2025: congelar dezembro', 'congelarVendas2025Dez')
+    .addItem('2. CMV de dezembro/2025 (repetir ate fechar)', 'gerarCmvDez25')
+    .addItem('3. CMV de novembro/2025 (repetir ate fechar)', 'gerarCmvNov25')
+    .addItem('4. Zumbis: marcar pela LISTA DE IDS do Caixa', 'marcarZumbisPorIds')
+    .addItem('5. Quais pecas estao sem ficha (agosto)', 'semFichaAgosto')
+    .addItem('6. Series clonadas (provisao) - so le', 'seriesClonadas24m')
+    .addItem('7. Saldos: onde o Caixa deve gravar o CSV', 'ondeGravarSaldos')
     .addSeparator()
-    /* MANUTENCAO DA DRE, no menu e nao so no seletor do editor.
-       As tres sao de rodar em sequencia e MAIS DE UMA VEZ - a fila de
-       categoria para sozinha aos 4,5 min e continua de onde parou. O seletor
-       de funcao do editor reverte para a escolha anterior entre execucoes, o
-       que faz rodar a funcao errada sem perceber; pelo menu da planilha cada
-       uma e um clique. */
-    .addItem('Buscar categoria das contas novas (repetir ate restar 0)',
-             '_rodarReprocessarSemCategoria')
-    .addItem('Manutencao da DRE (mapa + pendencias + recalculo)', 'manutencaoDre')
-    .addItem('O que ainda esta (sem mapear)', 'semMapearAno')
-    /* Mede se o Utilities.formatDate e o gargalo do login (hipotese da sessao
-       Jobs) E se o getter nativo da o mesmo texto. So leitura; a troca so
-       acontece se as divergencias derem ZERO. */
-    .addItem('Medir: formatDate x getter nativo (login lento)', 'conferirFormatDate')
-    /* Conta apagada no Bling que ficou na planilha. O syncBling nao alcanca:
-       ele so reconfere conta EM ABERTO, e devolucao entra baixada. */
-    .addItem('Limpar devolucoes apagadas no Bling (ago-set)',
-             '_rodarLimparDeducoesFantasma')
-    /* A DRE de um mes aberta por categoria, em texto. E a gaveta da tela sem
-       depender de cache, de implantacao nem de navegador. */
-    .addItem('Abrir abril/2026 por categoria', 'detalharAbril')
-    .addItem('Abrir janeiro/2026 por categoria', 'detalharJaneiro')
-    .addItem('Abrir agosto/2026 por categoria', 'detalharAgosto')
-    .addSeparator()
-    /* A investigacao da faccao: onde o CMV existe, e quem recebeu como
-       "Servicos de terceiros" antes de a categoria propria existir. */
-    /* A receita da DRE vem de _Receita_Pedidos, e ate 06/10/2026 ninguem
-       escrevia essa aba - ela parava no ultimo mes que alguem calculou a mao.
-       CONFERIR PRIMEIRO: o calculo tem que reproduzir os meses que ja estao
-       la antes de alguem confiar nele no mes novo. */
-    .addItem('Receita: conferir calculo x o que ja esta na aba', '_rodarConferirReceita')
-    .addItem('Tecidos do site: gravar preco por metro', 'gravarTecidosDoSite')
-    .addItem('Rendimento: o que ja esta medido (metros por peca)', 'verRendimento')
-    .addItem('Saquinho: ver as duas pontas do custo', 'verSaquinho')
-    .addItem('Producao: quem decide o tecido de cada peca', 'verProducao')
-    .addItem('Saquinho: CORRIGIR as duas (0,170 m e costura 1,00)', 'corrigirSaquinho')
-    .addItem('Receita: REFRESCAR o mes corrente', 'gravarReceitaMesCorrente')
-    /* Setembro foi preenchido a mao no meio do mes: R$ 24.534,07 na aba contra
-       R$ 67.554,29 calculado. Porta separada de proposito - o gravar normal
-       recusa sobrescrever, e deve continuar recusando. */
-    .addItem('Receita: REFAZER setembro/2026 (estava pela metade)', 'refazerReceitaSetembro')
-    .addItem('Imposto: a aliquota ainda vale?', 'conferirImposto')
-    /* O item acima chamava "(rodar dia 20)" e dependia de alguem lembrar.
-       Agora tem gatilho: instalar uma vez e ele manda o relatorio por e-mail
-       todo dia 20. Rodar de novo nao duplica. */
-    .addItem('Imposto: INSTALAR o aviso mensal do dia 20', 'instalarGatilhoImposto')
-    /* O unico lancamento que trava julho: -2.784,46 em 31/07, historico
-       "CART-ACERTO-JANJUL". A listagem do Bling nao traz historico; so o
-       GET por id. Duas chamadas, so leitura. */
-    .addItem('Taxa: ler o acerto de julho por inteiro', 'verAcertoJulho')
-    /* O sync e append-only: conta APAGADA no Bling fica na aba pra sempre e
-       continua somando na DRE. Isto conta quantas sao. So le. */
-    .addItem('Zumbis: contas que sumiram do Bling (julho)', 'procurarZumbisJulho')
-    .addItem('Zumbis: varrer TODOS os meses (repetir ate fechar)', 'procurarZumbisTodos')
-    .addItem('Zumbis: quais meses ja fecharam', 'verProgressoZumbis')
-    /* Atalho pro que o Caixa acabou de apagar: com a lista de ids nao precisa
-       esperar a varredura mes a mes chegar la. So marca, nao apaga. */
-    .addItem('Zumbis: marcar por LISTA DE IDS (colar)', 'marcarZumbisPorIds')
-    /* ~22 meses x ~3 rodadas de 5 min = ~66 cliques. Vira gatilho. */
-    .addItem('Zumbis: RODAR SOZINHO de 10 em 10 min', 'instalarGatilhoZumbis')
-    .addItem('Zumbis: PARAR o automatico', 'pararGatilhoZumbis')
-    /* Provisao clonada pro futuro: nao toca a DRE, mas suja a DFC e a
-       projecao com valor que ja se sabe errado. So le. */
-    .addItem('Series clonadas (provisao) nos proximos 24 meses', 'seriesClonadas24m')
-    /* Diz a pasta exata onde o Caixa grava o saldos_conferidos.csv - o
-       caminho se descobre sozinho, ninguem digita id de pasta. */
-    .addItem('Saldos: onde o Caixa deve gravar o CSV', 'ondeGravarSaldos')
-    /* A unica linha de Despesas Variaveis sem lastro no Bling. Reconfirma o
-       404 antes de apagar e guarda o retrato na _Zumbis. */
-    .addItem('Zumbis: REMOVER o acerto de julho (2.784,46)', 'removerAcertoJulho')
-    .addItem('Imposto: guia lida x estimativa', 'verImpostoEstimado')
-    .addItem('Conferir CMV por mes (_CMV_Consumo)', 'conferirCmvPorMes')
-    /* nov/25 e dez/25 estao na DRE com receita ZERO - o syncVendas so puxa
-       de 2026-01-01. Antes de consertar, medir: quantos pedidos sao e se as
-       fichas cobrem o mix de 2025. So le. */
-    .addItem('Sondar 2025 (nov e dez) - so le, nao grava', 'sondar2025')
-    /* COFRE: congelar venda de periodo fechado ANTES de apagar pedido no
-       Bling pra liberar espaco. Depois de apagado nao ha de onde puxar. */
-    .addItem('Cofre 2025: o que ja esta congelado', 'verCofre2025')
-    .addItem('Cofre 2025: congelar novembro', 'congelarVendas2025Nov')
-    .addItem('Cofre 2025: congelar dezembro', 'congelarVendas2025Dez')
-    /* Fechar 2025 na ordem: sync (ja com a janela nova) > receita > CMV. */
-    .addItem('2025: gravar receita de nov e dez', 'gravarReceita2025')
-    .addItem('2025: CMV de novembro (repetir ate fechar)', 'gerarCmvNov25')
-    .addItem('2025: CMV de dezembro (repetir ate fechar)', 'gerarCmvDez25')
-    /* Setembro foi preenchido a mao no dia 9 e ficou em 7,3% da receita,
-       contra 23-28% dos outros meses. Repetir ate dizer que fechou. */
-    .addItem('CMV: GERAR setembro/2026 (repetir ate fechar)', 'gerarCmvSetembro')
-    /* Jan a ago foram preenchidos A MAO em 09/09, e setembro, feito no mesmo
-       dia, estava errado em ~R$ 10 mil. Isto CALCULA e COMPARA sem gravar -
-       gravar antes de comparar destruiria a unica copia do trabalho da mao. */
-    .addItem('CMV: CONFERIR agosto (calcula, nao grava)', 'conferirCmvAgosto')
-    .addItem('CMV: CONFERIR julho (calcula, nao grava)', 'conferirCmvJulho')
-    /* As 264 pecas de agosto que entram com custo zero. Abre SO os pedidos
-       que o rascunho ja marcou com semFicha > 0. */
-    .addItem('CMV: QUAIS pecas estao sem ficha (agosto)', 'semFichaAgosto')
-    /* Variacao nao se ve num mes so: categorias nas linhas, meses nas
-       colunas, ordenado pela amplitude. So le. */
-    .addItem('Pessoal: comparar abr a jul por categoria', 'pessoalAbrJul')
-    .addItem('Administrativas: comparar jan a jul por categoria', 'administrativasJanJul')
-    .addItem('Servicos de terceiros jan-abr (quem recebeu)', 'terceirosJanAbr')
-    .addItem('Servicos de terceiros jan-AGO (quem recebeu)', 'terceirosJanAgo')
-    /* RESINCRONIZAR A RECLASSIFICACAO FEITA NO BLING (04/10/2026).
-       Ela trocou "Servicos de terceiros" por "Faccao" no Bling, de janeiro a
-       agosto, e a planilha nao sabe: reclassificar no Bling NAO chega sozinho
-       na DRE (ver painel-categoria-congelada-fluxo-caixa). Enquanto nao rodar,
-       o custo esta contado DUAS VEZES - a conta em Despesas Administrativas
-       com a categoria velha, e a mesma peca outra vez no CMV pela ficha.
-       REPETIR ATE O LOG DIZER "fila inteira": a funcao tem cursor e para no
-       teto de tempo do Google. Entra pelo menu de proposito - pelo seletor de
-       funcao do editor ela rodaria sem argumento e cobriria so 01/08 a 30/09,
-       deixando janeiro a julho com a categoria velha, calados. */
-    /* Aponta para o wrapper, nao para a funcao: rodando pelo menu o
-       Logger.log nao aparece na tela, e ela clicou e achou que nada tinha
-       acontecido. O wrapper mostra o resultado num alert e diz se falta rodar
-       de novo. */
-    /* DOIS ITENS QUE NAO PODEM PARECER O MESMO (renomeados em 04/10/2026).
-       Eles se chamavam "Resincronizar FACCAO..." e "Resincronizar TUDO...",
-       colados um no outro no menu. Ela clicou no errado e esperou a varredura
-       de 17.170 contas achando que estava trazendo a troca da faccao.
-       Item de menu nao se distingue pelo que vem DEPOIS do prefixo comum: o
-       olho pega a primeira palavra e a posicao. Agora comecam diferente, e o
-       lento abre com o aviso em vez de fechar com ele. */
-    .addItem('FACCAO: trazer a troca feita no Bling',
-             '_rodarResincronizarFaccao')
-    /* Diferenca sozinha nao da pra conferir contra nada. Esta mostra o valor
-       cheio de Despesas Administrativas antes e agora, mes a mes. */
-    .addItem('FACCAO: como estava e como ficou (mes a mes)',
-             'antesDepoisFaccao')
-    .addItem('(lento - so se eu pedir) Conferir TODAS as contas jan-ago',
-             '_rodarRecategorizarJanAgo')
-    /* Frete: a categoria guarda duas naturezas opostas - frete de COMPRA
-       (estoque) e de VENDA (despesa variavel). Agrupado por quem recebeu, o
-       nome separa: Uber/Lalamove/coco de um lado, Correios/transportadora do
-       outro. */
-    .addItem('Fretes e seguros 2026 (quem recebeu)', 'fretes2026')
-    /* A pergunta de 04/10/2026: agosto parece ter muita despesa variavel.
-       O resumo compara mes a mes contra a taxa que eu medi nas APIs da Shopee
-       e do ML; o "agosto aberto" lista as candidatas a duplicidade e os 15
-       maiores, que e onde mora acerto de carteira e frete de COMPRA. */
-    .addItem('Despesas variaveis mes a mes (comparar)', 'variaveisResumo')
-    .addItem('Despesas variaveis - abrir agosto/2026', 'variaveisAgosto')
-    /* As tres abaixo existiam e nao estavam no menu, o que na pratica e o
-       mesmo que nao existirem: o seletor de funcao do editor reverte para a
-       escolha anterior entre execucoes e roda a funcao errada sem avisar.
-       skusSemFicha e a que importa agora - peca sem ficha entra no CMV com
-       custo ZERO, e e a lista dela que diz quais fichas montar. */
-    .addItem('Quais SKUs estao sem ficha tecnica', 'skusSemFicha')
-    .addItem('Receita e devolucao por mes', 'receitaEDevolucaoPorMes')
-    .addItem('Ver taxas por canal (_Precificacao_Config)', 'verTaxasCanais')
-    .addSeparator()
-    .addItem('1) Configurar setup da planilha', 'setupWorkbook')
-    .addItem('2) Importar produtos do NuvemShop (uma vez)', 'importarProdutosNuvemShop_')
+
+    /* ---- O que se usa toda semana ---- */
+    .addSubMenu(ui.createMenu('Rotina')
+      .addItem('Sincronizar Bling agora', 'syncBling')
+      .addItem('Receita: REFRESCAR o mes corrente', 'gravarReceitaMesCorrente')
+      .addItem('Buscar categoria das contas novas (repetir ate restar 0)',
+               '_rodarReprocessarSemCategoria')
+      .addItem('Manutencao da DRE (mapa + pendencias + recalculo)', 'manutencaoDre')
+      .addItem('O que ainda esta (sem mapear)', 'semMapearAno'))
+
+    .addSubMenu(ui.createMenu('Imposto')
+      .addItem('A aliquota ainda vale? (dia 20)', 'conferirImposto')
+      .addItem('Guia lida x estimativa', 'verImpostoEstimado'))
+
+    .addSubMenu(ui.createMenu('Receita e CMV')
+      .addItem('Receita: conferir calculo x o que esta na aba', '_rodarConferirReceita')
+      .addItem('Conferir CMV por mes (_CMV_Consumo)', 'conferirCmvPorMes')
+      .addItem('CMV: CONFERIR agosto (calcula, nao grava)', 'conferirCmvAgosto')
+      .addItem('CMV: CONFERIR julho (calcula, nao grava)', 'conferirCmvJulho')
+      .addItem('Cofre 2025: o que ja esta congelado', 'verCofre2025'))
+
+    .addSubMenu(ui.createMenu('Zumbis e limpeza')
+      .addItem('Varrer TODOS os meses (repetir ate fechar)', 'procurarZumbisTodos')
+      .addItem('Quais meses ja fecharam', 'verProgressoZumbis')
+      .addItem('RODAR SOZINHO de 10 em 10 min', 'instalarGatilhoZumbis')
+      .addItem('PARAR o automatico', 'pararGatilhoZumbis')
+      .addItem('Limpar devolucoes apagadas no Bling (ago-set)',
+               '_rodarLimparDeducoesFantasma'))
+
+    .addSubMenu(ui.createMenu('Investigar um mes')
+      .addItem('Comparar um GRUPO mes a mes: Pessoal (abr-jul)', 'pessoalAbrJul')
+      .addItem('Comparar um GRUPO mes a mes: Administrativas (jan-jul)',
+               'administrativasJanJul')
+      .addItem('Despesas variaveis mes a mes', 'variaveisResumo')
+      .addItem('Despesas variaveis - abrir agosto/2026', 'variaveisAgosto')
+      .addItem('Fretes e seguros 2026 (quem recebeu)', 'fretes2026')
+      .addItem('Receita e devolucao por mes', 'receitaEDevolucaoPorMes')
+      .addItem('Taxa: ler o acerto de julho por inteiro', 'verAcertoJulho'))
+
+    .addSubMenu(ui.createMenu('Custo e ficha')
+      .addItem('Quais SKUs estao sem ficha tecnica', 'skusSemFicha')
+      .addItem('Rendimento: o que ja esta medido (metros por peca)', 'verRendimento')
+      .addItem('Producao: quem decide o tecido de cada peca', 'verProducao')
+      .addItem('Ver taxas por canal (_Precificacao_Config)', 'verTaxasCanais'))
+
+    .addSubMenu(ui.createMenu('Instalar gatilhos')
+      .addItem('Sincronizacao automatica do Bling (2h)', 'criarGatilhoSync')
+      .addItem('Aviso do imposto, todo dia 20', 'instalarGatilhoImposto')
+      .addItem('Varredura de zumbis, de 10 em 10 min', 'instalarGatilhoZumbis'))
+
+    /* ---- Ja rodaram. Ficam pra refazer a medicao se alguem duvidar. ---- */
+    .addSubMenu(ui.createMenu('Ja rodados (historico)')
+      .addItem('2025: gravar receita de nov e dez', 'gravarReceita2025')
+      .addItem('Cofre 2025: congelar novembro', 'congelarVendas2025Nov')
+      .addItem('Sondar 2025 (nov e dez)', 'sondar2025')
+      .addItem('Receita: REFAZER setembro/2026', 'refazerReceitaSetembro')
+      .addItem('CMV: GERAR setembro/2026', 'gerarCmvSetembro')
+      .addItem('Zumbis: julho/2026', 'procurarZumbisJulho')
+      .addItem('Zumbis: REMOVER o acerto de julho', 'removerAcertoJulho')
+      .addItem('Abrir abril/2026 por categoria', 'detalharAbril')
+      .addItem('Abrir janeiro/2026 por categoria', 'detalharJaneiro')
+      .addItem('Abrir agosto/2026 por categoria', 'detalharAgosto')
+      .addItem('Servicos de terceiros jan-abr', 'terceirosJanAbr')
+      .addItem('Servicos de terceiros jan-AGO', 'terceirosJanAgo')
+      .addItem('FACCAO: trazer a troca feita no Bling', '_rodarResincronizarFaccao')
+      .addItem('FACCAO: como estava e como ficou', 'antesDepoisFaccao')
+      .addItem('(lento) Conferir TODAS as contas jan-ago', '_rodarRecategorizarJanAgo')
+      .addItem('Tecidos do site: gravar preco por metro', 'gravarTecidosDoSite')
+      .addItem('Saquinho: ver as duas pontas do custo', 'verSaquinho')
+      .addItem('Saquinho: CORRIGIR as duas', 'corrigirSaquinho')
+      .addItem('Medir: formatDate x getter nativo', 'conferirFormatDate'))
+
+    .addSubMenu(ui.createMenu('Setup (uma vez so)')
+      .addItem('1) Configurar setup da planilha', 'setupWorkbook')
+      .addItem('2) Importar produtos do NuvemShop', 'importarProdutosNuvemShop_'))
+
     .addToUi();
 
   /* As manutenções de precificação ficam em menu próprio porque são de rodar
