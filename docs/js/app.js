@@ -71,7 +71,7 @@ const MODO_PRECIF_ = new URLSearchParams(location.search).get('app') === 'precif
   if (!MODO_PRECIF_) return;
   document.title = 'Leve Sonho — Precificação';
   const man = document.querySelector('link[rel="manifest"]');
-  if (man) man.href = 'manifest-precificacao.json?v=20261015a';
+  if (man) man.href = 'manifest-precificacao.json?v=20261015b';
   const tit = document.querySelector('meta[name="apple-mobile-web-app-title"]');
   if (tit) tit.content = 'Preço LS';
   const h1Gate = document.querySelector('#loginGate h1');
@@ -892,13 +892,16 @@ function ymdLocal_(dt) {
   return dt.getFullYear() + '-' + p(dt.getMonth() + 1) + '-' + p(dt.getDate());
 }
 
+const ANO_MAIS_ANTIGO_ = 2020;
+
 function renderFiltroBar_() {
   const presets = ['hoje', 'ontem', 'semana', 'semana_passada', 'mes', 'mes_passado'];
-  /* Anos oferecidos: do primeiro ano que o painel baixa (JANELA_DESDE) ate o
-     atual. Ano mais antigo que a janela aparece com o aviso de periodo
-     incompleto (avisoJanela_), nao como zero. */
+  /* Anos oferecidos: de ANO_MAIS_ANTIGO_ ate o atual, e nao so os que a
+     janela de hoje cobre - a Karol vai alimentar 2025 pra tras aos poucos
+     (15/10/2026). Ano fora do que o servidor devolve aparece com o aviso de
+     periodo incompleto (avisoJanela_), nunca como zero. */
   const anoAtual = new Date().getFullYear();
-  const anoIni = JANELA_DESDE ? Number(String(JANELA_DESDE).slice(0, 4)) : anoAtual;
+  const anoIni = ANO_MAIS_ANTIGO_;
   const anos = [];
   for (let a = anoAtual; a >= anoIni; a--) anos.push(String(a));
   const custIni = FILTER.preset === 'personalizado' ? toDateInputValue_(FILTER.start) : '';
