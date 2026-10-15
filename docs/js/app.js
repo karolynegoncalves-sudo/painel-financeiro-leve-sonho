@@ -71,7 +71,7 @@ const MODO_PRECIF_ = new URLSearchParams(location.search).get('app') === 'precif
   if (!MODO_PRECIF_) return;
   document.title = 'Leve Sonho — Precificação';
   const man = document.querySelector('link[rel="manifest"]');
-  if (man) man.href = 'manifest-precificacao.json?v=20261015g';
+  if (man) man.href = 'manifest-precificacao.json?v=20261015h';
   const tit = document.querySelector('meta[name="apple-mobile-web-app-title"]');
   if (tit) tit.content = 'Preço LS';
   const h1Gate = document.querySelector('#loginGate h1');
@@ -1764,24 +1764,52 @@ function aReceberSujo_(chave, fallback) {
    passar a escrever o metodo, toda fantasma da Shopee vira "legitima" de uma
    vez, sem erro nenhum - por isso contagem zero NAO apaga o aviso: vira
    "nenhuma suspeita - se mudou de repente, conferir o filtro". */
-function contaReceberSuspeita_(r) {
-  if (!r || r.tipo !== 'entrada' || !ehRecebimento_(r.grupoDRE)) return false;
-  const h = String(r.descricao || '');
-  return !(/M[ée]todo de pagamento/i.test(h) && !/Pedidos Vinculados/i.test(h));
+/* TRES CLASSES (revisao do DRE, 15/10/2026). A coluna descricao da aba e
+   `historico || numeroDocumento` (BlingSync.gs:911): quando o historico vem
+   vazio, o que esta ali e o numero do pedido - e a regra nunca foi testada
+   nessas contas. Texto livre digitado a mao (ex.: "30 camisetas - 02/10")
+   tambem nao e o formato da integracao. As duas viram NAO CLASSIFICAVEL:
+   marcadas, com texto proprio, e NUNCA candidatas a sair do total. So o
+   formato da integracao ("Ref. ao pedido de venda...") entra na regra.
+     'legitima'  Ref. ao pedido + "Metodo de pagamento" e sem "Pedidos Vinculados"
+     'suspeita'  Ref. ao pedido que nao se encaixa em legitima
+     'semHist'   historico vazio (so numero) - nao da pra classificar
+     'manual'    texto livre fora do formato da integracao */
+function classeReceber_(r) {
+  if (!r || r.tipo !== 'entrada' || !ehRecebimento_(r.grupoDRE)) return null;
+  const h = String(r.descricao || '').trim();
+  if (!h || /^\d+$/.test(h)) return 'semHist';
+  if (!/Ref\. ao pedido de venda/i.test(h)) return 'manual';
+  return (/M[ée]todo de pagamento/i.test(h) && !/Pedidos Vinculados/i.test(h)) ? 'legitima' : 'suspeita';
 }
+const MARCA_RECEBER_ = {
+  suspeita: '⚠ suspeita',
+  semHist: '⚠ sem histórico',
+  manual: '⚠ lançada à mão'
+};
+const TITULO_MARCA_RECEBER_ = {
+  suspeita: 'Parece ter sido criada automaticamente no Bling',
+  semHist: 'Sem histórico no Bling: não dá para classificar',
+  manual: 'Texto digitado à mão, fora do formato da integração: não dá para classificar'
+};
 function avisoSuspeitas_() {
   if (!AVISO_A_RECEBER_) return '';
-  const abertas = (FLUXO_ROWS || []).filter(r => r.aberta && r.tipo === 'entrada' && ehRecebimento_(r.grupoDRE));
+  const abertas = (FLUXO_ROWS || []).filter(r => r.aberta && classeReceber_(r));
   if (!abertas.length) return '';
-  const susp = abertas.filter(contaReceberSuspeita_);
-  const v = susp.reduce((t, r) => t + r.valor, 0);
-  return susp.length
-    ? `<div class="alerta warn"><b>${susp.length} de ${abertas.length}</b> contas a receber de venda em aberto
-        (${fmtBRL(v, 2)}) parecem ter sido criadas automaticamente no Bling — marcadas com ⚠ nas listas abaixo.
-        Elas continuam somadas nos totais até o Contas confirmar.</div>`
-    : `<div class="alerta info">Nenhuma conta a receber suspeita encontrada entre ${abertas.length} em aberto.
-        Se isso mudou de repente sem ninguém ter resolvido a causa, conferir o filtro (a regra depende de um campo
-        que a Shopee hoje não escreve).</div>`;
+  const de = (c) => abertas.filter(r => classeReceber_(r) === c);
+  const soma = (a) => fmtBRL(a.reduce((t, r) => t + r.valor, 0), 2);
+  const susp = de('suspeita'), sem = de('semHist'), man = de('manual');
+  const naoClass = sem.length + man.length;
+  const linhas = [];
+  if (susp.length) linhas.push(`<b>${susp.length}</b> parecem ter sido criadas automaticamente no Bling (${soma(susp)})`);
+  if (naoClass) linhas.push(`<b>${naoClass}</b> não dá para classificar — ${sem.length} sem histórico, ${man.length} digitadas à mão (${soma(sem.concat(man))})`);
+  if (!susp.length) {
+    return `<div class="alerta info">Nenhuma conta a receber suspeita entre as ${abertas.length} em aberto${naoClass ? ' (' + naoClass + ' não classificáveis)' : ''}.
+      Se isso mudou de repente sem ninguém ter resolvido a causa, conferir o filtro (a regra depende de um campo
+      que a Shopee hoje não escreve).</div>`;
+  }
+  return `<div class="alerta warn">Das <b>${abertas.length}</b> contas a receber de venda em aberto: ${linhas.join('; ')}.
+    Marcadas com ⚠ nas listas abaixo. Todas continuam somadas nos totais.</div>`;
 }
 
 function renderHoje(el) {
@@ -1869,7 +1897,7 @@ function renderHoje(el) {
 
   const linhaConta = (r) => `<tr>
       <td>${fmtDataBR(r.date)}</td>
-      <td>${escapeHtml_(r.contato || '—')}${AVISO_A_RECEBER_ && contaReceberSuspeita_(r) ? ' <span title="Pode ter sido criada automaticamente no Bling" style="color:#b26a00;">⚠ suspeita</span>' : ''}</td>
+      <td>${escapeHtml_(r.contato || '—')}${(() => { const c = AVISO_A_RECEBER_ ? classeReceber_(r) : null; return c && MARCA_RECEBER_[c] ? ' <span title="' + TITULO_MARCA_RECEBER_[c] + '" style="color:#b26a00;">' + MARCA_RECEBER_[c] + '</span>' : ''; })()}</td>
       <td>${escapeHtml_(r.categoria)}</td>
       <td class="num ${r.tipo === 'entrada' ? 'val-in' : 'val-out'}">${r.tipo === 'entrada' ? '' : '\u2212'}${fmtBRL(r.valor, 2)}</td>
     </tr>`;
