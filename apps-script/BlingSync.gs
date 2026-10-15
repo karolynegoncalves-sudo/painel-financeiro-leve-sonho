@@ -2470,3 +2470,119 @@ function rodadaZumbisAutomatica() {
            alvo + (fechou ? ' FECHOU' : ' continua') + '. Faltam '
            + (faltando.length - (fechou ? 1 : 0)) + ' mes(es).');
 }
+
+/* ============================================================================
+ * SERIES CLONADAS: o mesmo valor repetido pro futuro, de provisao.
+ *
+ * O QUE SAO. O Bling clona uma conta real pra frente como provisao. O DAS de
+ * abril (R$ 4.867,34) esta repetido ate 08/2027; os Correios "Envios"
+ * (R$ 344,06) tambem; o Contas suspeita de "Saneamento" (R$ 185,98) e da
+ * folha inteira.
+ *
+ * POR QUE ISSO IMPORTA PRA MIM, e e por isso que sou eu quem mede e nao eles:
+ * clone NAO toca a DRE (provisao nao e despesa incorrida), mas ENTRA NA DFC e
+ * na projecao de caixa. Resultado: o caixa futuro aparece mais comprometido
+ * do que esta, com valores que JA SE SABE errados - o DAS de setembro saiu
+ * 4.498,72 contra os 4.867,34 provisionados, e o VT/VR de outubro saiu 777,00
+ * contra 814,00. Numero errado que assusta e tao ruim quanto numero errado
+ * que tranquiliza; so erra pro outro lado.
+ *
+ * COMO ACHA, sem lista previa: agrupa as contas EM ABERTO por contato+valor e
+ * acusa o que se repete em 3 ou mais MESES DISTINTOS. Clone e isso - valor
+ * identico ao centavo, mesmo contato, mes apos mes. Parcelamento de verdade
+ * tambem repete, entao o relatorio nao chama de erro: chama de SERIE, e deixa
+ * a decisao pra quem conhece a conta. IPTU em 11 parcelas iguais e legitimo;
+ * DAS clonado nao.
+ *
+ * SO LE.
+ * ========================================================================== */
+function listarSeriesClonadas(mesesFrente) {
+  var frente = Number(mesesFrente) || 24;
+  var L = [];
+  INICIO_SYNC_.t = Date.now();
+  var token = getBlingAccessToken_();
+
+  var hoje = new Date();
+  var de = Utilities.formatDate(hoje, 'America/Sao_Paulo', 'yyyy-MM-dd');
+  var ate = Utilities.formatDate(
+    new Date(hoje.getFullYear(), hoje.getMonth() + frente, 28), 'America/Sao_Paulo', 'yyyy-MM-dd');
+
+  L.push('SERIES CLONADAS EM CONTAS A PAGAR');
+  L.push('janela: ' + de + ' a ' + ate + '  (' + frente + ' meses a frente)');
+  L.push('');
+
+  var contas = [], pagina = 1, ultimaCheia = false;
+  while (true) {
+    if (tempoGasto_() > TETO_TOTAL_MS) { L.push('*** PAREI POR TEMPO na leitura. ***'); break; }
+    var url = 'https://api.bling.com.br/Api/v3/contas/pagar'
+      + '?pagina=' + pagina + '&limite=100'
+      + '&dataVencimentoInicial=' + de + '&dataVencimentoFinal=' + ate
+      + '&situacoes[]=1';                     // 1 = em aberto
+    var r = fetchBlingStatus_(url, token);
+    if (r.status !== 200 || !r.json || !r.json.data) {
+      L.push('GET /contas/pagar -> HTTP ' + r.status + ' na pagina ' + pagina);
+      break;
+    }
+    var bloco = r.json.data;
+    contas = contas.concat(bloco);
+    ultimaCheia = (bloco.length === 100);
+    if (bloco.length < 100) break;
+    pagina++;
+    Utilities.sleep(330);
+    if (pagina > 60) break;
+  }
+
+  L.push('contas em aberto na janela ...: ' + contas.length
+         + (ultimaCheia ? '   *** ultima pagina cheia: pode faltar ***' : ''));
+  L.push('');
+
+  /* Agrupa por contato + valor ao centavo. A listagem vem podada (sem
+     historico nem categoria), mas contato e valor ela traz - e sao os dois
+     campos que definem um clone. */
+  var grupos = {};
+  contas.forEach(function (c) {
+    var nome = (c.contato && c.contato.nome) || '(sem contato)';
+    var v = Math.abs(Number(c.valor) || 0);
+    if (!v) return;
+    var venc = String(c.vencimento || '').slice(0, 7);
+    var k = nome + '|' + v.toFixed(2);
+    if (!grupos[k]) grupos[k] = { nome: nome, valor: v, meses: {}, n: 0, ate: '' };
+    grupos[k].meses[venc] = 1;
+    grupos[k].n++;
+    if (venc > grupos[k].ate) grupos[k].ate = venc;
+  });
+
+  var series = Object.keys(grupos)
+    .map(function (k) { return grupos[k]; })
+    .filter(function (g) { return Object.keys(g.meses).length >= 3; })
+    .sort(function (a, b) { return (b.valor * b.n) - (a.valor * a.n); });
+
+  var total = 0;
+  series.forEach(function (g) { total += g.valor * g.n; });
+
+  L.push('SERIES ENCONTRADAS: ' + series.length
+         + '  somando R$ ' + total.toFixed(2) + ' de caixa futuro');
+  L.push('');
+  var pad = function (x, n) { return (new Array(n + 1).join(' ') + x).slice(-n); };
+  L.push('      valor   vezes        total  ate       contato');
+  L.push('  ---------  ------  -----------  --------  ----------------------');
+  series.forEach(function (g) {
+    L.push('  ' + pad(g.valor.toFixed(2), 9) + '  ' + pad(g.n, 6) + '  '
+           + pad((g.valor * g.n).toFixed(2), 11) + '  ' + g.ate + '  '
+           + g.nome.slice(0, 24));
+  });
+  L.push('');
+  L.push('NAO CHAMEI NENHUMA DE ERRO, de proposito. Parcelamento de verdade');
+  L.push('tambem repete valor identico: o IPTU em 11 parcelas e legitimo, o DAS');
+  L.push('clonado ate 08/2027 nao e. Quem sabe a diferenca e quem conhece a');
+  L.push('conta - isto so poe as duas na mesma tela pra decidir de uma vez em');
+  L.push('vez de descobrir uma por mes.');
+  L.push('');
+  L.push('O QUE CADA UMA CUSTA: a coluna "total" e quanto aquela serie pesa na');
+  L.push('projecao de caixa. Nao pesa na DRE - provisao nao e despesa');
+  L.push('incorrida, e a categoria do DAS ja esta fora do resultado.');
+
+  mostrarRelatorio_('Series clonadas', L);
+}
+
+function seriesClonadas24m() { return listarSeriesClonadas(24); }

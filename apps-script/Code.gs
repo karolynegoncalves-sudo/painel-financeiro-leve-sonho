@@ -290,6 +290,9 @@ function onOpen() {
     /* ~22 meses x ~3 rodadas de 5 min = ~66 cliques. Vira gatilho. */
     .addItem('Zumbis: RODAR SOZINHO de 10 em 10 min', 'instalarGatilhoZumbis')
     .addItem('Zumbis: PARAR o automatico', 'pararGatilhoZumbis')
+    /* Provisao clonada pro futuro: nao toca a DRE, mas suja a DFC e a
+       projecao com valor que ja se sabe errado. So le. */
+    .addItem('Series clonadas (provisao) nos proximos 24 meses', 'seriesClonadas24m')
     /* A unica linha de Despesas Variaveis sem lastro no Bling. Reconfirma o
        404 antes de apagar e guarda o retrato na _Zumbis. */
     .addItem('Zumbis: REMOVER o acerto de julho (2.784,46)', 'removerAcertoJulho')
