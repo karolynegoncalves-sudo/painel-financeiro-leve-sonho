@@ -2616,3 +2616,134 @@ function listarSeriesClonadas(mesesFrente) {
 }
 
 function seriesClonadas24m() { return listarSeriesClonadas(24); }
+
+/* ============================================================================
+ * MARCAR ZUMBIS POR LISTA DE IDS - o atalho pro que o Caixa acabou de apagar.
+ *
+ * O PROBLEMA QUE ISTO RESOLVE (15/10/2026). O Contas apaga fantasma no Bling;
+ * no dia seguinte aquilo vira ZUMBI na aba do painel, porque o sync e
+ * append-only e nunca remove. Ou seja: a limpeza dele PIORA o painel ate a
+ * minha varredura passar.
+ *
+ * E a minha varredura esta rastejando mes a mes desde 2024-07. No ritmo
+ * atual ela nao chega em outubro tao cedo - exatamente onde os zumbis novos
+ * nascem. Esperar a varredura chegar la e deixar o painel errado por semanas
+ * de proposito.
+ *
+ * Com a lista de ids, o trabalho e de segundos: nao precisa listar mes, nem
+ * levantar suspeito, nem comparar janela. Ja se sabe QUEM procurar. Quando o
+ * identificador existe, procurar por atributo e escolher o caminho pior - e
+ * aqui ele existe, porque o Contas grava o log antes de cada DELETE.
+ *
+ * NAO APAGA LINHA NENHUMA. So confirma o 404 e anota na _Zumbis. Remover em
+ * lote da aba e outra decisao, e precisa do "pode" dela - o que ja foi
+ * autorizado uma vez foi UMA linha, a do acerto de julho.
+ * ========================================================================== */
+function marcarZumbisPorIds() {
+  var ui;
+  try { ui = SpreadsheetApp.getUi(); } catch (e) {
+    Logger.log('precisa da interface'); return;
+  }
+  var r = ui.prompt('Marcar zumbis por id',
+    'Cole os ids das contas APAGADAS no Bling (separados por virgula, espaco '
+    + 'ou quebra de linha).\n\nSao as que o Contas manda depois de cada limpeza.',
+    ui.ButtonSet.OK_CANCEL);
+  if (r.getSelectedButton() !== ui.Button.OK) return;
+
+  var ids = String(r.getResponseText() || '')
+    .split(/[^0-9]+/).filter(function (x) { return x.length >= 6; });
+  if (!ids.length) {
+    mostrarRelatorio_('Zumbis por id', ['Nenhum id valido no que foi colado.']);
+    return;
+  }
+
+  var L = [];
+  INICIO_SYNC_.t = Date.now();
+  var sh = _zumbis_();
+  var token = getBlingAccessToken_();
+
+  // o que ja foi conferido antes nao se confere de novo
+  var ja = {};
+  if (sh.getLastRow() > 1) {
+    sh.getRange(2, 1, sh.getLastRow() - 1, 9).getValues().forEach(function (z) {
+      if (z[1]) ja[String(z[1]).trim()] = String(z[8] || 'zumbi');
+    });
+  }
+
+  /* Pega o retrato da linha na aba, se ela estiver la. Conta apagada pode nem
+     ter chegado na planilha (se nasceu e morreu entre dois syncs), e nesse
+     caso nao ha zumbi nenhum - e informacao boa, nao falha. */
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var fc = ss.getSheetByName(ABA_FLUXO_CAIXA);
+  var naAba = {};
+  if (fc && fc.getLastRow() > 1) {
+    fc.getRange(2, 1, fc.getLastRow() - 1, COLS_FLUXO_).getValues().forEach(function (l) {
+      if (l[12]) naAba[String(l[12]).trim()] = l;
+    });
+  }
+
+  var agora = Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'yyyy-MM-dd HH:mm');
+  var novas = [], conf = 0, vivas = 0, erros = 0, forasDaAba = 0, pulados = 0, parou = false;
+
+  for (var i = 0; i < ids.length; i++) {
+    if (tempoGasto_() > TETO_TOTAL_MS) { parou = true; break; }
+    var id = ids[i];
+    if (ja[id]) { pulados++; continue; }
+    /* Tenta receber e depois pagar: o Contas manda a receber, mas a funcao
+       nao deve assumir - id de conta a pagar colado aqui por engano tem que
+       ser tratado, nao classificado errado. */
+    var achou = null;
+    ['receber', 'pagar'].forEach(function (tipo) {
+      if (achou !== null) return;
+      var g = fetchBlingStatus_('https://api.bling.com.br/Api/v3/contas/' + tipo + '/' + id, token);
+      Utilities.sleep(330);
+      if (g.status === 200) achou = { vivo: true, tipo: tipo };
+      else if (g.status !== 404) achou = { erro: g.status, tipo: tipo };
+    });
+
+    if (achou && achou.vivo) { vivas++; continue; }
+    if (achou && achou.erro) { erros++; continue; }
+
+    // 404 nas duas rotas = apagada mesmo
+    var l = naAba[id];
+    if (!l) { forasDaAba++; continue; }
+    conf++;
+    novas.push(['receber', id, l[0], l[11], l[4], l[5], String(l[10] || ''), agora, 'zumbi']);
+  }
+
+  if (novas.length) sh.getRange(sh.getLastRow() + 1, 1, novas.length, 9).setValues(novas);
+
+  var soma = 0, porGrupo = {};
+  novas.forEach(function (z) {
+    var v = Math.abs(Number(z[3]) || 0);
+    soma += v;
+    var g = String(z[5] || '(sem grupo)');
+    porGrupo[g] = (porGrupo[g] || 0) + v;
+  });
+
+  L.push('MARCAR ZUMBIS POR ID');
+  L.push('');
+  L.push('ids colados ..............................: ' + ids.length);
+  L.push('ja conferidos antes ......................: ' + pulados);
+  L.push('CONFIRMADOS apagados e presentes na aba ..: ' + conf + '   R$ ' + soma.toFixed(2));
+  L.push('apagados mas NUNCA chegaram na aba .......: ' + forasDaAba
+         + (forasDaAba ? '   (nasceram e morreram entre dois syncs - nao viraram zumbi)' : ''));
+  L.push('AINDA VIVOS no Bling .....................: ' + vivas
+         + (vivas ? '   <<< confira, estes nao deviam estar na lista' : ''));
+  L.push('sem resposta (429 e afins) ...............: ' + erros
+         + (erros ? '   rode de novo pra estes' : ''));
+  L.push('');
+  if (conf) {
+    L.push('POR GRUPO DA DRE:');
+    Object.keys(porGrupo).sort(function (a, b) { return porGrupo[b] - porGrupo[a]; })
+      .forEach(function (g) {
+        var mexe = g.indexOf('ignorar na DRE') < 0 && g.indexOf('(sem mapear)') < 0;
+        L.push('  ' + (mexe ? 'MEXE  ' : 'nao   ') + ('           R$ ' + porGrupo[g].toFixed(2)).slice(-14)
+               + '  ' + g);
+      });
+    L.push('');
+  }
+  if (parou) L.push('*** PAREI POR TEMPO. Rode de novo e cole a mesma lista. ***');
+  L.push('NAO APAGUEI LINHA NENHUMA. So anotei na aba ' + ABA_ZUMBI_ + '.');
+  mostrarRelatorio_('Zumbis por id', L);
+}

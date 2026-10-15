@@ -295,6 +295,9 @@ function onOpen() {
     .addItem('Zumbis: contas que sumiram do Bling (julho)', 'procurarZumbisJulho')
     .addItem('Zumbis: varrer TODOS os meses (repetir ate fechar)', 'procurarZumbisTodos')
     .addItem('Zumbis: quais meses ja fecharam', 'verProgressoZumbis')
+    /* Atalho pro que o Caixa acabou de apagar: com a lista de ids nao precisa
+       esperar a varredura mes a mes chegar la. So marca, nao apaga. */
+    .addItem('Zumbis: marcar por LISTA DE IDS (colar)', 'marcarZumbisPorIds')
     /* ~22 meses x ~3 rodadas de 5 min = ~66 cliques. Vira gatilho. */
     .addItem('Zumbis: RODAR SOZINHO de 10 em 10 min', 'instalarGatilhoZumbis')
     .addItem('Zumbis: PARAR o automatico', 'pararGatilhoZumbis')
