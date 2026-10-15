@@ -2244,7 +2244,6 @@ function compararGrupoDre(grupo, de, ate) {
   const dados = sh.getRange(2, 1, sh.getLastRow() - 1, COLS_FLUXO_).getValues();
   const meses = {};
   const porCat = {};
-  const maiores = {};
 
   dados.forEach(function (l) {
     if (String(l[5] || '').trim() !== grupo) return;
@@ -2256,9 +2255,6 @@ function compararGrupoDre(grupo, de, ate) {
     if (!porCat[cat][m]) porCat[cat][m] = { v: 0, n: 0 };
     porCat[cat][m].v += Math.abs(Number(l[11]) || 0);
     porCat[cat][m].n++;
-    if (!maiores[m]) maiores[m] = [];
-    maiores[m].push({ v: Math.abs(Number(l[11]) || 0), d: String(l[10] || ''),
-                      c: String(l[8] || ''), cat: cat });
   });
 
   const ms = Object.keys(meses).sort();
@@ -2322,17 +2318,26 @@ function compararGrupoDre(grupo, de, ate) {
   L.push(' da categoria no periodo, e a tabela esta ordenada por ela.)');
   L.push('');
 
-  // os maiores lancamentos do mes que mais variou
-  var pico = ms.slice(1).reduce(function (a, m) {
-    return Math.abs((totMes[m] || 0) - (totMes[ms[0]] || 0))
-         > Math.abs((totMes[a] || 0) - (totMes[ms[0]] || 0)) ? m : a;
-  }, ms[ms.length - 1]);
-  L.push('OS 12 MAIORES DE ' + pico + ' (o mes mais distante de ' + ms[0] + '):');
-  (maiores[pico] || []).sort(function (a, b) { return b.v - a.v; })
-    .slice(0, 12).forEach(function (x) {
-      L.push('  R$ ' + pad(x.v.toFixed(2), 10) + '  ' + (x.c || '-').slice(0, 22)
-             + '  ' + x.d.slice(0, 28));
-    });
+  /* OS "12 MAIORES DO MES" SAIRAM DAQUI em 15/10/2026, e saiu de proposito.
+   *
+   * O Jobs subiu (253bd71) o clique na categoria dentro da gaveta: ela abre a
+   * lista completa dos lancamentos daquela categoria, com historico e
+   * quantidade, no lugar onde a Karol ja esta olhando. E melhor que a minha
+   * lista por dois motivos - e completa em vez de top 12, e nao exige copiar
+   * relatorio pra lugar nenhum.
+   *
+   * Manter as duas seria exatamente o que a gente passou a semana
+   * consertando: dois caminhos pro mesmo dado, que um dia divergem e a
+   * divergencia aparece como numero, nao como erro. Esta tabela fica so com o
+   * que e dela: a comparacao CRUZADA mes x categoria, que a gaveta nao faz.
+   *
+   * (A lista que saiu daqui foi util uma vez - foi nela que apareceram os
+   *  historicos "34 gola careca" e "132 pijamas + 16 camisetas" que revelaram
+   *  o problema do Private Label. O ganho continua existindo, so mudou de
+   *  endereco.) */
+  L.push('PRA VER OS LANCAMENTOS: clique na linha do grupo na DRE e depois na');
+  L.push('categoria dentro da gaveta - ela abre a lista completa com historico.');
+  L.push('');
 
   mostrarRelatorio_(grupo + ' ' + de + ' a ' + ate, L);
 }
