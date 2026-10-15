@@ -2534,6 +2534,36 @@ function listarSeriesClonadas(mesesFrente) {
 
   L.push('contas em aberto na janela ...: ' + contas.length
          + (ultimaCheia ? '   *** ultima pagina cheia: pode faltar ***' : ''));
+
+  /* O FILTRO DE SITUACAO FUNCIONOU MESMO? Controle sem custo nenhum: se o
+     filtro pegou, TODO registro devolvido tem situacao 1. Se vier qualquer
+     outra, o Bling ignorou o parametro e eu estou olhando a tabela inteira
+     achando que sao as em aberto.
+     
+     Isto existe porque o Contas quase fez apagar 2.343 lancamentos de
+     carteira ja baixados em 15/10: `situacao=1` no SINGULAR e IGNORADO em
+     /contas/receber - devolve tudo, sem erro, sem aviso. O que filtra e
+     `situacoes[]=1`, com colchetes. E a armadilha e pior do que parece,
+     porque em /contas/pagar o singular FUNCIONA: o mesmo codigo acerta numa
+     rota e mente na outra.
+     
+     Filtro que falha em silencio e pior que filtro que da erro. Este
+     controle custa zero chamada - a resposta ja esta na mao. */
+  var foraDoFiltro = contas.filter(function (c) {
+    var sit = Number((c.situacao && c.situacao.id) || c.situacao || 0);
+    return sit && sit !== 1;
+  });
+  if (foraDoFiltro.length) {
+    L.push('');
+    L.push('*** O FILTRO situacoes[]=1 NAO FUNCIONOU. ***');
+    L.push(foraDoFiltro.length + ' das ' + contas.length + ' contas vieram com');
+    L.push('situacao diferente de 1. O que esta abaixo NAO sao so as em aberto');
+    L.push('e nao da pra decidir nada com isso. Nao apague nada com base nesta');
+    L.push('tela.');
+    mostrarRelatorio_('Series clonadas - FILTRO FALHOU', L);
+    return;
+  }
+  L.push('filtro conferido .............: todas com situacao 1');
   L.push('');
 
   /* Agrupa por contato + valor ao centavo. A listagem vem podada (sem
