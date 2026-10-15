@@ -71,7 +71,7 @@ const MODO_PRECIF_ = new URLSearchParams(location.search).get('app') === 'precif
   if (!MODO_PRECIF_) return;
   document.title = 'Leve Sonho — Precificação';
   const man = document.querySelector('link[rel="manifest"]');
-  if (man) man.href = 'manifest-precificacao.json?v=20261015e';
+  if (man) man.href = 'manifest-precificacao.json?v=20261015f';
   const tit = document.querySelector('meta[name="apple-mobile-web-app-title"]');
   if (tit) tit.content = 'Preço LS';
   const h1Gate = document.querySelector('#loginGate h1');
@@ -451,6 +451,7 @@ function aplicarLogin_(data, chave0) {
      sem o campo; [] + saldosErro = arquivo ausente ou ilegivel. */
   SALDOS = Array.isArray(data.saldos) ? data.saldos : null;
   SALDOS_ERRO = data.saldosErro || null;
+  FANTASMAS = (data.fantasmas && typeof data.fantasmas === 'object') ? data.fantasmas : null;
   DRE_FONTES = (data.dreFontes && data.dreFontes.receita)
     ? data.dreFontes : { receita: [], cmv: [] };
   /* Que versao do Apps Script respondeu. Salvar o codigo nao publica: o Web App
@@ -1737,11 +1738,23 @@ const TEXTO_AVISO_A_RECEBER_ = 'O a receber inclui contas de Shopee e Mercado Li
    em 13/11. Antes disso as janelas de 7 e 15 dias estao LIMPAS, e avisar ali
    seria alarme sem motivo - o que ensina a ignorar aviso. A janela de 7 dias
    comeca a sujar em 06/11 e a de 15 em 29/10 (~R$ 1.365/dia dai em diante).
-   O passado (vencidas, PMR) segue sujo de levas antigas nao apagadas. Se o
-   Bling for zerado de novo, recalcular estas datas com o DRE. */
+   O passado (vencidas, PMR) segue sujo de levas antigas nao apagadas.
+   As datas vem do backend (campo fantasmas do fluxoCaixa, DRE ff088c6), que
+   as recalcula sozinho a cada zeramento - conferir fantasmas.zeradasEm. As
+   constantes abaixo so valem para backend sem o campo. Data null = calculo
+   falhou = aviso LIGADO (avisar sem precisar so incomoda; o contrario engana). */
 const SUJA_7D_DESDE_ = '2026-11-06';
 const SUJA_15D_DESDE_ = '2026-10-29';
-function aReceberSujo_(desde) { return AVISO_A_RECEBER_ && ymdLocal_(new Date()) >= desde; }
+let FANTASMAS = null;
+function aReceberSujo_(chave, fallback) {
+  if (!AVISO_A_RECEBER_) return false;
+  let desde = fallback;
+  if (FANTASMAS) {
+    desde = FANTASMAS[chave];
+    if (!desde) return true;
+  }
+  return ymdLocal_(new Date()) >= String(desde).slice(0, 10);
+}
 
 function renderHoje(el) {
   const p7 = projecaoCaixa_(7);
@@ -1768,7 +1781,7 @@ function renderHoje(el) {
         <div class="kpi-value">${p7.necessidade > 0 ? fmtBRL(p7.necessidade) : fmtBRL(0)}</div>
         <div class="kpi-foot">${p7.necessidade > 0
           ? 'Sai mais do que entra na semana'
-          : 'A semana se paga sozinha'}${aReceberSujo_(SUJA_7D_DESDE_) ? ' <span style="color:#b26a00;">⚠ conta com o a receber inflado</span>' : ''}</div>
+          : 'A semana se paga sozinha'}${aReceberSujo_('suja7d', SUJA_7D_DESDE_) ? ' <span style="color:#b26a00;">⚠ conta com o a receber inflado</span>' : ''}</div>
       </div>
       <div class="kpi">
         <div class="kpi-label">A pagar · 7 dias</div>
@@ -1778,7 +1791,7 @@ function renderHoje(el) {
       <div class="kpi">
         <div class="kpi-label">A receber · 7 dias</div>
         <div class="kpi-value val-in">${fmtBRL(p7.aReceber)}</div>
-        <div class="kpi-foot">${p7.nReceber} conta(s)${aReceberSujo_(SUJA_7D_DESDE_) ? ' <span style="color:#b26a00;">⚠</span>' : ''} · 30 dias: ${fmtBRL(p30.aReceber)} (${p30.nReceber})${AVISO_A_RECEBER_ ? ' <span style="color:#b26a00;">⚠</span>' : ''}</div>
+        <div class="kpi-foot">${p7.nReceber} conta(s)${aReceberSujo_('suja7d', SUJA_7D_DESDE_) ? ' <span style="color:#b26a00;">⚠</span>' : ''} · 30 dias: ${fmtBRL(p30.aReceber)} (${p30.nReceber})${aReceberSujo_('suja30d', '2026-10-14') ? ' <span style="color:#b26a00;">⚠</span>' : ''}</div>
       </div>
       <div class="kpi ${atrasadas.length ? 'bad' : 'ok'}">
         <div class="kpi-label">Vencidas em aberto</div>
@@ -1791,7 +1804,7 @@ function renderHoje(el) {
     </div>
 
     ${AVISO_A_RECEBER_ ? `<div class="alerta warn"><b>Atenção ao a receber.</b> ${TEXTO_AVISO_A_RECEBER_}</div>` : ''}
-    ${p15.necessidade > 0 ? `<div class="alerta warn">Nos próximos 15 dias sai <b>${fmtBRL(p15.necessidade)}</b> a mais do que entra${aReceberSujo_(SUJA_15D_DESDE_) ? ' (e o que entra pode estar inflado)' : ''}. Confira se o saldo em conta cobre.</div>` : ''}
+    ${p15.necessidade > 0 ? `<div class="alerta warn">Nos próximos 15 dias sai <b>${fmtBRL(p15.necessidade)}</b> a mais do que entra${aReceberSujo_('suja15d', SUJA_15D_DESDE_) ? ' (e o que entra pode estar inflado)' : ''}. Confira se o saldo em conta cobre.</div>` : ''}
 
     ${SALDOS !== null ? blocoSaldos_() : `<div class="alerta info">
       <b>O saldo em conta não aparece aqui de propósito.</b> A API do Bling não expõe os lançamentos
