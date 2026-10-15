@@ -2161,7 +2161,38 @@ function removerZumbiPorId(tipo, id) {
   L.push('');
   L.push('linhas encontradas na aba ...: ' + linhas.length);
   if (!linhas.length) {
-    L.push('Nada a fazer - esse id nao esta na aba.');
+    /* "Nada a fazer" era resposta ambigua, e as duas leituras pedem acoes
+     * opostas: ou a linha JA FOI REMOVIDA (e esta tudo certo, so rodou duas
+     * vezes), ou ela NUNCA ESTEVE LA (e aí o id esta errado e o acerto
+     * continua pesando na DRE em outro lugar).
+     *
+     * A _Zumbis guarda o carimbo de remocao justamente pra responder isso.
+     * Ferramenta que diz "nada a fazer" sem dizer POR QUE obriga quem le a
+     * adivinhar - e adivinhar errado aqui significa deixar R$ 2.784 na DRE
+     * achando que ja resolveu. */
+    var shZv = _zumbis_();
+    var jaRemovida = null;
+    if (shZv.getLastRow() > 1) {
+      shZv.getRange(2, 1, shZv.getLastRow() - 1, 9).getValues().forEach(function (z) {
+        if (String(z[1] || '').trim() !== id) return;
+        if (String(z[6] || '').indexOf('REMOVIDO DA ABA') === 0) jaRemovida = z;
+      });
+    }
+    if (jaRemovida) {
+      L.push('');
+      L.push('JA FOI REMOVIDA, e esta tudo certo - voce rodou duas vezes.');
+      L.push('  removida em .....: ' + jaRemovida[7]);
+      L.push('  valor ...........: R$ ' + Math.abs(Number(jaRemovida[3]) || 0).toFixed(2));
+      L.push('  categoria .......: ' + jaRemovida[4] + '  (' + jaRemovida[5] + ')');
+      L.push('');
+      L.push('O retrato esta na aba ' + ABA_ZUMBI_ + ' se precisar reconstruir.');
+    } else {
+      L.push('');
+      L.push('*** E NAO HA REGISTRO DE REMOCAO. ***');
+      L.push('Entao a linha nunca esteve na aba com este id, e o id pode estar');
+      L.push('errado - o que significa que o lancamento continua em algum lugar.');
+      L.push('Rode "Taxa: ler o acerto de julho por inteiro" pra reachar o id.');
+    }
     mostrarRelatorio_('Remover zumbi', L);
     return;
   }
