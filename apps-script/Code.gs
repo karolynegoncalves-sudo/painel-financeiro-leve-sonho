@@ -1253,14 +1253,19 @@ function getSaldosConferidos_() {
       var s = String(t || '').trim().replace(/[R$\s]/g, '');
       if (!s) return 0;
       var ultVirg = s.lastIndexOf(','), ultPonto = s.lastIndexOf('.');
-      if (ultVirg > ultPonto) s = s.replace(/\./g, '').replace(',', '.');
-      else s = s.replace(/,/g, '');
+      if (ultVirg > ultPonto) { fmtVirgula++; s = s.replace(/\./g, '').replace(',', '.'); }
+      else { if (ultPonto >= 0) fmtPonto++; s = s.replace(/,/g, ''); }
       var v = Number(s);
       return isNaN(v) ? 0 : v;
     };
 
     const saldos = [];
     const ruins = [];
+    /* DUAS MAOS NO MESMO ARQUIVO. Sugestao do Contas: numero as vezes com
+       virgula decimal e as vezes com ponto, no MESMO csv, costuma significar
+       que duas pessoas (ou dois scripts) escreveram nele. O parser aguenta os
+       dois, mas a mistura e sintoma e vale dizer. */
+    var fmtVirgula = 0, fmtPonto = 0;
     for (var i = 1; i < linhas.length; i++) {
       const c = linhas[i].split(';');
       const nome = String(c[iConta] || '').trim();
@@ -1283,6 +1288,12 @@ function getSaldosConferidos_() {
        campo inteiro existe pra evitar. */
     if (ruins.length) {
       return { saldos: saldos, saldosErro: 'conferido_ate invalido em: ' + ruins.join(', ') };
+    }
+    if (fmtVirgula && fmtPonto) {
+      return { saldos: saldos, saldosErro: 'ATENCAO: o arquivo mistura decimal com virgula ('
+               + fmtVirgula + ') e com ponto (' + fmtPonto + '). Os valores foram lidos, mas'
+               + ' mistura de formato costuma ser duas maos escrevendo no mesmo arquivo -'
+               + ' vale conferir quem gravou.' };
     }
     return { saldos: saldos, saldosErro: null };
   } catch (e) {
