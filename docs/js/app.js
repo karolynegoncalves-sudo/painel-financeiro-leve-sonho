@@ -71,7 +71,7 @@ const MODO_PRECIF_ = new URLSearchParams(location.search).get('app') === 'precif
   if (!MODO_PRECIF_) return;
   document.title = 'Leve Sonho — Precificação';
   const man = document.querySelector('link[rel="manifest"]');
-  if (man) man.href = 'manifest-precificacao.json?v=20261015i';
+  if (man) man.href = 'manifest-precificacao.json?v=20261015j';
   const tit = document.querySelector('meta[name="apple-mobile-web-app-title"]');
   if (tit) tit.content = 'Preço LS';
   const h1Gate = document.querySelector('#loginGate h1');
@@ -1585,12 +1585,19 @@ function margemPorCanal_(rows) {
    liberada dava MC 60% e PE 35k. O negocio nao mudou - a regua sim.
    A meta passa a usar a MC AGREGADA (soma das MC / soma das receitas) dos 3
    ultimos meses FECHADOS com fonte completa:
-   - fechado = ultimo dia do mes + 30 dias <= hoje (a cauda de liberacao da
-     Shopee ja entrou); setembro so conta a partir de 30/10;
+   - fechado = ultimo dia do mes + 30 dias <= hoje. O 30 vem da LIBERACAO da
+     Shopee: a taxa entra quando o pedido libera, 7 a 14 dias depois da venda;
+     30 cobre com folga. Setembro so conta a partir de 30/10;
+   - RESSALVA_CMV_PE_: o CMV desses meses foi preenchido a mao e esta ~12%
+     abaixo (pecas sem ficha entram com custo zero) - o guard de fonte nao ve,
+     porque a linha existe, so esta baixa. A meta sai facil demais (~R$ 4 mil).
+     NAO corrigir com fator no codigo: a ressalva sai quando o DRE refizer o
+     CMV com as fichas do site (gatilho dele, nao uma data).
    - fonte completa = agregadoDre_ sem __mesesSemFonte.
    O fixo e o do cadastro (vigente), como no PE do periodo. Sem financiamento:
    este e o PE CONTABIL; o de caixa (com servico da divida) espera o numero do
    DRE, que sai da DRE e nao da FPV. */
+const RESSALVA_CMV_PE_ = true;
 function peReferencia_() {
   const hoje = startOfDay_(new Date());
   const fixasMes = (precifDespesasFixas || [])
@@ -2203,6 +2210,7 @@ function renderKpis(el, rows) {
         </div>
         <div class="kpi-foot">Custo fixo ${fmtBRL(ref.fixasMes)} ÷ margem média de ${ref.meses.map(monthLabel).join(', ')} (${fmtPctSimples_(ref.mcPct)}).
           No período: ${fmtBRL(eq.receita)} de ${fmtBRL(metaPeriodo)} (${fmtPctSimples_(cob)}).</div>
+        ${RESSALVA_CMV_PE_ ? '<div class="kpi-foot" style="color:#b26a00;">⚠ A margem usa o CMV atual, ~12% abaixo por peças sem ficha técnica: a meta real é maior.</div>' : ''}
         ${avisoParcial_(eq)}
       </div>`; })() : `
       <div class="kpi ${eq.cobertura >= 1 ? 'ok' : (eq.cobertura >= 0.7 ? 'warn' : 'bad')}">
@@ -2234,7 +2242,8 @@ function renderKpis(el, rows) {
         deduções ${fmtBRL(ref.deducoes)}, CMV ${fmtBRL(ref.cmv)}, variáveis ${fmtBRL(ref.variaveis)}).
         Usa só meses fechados há mais de 30 dias, para a taxa da Shopee já ter entrado; o mês de um período só
         balança com a época em que a taxa é lançada. A tabela abaixo é a conta do período filtrado.
-        <small>Ponto de equilíbrio contábil — sem as parcelas do financiamento.</small></div>` : ''}
+        <small>Ponto de equilíbrio contábil — sem as parcelas do financiamento.</small>
+        ${RESSALVA_CMV_PE_ ? '<br><span style="color:#b26a00;">⚠ O CMV desses meses foi lançado à mão e está ~12% abaixo do real (peças sem ficha entram com custo zero). Com ele corrigido, a margem cai e a meta sobe uns R$ 4 mil.</span>' : ''}</div>` : ''}
       <div class="sub">Quanto precisa entrar pra pagar o custo fixo. A margem aqui já desconta o custo do produto, diferente da tabela por canal abaixo. <b>Mesma base da aba DRE</b>: por competência, com receita e CMV vindos de <code>_Receita_Pedidos</code> e <code>_CMV_Consumo</code> — conta em aberto entra, porque competência é o fato e não o pagamento. Por isso a margem daqui é a mesma da DRE, e não a do Fluxo de Caixa.</div>
       <div style="overflow-x:auto;"><table class="simple">
         <tr><td>Receita bruta <small>por competência, pela data do pedido</small></td><td class="num val-in">${fmtBRL(eq.receita, 2)}</td></tr>
