@@ -71,7 +71,7 @@ const MODO_PRECIF_ = new URLSearchParams(location.search).get('app') === 'precif
   if (!MODO_PRECIF_) return;
   document.title = 'Leve Sonho — Precificação';
   const man = document.querySelector('link[rel="manifest"]');
-  if (man) man.href = 'manifest-precificacao.json?v=20261015h';
+  if (man) man.href = 'manifest-precificacao.json?v=20261015i';
   const tit = document.querySelector('meta[name="apple-mobile-web-app-title"]');
   if (tit) tit.content = 'Preço LS';
   const h1Gate = document.querySelector('#loginGate h1');
@@ -736,7 +736,10 @@ async function garantirFluxo_(el) {
    O QUE QUEBRARIA ISSO: uma tela nova que leia FLUXO_ROWS sem recortar por
    FILTER e que NAO seja so-em-aberto. O numero dela inflaria em silencio com
    a janela - o periodo muda e o valor nao acompanha. (Revisao do DRE.) */
-const JANELA_MESES_ = 3;
+/* 4 e nao 3 (15/10/2026): o PE de referencia usa os 3 ultimos meses FECHADOS,
+   e o mes recem-encerrado ainda nao conta como fechado - entao a janela
+   precisa alcancar 4 meses atras para ter os 3 na memoria. */
+const JANELA_MESES_ = 4;
 let JANELA_PROMESSA_ = null;
 let JANELA_DE_ = '9999-12-31';
 
@@ -774,6 +777,7 @@ function preCarregarJanela_() {
     usarFluxo_(d, chave, atual);
     marcarFresco_('janela');
     if (atual) rerenderSeUsa_(['hoje', 'kpis', 'fluxoCaixa', 'dre', 'balanco', 'vendas']);
+    else rerenderSeUsa_(['kpis']);   // o PE de referencia le a janela larga
   })();
   return JANELA_PROMESSA_;
 }
@@ -1207,12 +1211,14 @@ function ehRecebimento_(grupo) {
  * Devolve null quando as abas externas nao chegaram - a tela precisa dizer
  * isso em vez de mostrar margem calculada sem receita nem CMV.
  */
-function agregadoDre_(start, end) {
+function agregadoDre_(start, end, rowsBase) {
   const fontes = (DRE_FONTES && (DRE_FONTES.receita || []).length
                               && (DRE_FONTES.cmv || []).length) ? DRE_FONTES : null;
   if (!fontes) return null;
 
-  const base = (FLUXO_ROWS || [])
+  /* rowsBase (15/10/2026): o PE de referencia calcula meses fora do filtro a
+     partir da janela larga, sem trocar o FLUXO_ROWS da tela. */
+  const base = (rowsBase || FLUXO_ROWS || [])
     .filter(r => !r.cancelada && r.dateComp >= start && r.dateComp <= end);
   const pg = agregarPorGrupo_(base);
 
@@ -1573,6 +1579,53 @@ function margemPorCanal_(rows) {
    justamente lendo ele que a funcao respondia zero. Agora busca a propria base
    por competencia em agregadoDre_. Param removido de proposito, pra ninguem
    voltar a passar linha de caixa aqui achando que e a fonte. */
+/* PONTO DE EQUILIBRIO DE REFERENCIA (15/10/2026, desenho do DRE).
+   O PE de um mes so herdava o ruido de competencia das variaveis: agosto com
+   1,5 mes de taxa Shopee dava MC 29% e PE 71k; setembro sem a taxa ainda nao
+   liberada dava MC 60% e PE 35k. O negocio nao mudou - a regua sim.
+   A meta passa a usar a MC AGREGADA (soma das MC / soma das receitas) dos 3
+   ultimos meses FECHADOS com fonte completa:
+   - fechado = ultimo dia do mes + 30 dias <= hoje (a cauda de liberacao da
+     Shopee ja entrou); setembro so conta a partir de 30/10;
+   - fonte completa = agregadoDre_ sem __mesesSemFonte.
+   O fixo e o do cadastro (vigente), como no PE do periodo. Sem financiamento:
+   este e o PE CONTABIL; o de caixa (com servico da divida) espera o numero do
+   DRE, que sai da DRE e nao da FPV. */
+function peReferencia_() {
+  const hoje = startOfDay_(new Date());
+  const fixasMes = (precifDespesasFixas || [])
+    .filter(d => d.vigente !== false)
+    .reduce((s, d) => s + (Number(d.valorMensal || d.valor || 0)), 0);
+  const escolhidos = [];
+  for (let k = 1; k <= 12 && escolhidos.length < 3; k++) {
+    const ini = new Date(hoje.getFullYear(), hoje.getMonth() - k, 1);
+    const fim = endOfDay_(new Date(hoje.getFullYear(), hoje.getMonth() - k + 1, 0));
+    if (addDays_(startOfDay_(fim), 30) > hoje) continue;      // ainda enchendo
+    const chave = chaveQueCobre_(ymdLocal_(ini), ymdLocal_(fim));
+    if (!chave) break;                                          // fora da memoria
+    const pg = agregadoDre_(ini, fim, FLUXO_CACHE[chave]);
+    if (!pg || (pg.__mesesSemFonte || []).length) continue;     // fonte incompleta
+    const g = (n) => pg[n] || 0;
+    const receita = g('Receita Bruta');
+    if (receita <= 0) continue;
+    escolhidos.push({
+      chave: ymdLocal_(ini).slice(0, 7), receita: receita,
+      deducoes: -(g('Deduções da Receita') + g(GRUPO_IMPOSTO)),
+      cmv: -g('CMV'), variaveis: -g('Despesas Variáveis de Venda')
+    });
+  }
+  if (escolhidos.length < 3) return { pronto: false, fixasMes: fixasMes, meses: escolhidos.map(m => m.chave) };
+  const soma = (c) => escolhidos.reduce((t, m) => t + m[c], 0);
+  const receita = soma('receita'), deducoes = soma('deducoes'), cmv = soma('cmv'), variaveis = soma('variaveis');
+  const mc = receita - deducoes - cmv - variaveis;
+  const mcPct = receita ? mc / receita : 0;
+  return {
+    pronto: mcPct > 0, fixasMes: fixasMes, meses: escolhidos.map(m => m.chave).reverse(),
+    receita: receita, deducoes: deducoes, cmv: cmv, variaveis: variaveis, mc: mc, mcPct: mcPct,
+    pe: mcPct > 0 ? fixasMes / mcPct : 0
+  };
+}
+
 function pontoEquilibrio_() {
   /* Custo fixo VIGENTE. O filtro antigo era `d.ativo !== false`, e o campo
      `ativo` nunca existiu no cadastro - entao ele nao filtrava nada e somava
@@ -2098,6 +2151,7 @@ function renderKpis(el, rows) {
   const variacaoReceita = (!anteriorIncompleto && anterior.receitaBruta) ? (receitaBruta / anterior.receitaBruta - 1) : null;
   const indPmr = pmr_(rows);
   const eq = pontoEquilibrio_();
+  const ref = peReferencia_();
   const canais = margemPorCanal_(rows);
   const fat = faturamento_(FILTER.start, FILTER.end);
   const fatAnterior = faturamento_(prevStart, prevEnd);
@@ -2138,6 +2192,19 @@ function renderKpis(el, rows) {
         <div class="kpi-foot">${fmtBRL(indPmr.aReceber)} vendidos e ainda não recebidos (${indPmr.nReceber} contas)${AVISO_A_RECEBER_
           ? '<br><span style="color:#b26a00;">⚠ inflado: ' + escapeHtml_(TEXTO_AVISO_A_RECEBER_.split(' — ')[0]) + '</span>' : ''}</div>
       </div>
+      ${ref.pronto ? (() => {
+        const metaPeriodo = ref.pe * eq.meses;
+        const cob = metaPeriodo ? eq.receita / metaPeriodo : 0;
+        return `<div class="kpi ${cob >= 1 ? 'ok' : (cob >= 0.7 ? 'warn' : 'bad')}">
+        <div class="kpi-label">Ponto de equilíbrio <small style="text-transform:none;letter-spacing:0;">meta mensal</small></div>
+        <div class="kpi-value">${fmtBRL(ref.pe)}</div>
+        <div style="margin:.45rem 0 .3rem;height:6px;border-radius:3px;background:rgba(0,0,0,.08);overflow:hidden;">
+          <div style="height:100%;width:${Math.min(100, cob * 100).toFixed(1)}%;border-radius:3px;background:currentColor;opacity:.55;"></div>
+        </div>
+        <div class="kpi-foot">Custo fixo ${fmtBRL(ref.fixasMes)} ÷ margem média de ${ref.meses.map(monthLabel).join(', ')} (${fmtPctSimples_(ref.mcPct)}).
+          No período: ${fmtBRL(eq.receita)} de ${fmtBRL(metaPeriodo)} (${fmtPctSimples_(cob)}).</div>
+        ${avisoParcial_(eq)}
+      </div>`; })() : `
       <div class="kpi ${eq.cobertura >= 1 ? 'ok' : (eq.cobertura >= 0.7 ? 'warn' : 'bad')}">
         <div class="kpi-label">Ponto de equilíbrio</div>
         <div class="kpi-value">${eq.faturamentoNecessario ? fmtBRL(eq.faturamentoNecessario) : '—'}</div>
@@ -2152,14 +2219,22 @@ function renderKpis(el, rows) {
               ? '. Passou em ' + fmtBRL(eq.receita - eq.faturamentoNecessario) + '.'
               : '. Faltam ' + fmtBRL(eq.faturamentoNecessario - eq.receita) + '.')
           : motivoSemEquilibrio_(eq)}</div>
+        <div class="kpi-foot" style="color:var(--muted);">Margem só deste período — a meta pela média dos meses fechados aparece quando eles carregarem.</div>
         ${avisoParcial_(eq)}
-      </div>
+      </div>`}
     </div>
 
     ${renderCruzamento_(rows)}
 
     <div class="panel">
       <h3>Ponto de equilíbrio</h3>
+      ${ref.pronto ? `<div class="alerta info" style="margin-bottom:.6rem;">
+        <b>Meta mensal: ${fmtBRL(ref.pe, 2)}</b> — custo fixo ${fmtBRL(ref.fixasMes, 2)} ÷ margem de contribuição média de
+        ${ref.meses.map(monthLabel).join(', ')} (<b>${fmtPctSimples_(ref.mcPct)}</b>: receita ${fmtBRL(ref.receita)},
+        deduções ${fmtBRL(ref.deducoes)}, CMV ${fmtBRL(ref.cmv)}, variáveis ${fmtBRL(ref.variaveis)}).
+        Usa só meses fechados há mais de 30 dias, para a taxa da Shopee já ter entrado; o mês de um período só
+        balança com a época em que a taxa é lançada. A tabela abaixo é a conta do período filtrado.
+        <small>Ponto de equilíbrio contábil — sem as parcelas do financiamento.</small></div>` : ''}
       <div class="sub">Quanto precisa entrar pra pagar o custo fixo. A margem aqui já desconta o custo do produto, diferente da tabela por canal abaixo. <b>Mesma base da aba DRE</b>: por competência, com receita e CMV vindos de <code>_Receita_Pedidos</code> e <code>_CMV_Consumo</code> — conta em aberto entra, porque competência é o fato e não o pagamento. Por isso a margem daqui é a mesma da DRE, e não a do Fluxo de Caixa.</div>
       <div style="overflow-x:auto;"><table class="simple">
         <tr><td>Receita bruta <small>por competência, pela data do pedido</small></td><td class="num val-in">${fmtBRL(eq.receita, 2)}</td></tr>
