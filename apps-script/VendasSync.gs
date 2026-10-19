@@ -1207,7 +1207,17 @@ function _vendas2025_() {
  *
  * `mes` no formato '2025-06'.
  */
-function congelarVendasMes(mes) {
+/**
+ * `semModal` = true nao abre o relatorio na tela, so no log. Serve pra
+ * congelar varios meses em sequencia sem dez modais empilhados.
+ *
+ * E um parametro que FAZ alguma coisa, ao contrario do `silencioso` que eu
+ * tinha posto no refazerReceitaMes e tirei no mesmo dia: la o
+ * mostrarRelatorio_ ja caia pro Logger sozinho quando nao havia tela, entao
+ * o parametro era enfeite. Aqui ha tela e o problema e justamente o excesso
+ * dela.
+ */
+function congelarVendasMes(mes, semModal) {
   mes = String(mes || '').trim();
   if (!/^\d{4}-\d{2}$/.test(mes)) {
     mostrarRelatorio_('Congelar vendas', ['informe o mes: congelarVendasMes("2025-06")']);
@@ -1292,7 +1302,8 @@ function congelarVendasMes(mes) {
   }
   L.push('');
   L.push('NAO MEXI NO BLING. So li pedido e escrevi na planilha.');
-  mostrarRelatorio_('Congelar ' + mes, L);
+  if (semModal) Logger.log('Congelar ' + mes + String.fromCharCode(10) + L.join(String.fromCharCode(10)));
+  else mostrarRelatorio_('Congelar ' + mes, L);
 }
 
 function congelarVendas2025Nov() { return congelarVendasMes('2025-11'); }
@@ -1473,3 +1484,158 @@ function listarPecasSemFicha(mes) {
 }
 
 function semFichaAgosto() { return listarPecasSemFicha('2026-08'); }
+
+/* ============================================================================
+ * 2025 RETROATIVO: congelar jan a out, depois receita, depois CMV.
+ *
+ * ELA PEDIU em 19/10/2026: "me interessa sim fazer o retroativo". O cofre ja
+ * cobria nov e dez (1.437 pedidos); faltam os dez primeiros meses.
+ *
+ * E NAO PRECISA ALARGAR A JANELA DO SYNC. O congelarVendasMes le o Bling
+ * DIRETO por mes - nao passa pela aba Vendas. Entao da pra guardar 2025
+ * inteiro sem aumentar o que o syncVendas reconstroi de 2 em 2 horas, que
+ * seria custo permanente pra dado que nunca mais muda.
+ *
+ * Isso so ficou claro depois de eu ter alargado a janela pra nov/dez em
+ * 08/10 - naquele dia eu nao tinha o cofre ainda, e a janela era o unico
+ * caminho. Hoje o cofre e melhor e a janela podia voltar pra 2026-01-01.
+ * Nao mexo nela agora porque mexer sem necessidade e risco de graca, mas
+ * fica anotado que ela virou redundante.
+ *
+ * ORDEM OBRIGATORIA, e cada etapa tem um custo bem diferente:
+ *   1. CONGELAR  - listagem, ~7 paginas por mes. Barato.
+ *   2. RECEITA   - agregacao da planilha. Segundos, sem API.
+ *   3. CMV       - um GET por pedido. CARO: ~6.000 pedidos em 2025.
+ *
+ * Por isso a etapa 3 tem gatilho e as duas primeiras nao.
+ * ========================================================================== */
+var RETRO_PROGRESSO_ = 'RETRO2025_CONGELADOS';
+var RETRO_MESES_ = ['2025-01', '2025-02', '2025-03', '2025-04', '2025-05',
+                    '2025-06', '2025-07', '2025-08', '2025-09', '2025-10'];
+
+/** Congela os meses que faltam, um por rodada, ate acabar o tempo. */
+function congelar2025Retroativo() {
+  var props = PropertiesService.getScriptProperties();
+  var feitos = {};
+  try { feitos = JSON.parse(props.getProperty(RETRO_PROGRESSO_) || '{}'); } catch (e) {}
+
+  var faltam = RETRO_MESES_.filter(function (m) { return !feitos[m]; });
+  if (!faltam.length) {
+    mostrarRelatorio_('2025 retroativo', [
+      'TODOS OS DEZ MESES JA ESTAO CONGELADOS.',
+      '',
+      'Proximo passo: "2025 retroativo: gravar a receita dos dez meses".'
+    ]);
+    return;
+  }
+
+  var L = ['CONGELAR 2025 RETROATIVO', ''];
+  L.push('faltam: ' + faltam.join(', '));
+  L.push('');
+  INICIO_SYNC_.t = Date.now();
+
+  var fez = 0;
+  for (var i = 0; i < faltam.length; i++) {
+    /* Teto proprio, mais folga: cada mes gasta ~7 paginas e eu nao quero
+       comecar um mes que nao vou terminar - mes pela metade entra no cofre
+       incompleto e o relatorio diria "completo". */
+    if (tempoGasto_() > TETO_TOTAL_MS * 0.75) break;
+    var m = faltam[i];
+    var antes = _contarCofre_(m);
+    congelarVendasMes(m, true);        // true = sem modal, sao dez em sequencia
+    var depois = _contarCofre_(m);
+    L.push('  ' + m + ': ' + (depois - antes) + ' novo(s), ' + depois + ' no total');
+    feitos[m] = 1;
+    props.setProperty(RETRO_PROGRESSO_, JSON.stringify(feitos));
+    fez++;
+  }
+
+  L.push('');
+  L.push('congelados nesta rodada ..: ' + fez);
+  var resta = RETRO_MESES_.filter(function (m) { return !feitos[m]; });
+  if (resta.length) {
+    L.push('AINDA FALTAM ' + resta.length + ': ' + resta.join(', '));
+    L.push('Rode de novo - ele continua de onde parou.');
+  } else {
+    L.push('TODOS OS DEZ MESES CONGELADOS.');
+    L.push('Proximo: "2025 retroativo: gravar a receita dos dez meses".');
+  }
+  mostrarRelatorio_('2025 retroativo', L);
+}
+
+/** Quantos pedidos de um mes ja estao no cofre. */
+function _contarCofre_(mes) {
+  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_VENDAS_2025_);
+  if (!sh || sh.getLastRow() < 2) return 0;
+  var tz = 'America/Sao_Paulo';
+  var n = 0;
+  sh.getRange(2, 2, sh.getLastRow() - 1, 1).getValues().forEach(function (l) {
+    var v = l[0];
+    var m = v instanceof Date ? Utilities.formatDate(v, tz, 'yyyy-MM')
+                              : String(v || '').trim().slice(0, 7);
+    if (m === mes) n++;
+  });
+  return n;
+}
+
+/**
+ * A receita dos dez meses. Barato - le a planilha, nao a API.
+ * Usa o gravarReceitaPedidos, que RECUSA sobrescrever mes que ja existe:
+ * aqui isso e desejavel, porque sao meses fechados.
+ */
+function gravarReceita2025Retroativo() {
+  var L = ['RECEITA DE 2025 (jan a out)', ''];
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  var temNaAba = {};
+  getVendasRows_().forEach(function (v) {
+    var m = String(v.data || '').slice(0, 7);
+    if (RETRO_MESES_.indexOf(m) >= 0) temNaAba[m] = (temNaAba[m] || 0) + 1;
+  });
+
+  var semPedido = RETRO_MESES_.filter(function (m) { return !temNaAba[m]; });
+  if (semPedido.length) {
+    L.push('*** ESTES MESES NAO ESTAO NA LEITURA DE VENDAS: ' + semPedido.join(', '));
+    L.push('Congele primeiro ("2025 retroativo: congelar jan a out").');
+    L.push('');
+  }
+
+  RETRO_MESES_.forEach(function (m) {
+    if (!temNaAba[m]) return;
+    gravarReceitaPedidos(m);
+  });
+
+  // le de volta, em vez de confiar em quem escreveu
+  var sh = ss.getSheetByName(ABA_RECEITA_PEDIDOS_);
+  var porMes = {};
+  if (sh && sh.getLastRow() > 1) {
+    sh.getRange(2, 1, sh.getLastRow() - 1, 4).getValues().forEach(function (l) {
+      var m = l[0] instanceof Date
+        ? Utilities.formatDate(l[0], 'America/Sao_Paulo', 'yyyy-MM')
+        : String(l[0] || '').trim().slice(0, 7);
+      if (RETRO_MESES_.indexOf(m) < 0) return;
+      if (!porMes[m]) porMes[m] = { v: 0, p: 0 };
+      porMes[m].v += Number(l[2]) || 0;
+      porMes[m].p += Number(l[3]) || 0;
+    });
+  }
+
+  L.push('GRAVADO NA ' + ABA_RECEITA_PEDIDOS_ + ':');
+  var tot = 0;
+  RETRO_MESES_.forEach(function (m) {
+    var r = porMes[m];
+    if (r) tot += r.v;
+    L.push('  ' + m + ': ' + (r ? 'R$ ' + r.v.toFixed(2) + '  |  ' + r.p + ' pedido(s)'
+                               : '(nada)'));
+  });
+  L.push('');
+  L.push('TOTAL de jan a out/2025: R$ ' + tot.toFixed(2));
+  L.push('');
+  L.push('ATENCAO - ESSES MESES NASCEM INCOMPLETOS, e nao e defeito do script:');
+  L.push('  - CMV: zero ate rodar a etapa 3 (a cara, com gatilho)');
+  L.push('  - TAXA de marketplace: nao existe lancada no Bling nesse periodo');
+  L.push('  - DAS: so ha guia de out/2025 em diante');
+  L.push('Ou seja: a margem vai aparecer alta demais. Nao e numero pra ler');
+  L.push('ainda - e base pra completar.');
+  mostrarRelatorio_('Receita 2025 retroativo', L);
+}
