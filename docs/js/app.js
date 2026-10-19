@@ -71,7 +71,7 @@ const MODO_PRECIF_ = new URLSearchParams(location.search).get('app') === 'precif
   if (!MODO_PRECIF_) return;
   document.title = 'Leve Sonho — Precificação';
   const man = document.querySelector('link[rel="manifest"]');
-  if (man) man.href = 'manifest-precificacao.json?v=20261015j';
+  if (man) man.href = 'manifest-precificacao.json?v=20261019a';
   const tit = document.querySelector('meta[name="apple-mobile-web-app-title"]');
   if (tit) tit.content = 'Preço LS';
   const h1Gate = document.querySelector('#loginGate h1');
@@ -4718,6 +4718,7 @@ function atualizarSaida_(el) {
   põe('fpVenda', linhasVenda_(r, preco, taxaRs, sobra, p15, dfx, fixasRs, lucro));
   põe('fpAvisos', avisosFicha_(r, preco, p15));
   põe('fpCanais', linhasCanais_(canais, preco));
+  põe('fpAntecipa', linhasAntecipacao_(canais, preco));
 
   const hero = document.getElementById('fpHero');
   if (hero) {
@@ -4823,6 +4824,18 @@ function renderPrecificacao(el) {
       O <b>piso de 15%</b> é a margem mínima para queima de estoque.
       <b>Acabamentos</b> podem ser combinados — cada um marcado soma seu custo, e a quantidade vem preenchida com o padrão da peça. Só o <b>tule</b> desconta metros do tecido principal, porque a manga é de tule e não se corta manga de cetim; guipir, chantily e vivo são aplicados por cima e só somam.
       A <b>taxa fixa</b> da Shopee entra como taxa de canal, não como custo da peça — nas fichas antigas ela estava somada ao custo, o que fazia a peça parecer cara também na Nuvemshop, onde essa cobrança não existe.
+    </div>
+
+    <div class="panel">
+      <h3>Simulação: e se eu antecipar?</h3>
+      <div class="sub">Só para ter noção do real. A antecipação é <b>custo financeiro</b>: não entra na taxa do canal nem na margem acima, e só existe se você antecipar. Ela é cobrada sobre o que o canal <b>libera</b> (preço − taxa − fixa). A taxa vem do DRE, com a data da medição.</div>
+      <div style="overflow-x:auto;"><table class="simple fp-tabela">
+        <thead><tr>
+          <th>Canal</th><th>Antecipação</th><th class="num">Liberado</th><th class="num">Custo antecipar</th>
+          <th class="num">Sobra sem</th><th class="num">Sobra com</th><th>Situação com</th>
+        </tr></thead>
+        <tbody id="fpAntecipa">${linhasAntecipacao_(canais, preco)}</tbody>
+      </table></div>
     </div>
   `;
 
@@ -5099,6 +5112,69 @@ function tabelaPisos_(modelos, canais, dfx) {
       cobra 9,8% contra 29,5% da Shopee) e <b>custo fixo</b>, que hoje é
       R$ 21.116,59 por mês.</div>
   </div>`;
+}
+
+/* SIMULACAO COM ANTECIPACAO (pedido da Karol, 19/10/2026). Antecipacao e
+   custo FINANCEIRO (regra 2 do CLAUDE.md): nao muda a taxa do canal nem a MC
+   oficial - e uma linha a parte, "pra ter nocao do real" se ela antecipar.
+   Incide sobre o que o canal LIBERA (preco - taxa - fixa), nao sobre o preco.
+   A taxa vem do DRE, fonte unica, sempre com a data da medicao: o campo
+   antecipacaoPct/antecipacaoMedidoEm do canal no Precificacao_Config. Enquanto
+   o DRE nao gravar la, vale a medicao dele de 28/09 do Acelera (5,06%) - e o
+   ML/MP aparece "nao medido", nunca um numero chutado. */
+/* ML medido pelo DRE em 19/10/2026 (593 pagamentos jul-set): no periodo a
+   loja NAO antecipou recebivel; o unico custo do vendedor e o
+   mp_financing_1x_fee, 0,03% a 0,07% do liberado (o juro do parcelamento e
+   pago pelo comprador - financing_fee = financing_transfer ao centavo). Se ela
+   ligar a antecipacao de recebiveis do MP, o custo aparece nas LIBERACOES e
+   nao esta neste numero. Acelera: 5,06% de 28/09 segue provisorio ate o DRE
+   remedir a taxa CONDICIONAL (de quem antecipa aquela venda), que e a que esta
+   simulacao precisa - o percentual medio diluido subestimaria. */
+const ANTECIPACAO_PROVISORIA_ = {
+  shopee: { pct: 0.0506, medidoEm: '2026-09-28', nome: 'Acelera (Shopee)',
+            nota: 'provisório: o DRE vai remedir a taxa de quem antecipa' },
+  ml: { pct: 0.0007, medidoEm: '2026-10-19', nome: 'Mercado Pago',
+        nota: 'sem antecipação de recebíveis no período medido (jul–set/2026): o custo é só a tarifa do parcelamento 1x. Se ligar a antecipação do Mercado Pago, o custo real será maior' }
+};
+function antecipacaoDoCanal_(c) {
+  const cfg = ((precifConfig && precifConfig.canais) || {})[c.canal] || {};
+  const tipo = /shopee/i.test(c.canal) ? 'shopee' : /mercado/i.test(c.canal) ? 'ml' : null;
+  if (!tipo) return null;
+  if (cfg.antecipacaoPct !== undefined && cfg.antecipacaoPct !== '') {
+    return { tipo: tipo, pct: Number(cfg.antecipacaoPct) || 0, medidoEm: cfg.antecipacaoMedidoEm || '', nome: tipo === 'shopee' ? 'Acelera (Shopee)' : 'Antecipação Mercado Pago', provisoria: false };
+  }
+  const prov = ANTECIPACAO_PROVISORIA_[tipo];
+  return prov ? Object.assign({ tipo: tipo, provisoria: true }, prov)
+    : { tipo: tipo, pct: null, medidoEm: '', nome: 'Antecipação Mercado Pago', provisoria: true };
+}
+function linhasAntecipacao_(canais, preco) {
+  const alvo = canais.filter(c => antecipacaoDoCanal_(c));
+  if (!alvo.length) return '<tr><td colspan="7" style="color:var(--muted);">Nenhum canal Shopee ou Mercado Livre na configuração.</td></tr>';
+  return alvo.map(function (c) {
+    const a = antecipacaoDoCanal_(c);
+    const rc = calcularFicha_(FICHA.modelo, FICHA.tamanho, FICHA.tecido, FICHA.acabamentos, c, preco);
+    const t = preco * rc.taxaPct;
+    const s = preco - t - rc.fixa - rc.custo;
+    const liberado = Math.max(0, preco - t - rc.fixa);
+    const data = a.medidoEm ? fmtDataBR(new Date(String(a.medidoEm).slice(0, 10) + 'T00:00:00')) : '';
+    if (a.pct === null) {
+      return '<tr><td>' + escapeHtml_(c.canal) + '</td><td>' + a.nome + '</td>'
+        + '<td class="num" colspan="5" style="color:var(--muted);">taxa ainda não medida pelo DRE — sem número até medir</td></tr>';
+    }
+    const custoAnt = liberado * a.pct;
+    const sCom = s - custoAnt;
+    const mpSem = preco ? s / preco : 0, mpCom = preco ? sCom / preco : 0;
+    return '<tr><td>' + escapeHtml_(c.canal) + '</td>'
+      + '<td>' + a.nome + '<small>' + fmtPctPlano_(a.pct) + ' sobre o liberado' + (data ? ' · medido ' + data : '')
+      + (a.nota ? ' · ' + escapeHtml_(a.nota) : (a.provisoria ? ' · provisório' : '')) + '</small></td>'
+      + '<td class="num">R$ ' + fmtNum_(liberado) + '</td>'
+      + '<td class="num val-out">' + (preco ? '−R$ ' + fmtNum_(custoAnt) : '—') + '</td>'
+      + '<td class="num">' + (preco ? 'R$ ' + fmtNum_(s) + '<small>' + fmtPctPlano_(mpSem) + '</small>' : '—') + '</td>'
+      + '<td class="num"><b>' + (preco ? 'R$ ' + fmtNum_(sCom) : '—') + '</b><small>' + (preco ? fmtPctPlano_(mpCom) : '') + '</small></td>'
+      + '<td>' + (!preco ? '' : mpCom >= 0.30 ? '<span class="pill ok">saudável</span>'
+          : mpCom >= MARGEM_QUEIMA ? '<span class="pill md">só para queima</span>'
+          : mpCom > 0 ? '<span class="pill no">abaixo do piso</span>' : '<span class="pill no">no prejuízo</span>') + '</td></tr>';
+  }).join('');
 }
 
 function linhasCanais_(canais, preco) {
