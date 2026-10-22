@@ -596,3 +596,15 @@ tr.gv-cat-lanc .gv-lanc{margin:0; font-size:12px;}
 .saldos .saldo-quando{font-size:11.5px; color:var(--muted); white-space:nowrap;}
 .saldos tr.saldo-velho td{background:#FBE7B5;}
 .saldos tr.saldo-velho .saldo-quando{color:#7A4B00; font-weight:600;}
+
+/* Meta do mes (22/10/2026). */
+.meta-mes .meta-linha{margin:.8rem 0;}
+.meta-mes .meta-topo{display:flex; align-items:baseline; gap:8px; flex-wrap:wrap;}
+.meta-mes .meta-topo small{color:var(--muted); font-size:11.5px;}
+.meta-mes .meta-alvo{margin-left:auto; font-family:'Fraunces',serif; font-weight:600; font-size:18px;}
+.meta-mes .meta-barra{height:10px; border-radius:5px; background:rgba(0,0,0,.08); overflow:hidden; margin:.35rem 0;}
+.meta-mes .meta-barra > div{height:100%; border-radius:5px;}
+.meta-mes .ok .meta-barra > div{background:#2F6F4E;}
+.meta-mes .warn .meta-barra > div{background:#B9791F;}
+.meta-mes .bad .meta-barra > div{background:#C0392B;}
+.meta-mes .meta-pe{font-size:12.5px; color:var(--ink);}

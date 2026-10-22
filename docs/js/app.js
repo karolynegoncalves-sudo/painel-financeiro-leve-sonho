@@ -452,6 +452,8 @@ function aplicarLogin_(data, chave0) {
   SALDOS = Array.isArray(data.saldos) ? data.saldos : null;
   SALDOS_ERRO = data.saldosErro || null;
   FANTASMAS = (data.fantasmas && typeof data.fantasmas === 'object') ? data.fantasmas : null;
+  /* Meta do mes (22/10/2026): obrigacoes atrasadas derivadas do Bling (DRE). */
+  OBRIGACOES = Array.isArray(data.obrigacoes) ? data.obrigacoes : null;
   DRE_FONTES = (data.dreFontes && data.dreFontes.receita)
     ? data.dreFontes : { receita: [], cmv: [] };
   /* Que versao do Apps Script respondeu. Salvar o codigo nao publica: o Web App
@@ -1598,6 +1600,91 @@ function margemPorCanal_(rows) {
    este e o PE CONTABIL; o de caixa (com servico da divida) espera o numero do
    DRE, que sai da DRE e nao da FPV. */
 const RESSALVA_CMV_PE_ = true;
+/* META DO MES (pedido da Karol, 22/10/2026; formula do DRE).
+     MC   = MC de referencia (agregada dos 3 meses fechados, peReferencia_)
+     PE   = custo fixo vigente / MC                -> "nao dar prejuizo"
+     META = PE + obrigacoes ATRASADAS / MC         -> "fechar o mes em dia"
+   Obrigacoes vem do backend (DRE): contas a pagar em aberto e vencidas,
+   derivadas do Bling, menos as que a Karol excluir - sem aba digitada que
+   divirja do Bling. Entra so o que a MC NAO cobre: atrasado, parcela de
+   emprestimo, investimento. Imposto do mes, taxa e CMV ja estao na MC.
+   O DAS DO PROPRIO MES NAO ENTRA: ele ja esta dentro da MC (os ~7,7% de
+   imposto). Soma-lo de novo cobraria o imposto duas vezes (~R$ 11 mil a mais
+   em out/2026). So entra DAS de competencia anterior, que a MC do mes nunca
+   cobriu. E a obrigacao entra DIVIDIDA pela MC: para sobrar R$ 4.580 de caixa
+   e preciso vender R$ 4.580 / 0,406 = R$ 11.275 (o resto vai em taxa,
+   imposto e CMV).
+   Duas barras, dois rotulos: uma so esconderia que out/2026 passa o PE e nao
+   passa a meta de caixa. Faturado = "vendi" (data do pedido) do mes corrente.
+   Conferencia do DRE para 22/10/2026: PE 51.365,72; meta 62.640,48; ritmo
+   1.879,86/dia; falta/dia 1.112,09 (PE) e 2.364,84 (meta). */
+let OBRIGACOES = null;
+
+function metaDoMes_() {
+  const hoje = startOfDay_(new Date());
+  const y = hoje.getFullYear(), m = hoje.getMonth();
+  const chaveMes = y + '-' + String(m + 1).padStart(2, '0');
+  const diasMes = new Date(y, m + 1, 0).getDate();
+  const decorridos = hoje.getDate();
+  const restantes = diasMes - decorridos;   // dias DEPOIS de hoje
+  const ref = peReferencia_();
+  const fixas = ref.fixasMes;
+  /* MC = REGUA dos 3 ultimos meses fechados (peReferencia_), nao a do mes:
+     mes isolado e ruido de mix e de cancelamento (set 60%, ago 29%). Combinado
+     com o DRE em 22/10. Numero de um mes especifico que o DRE der e outra
+     pergunta ("como estou ESTE mes") e vem rotulado por ele. */
+  if (!ref.pronto) return null;
+  const mc = ref.mcPct, cobertura = null;
+  const fonteMc = 'régua dos últimos 3 meses fechados: ' + ref.meses.map(monthLabel).join(', ');
+  if (!mc) return null;
+  const vendas = (VENDAS_ROWS || []).filter(v => v.contaReceita && v.date.getFullYear() === y && v.date.getMonth() === m);
+  const faturado = vendas.reduce((t, v) => t + v.total, 0);
+  const obrig = (OBRIGACOES || []).filter(o => String(o.quitada || '').toUpperCase() !== 'S');
+  const somaObrig = obrig.reduce((t, o) => t + (Number(o.valor) || 0), 0);
+  const pe = fixas / mc;
+  const meta = pe + somaObrig / mc;
+  const ritmo = decorridos ? faturado / decorridos : 0;
+  const projecao = ritmo * diasMes;
+  return { chaveMes, diasMes, decorridos, restantes, fixas, mc, fonteMc, cobertura, faturado,
+           obrig, somaObrig, pe, meta, ritmo, projecao,
+           porDiaPe: restantes ? Math.max(0, pe - faturado) / restantes : 0,
+           porDiaMeta: restantes ? Math.max(0, meta - faturado) / restantes : 0 };
+}
+
+function blocoMetaMes_() {
+  const d = metaDoMes_();
+  if (!d) return '';
+  const F = (v) => fmtBRL(v, 2);
+  const barra = (titulo, sub, alvo, porDia) => {
+    const cob = alvo ? d.faturado / alvo : 0;
+    const passa = d.projecao >= alvo;
+    const cls = cob >= 1 ? 'ok' : passa ? 'warn' : 'bad';
+    return `<div class="meta-linha ${cls}">
+      <div class="meta-topo"><b>${titulo}</b> <small>${sub}</small><span class="meta-alvo">${F(alvo)}</span></div>
+      <div class="meta-barra"><div style="width:${Math.min(100, cob * 100).toFixed(1)}%"></div></div>
+      <div class="meta-pe">${fmtPctSimples_(cob)} atingido · ${cob >= 1 ? 'meta batida' : 'falta ' + F(alvo - d.faturado)
+        + (d.restantes ? ' · precisa de <b>' + F(porDia) + '/dia</b> nos ' + d.restantes + ' dias que faltam' : '')}
+        · no ritmo atual fecha <b class="${passa ? 'val-in' : 'val-out'}">${passa ? F(d.projecao - alvo) + ' acima' : F(alvo - d.projecao) + ' abaixo'}</b></div>
+    </div>`;
+  };
+  const obrigTxt = d.obrig.length
+    ? d.obrig.map(o => escapeHtml_(o.descricao || 'obrigação') + ' ' + F(Number(o.valor) || 0)).join(' · ')
+    : (OBRIGACOES === null ? 'lista de obrigações ainda não disponível no servidor' : 'sem obrigações atrasadas cadastradas');
+  return `<div class="panel meta-mes">
+    <h3>Meta do mês — ${monthLabel(d.chaveMes)}</h3>
+    <div class="sub">Faturado (vendas pela data do pedido) até hoje: <b>${F(d.faturado)}</b> em ${d.decorridos} dia(s) —
+      ritmo de ${F(d.ritmo)}/dia, projeção de <b>${F(d.projecao)}</b> no mês.</div>
+    ${barra('Ponto de equilíbrio', 'cobre o custo fixo do mês', d.pe, d.porDiaPe)}
+    ${barra('Meta de caixa', 'cobre também o que está atrasado', d.meta, d.porDiaMeta)}
+    <div class="sub" style="margin-top:.5rem;">
+      Custo fixo ${F(d.fixas)} ÷ margem de contribuição <b>${fmtPctSimples_(d.mc)}</b> (${d.fonteMc})${d.cobertura != null && d.cobertura < 1
+        ? ' · <span style="color:#b26a00;">⚠ cobertura do CMV: ' + fmtPctSimples_(d.cobertura) + ' — parte das vendas não tem custo cadastrado, o PE real pode ser maior</span>' : ''}.<br>
+      Meta de caixa = ponto de equilíbrio + obrigações atrasadas ÷ margem (${F(d.somaObrig)} ÷ ${fmtPctSimples_(d.mc)} = ${F(d.meta - d.pe)}). Hoje: ${obrigTxt}.
+      O DAS do próprio mês não entra: ele já está dentro da margem.
+    </div>
+  </div>`;
+}
+
 function peReferencia_() {
   const hoje = startOfDay_(new Date());
   const fixasMes = (precifDespesasFixas || [])
@@ -2231,6 +2318,8 @@ function renderKpis(el, rows) {
         ${avisoParcial_(eq)}
       </div>`}
     </div>
+
+    ${blocoMetaMes_()}
 
     ${renderCruzamento_(rows)}
 
