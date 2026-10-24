@@ -71,7 +71,7 @@ const MODO_PRECIF_ = new URLSearchParams(location.search).get('app') === 'precif
   if (!MODO_PRECIF_) return;
   document.title = 'Leve Sonho — Precificação';
   const man = document.querySelector('link[rel="manifest"]');
-  if (man) man.href = 'manifest-precificacao.json?v=20261019a';
+  if (man) man.href = 'manifest-precificacao.json?v=20261023a';
   const tit = document.querySelector('meta[name="apple-mobile-web-app-title"]');
   if (tit) tit.content = 'Preço LS';
   const h1Gate = document.querySelector('#loginGate h1');
@@ -1675,7 +1675,9 @@ function blocoMetaMes_() {
     <div class="sub">Faturado (vendas pela data do pedido) até hoje: <b>${F(d.faturado)}</b> em ${d.decorridos} dia(s) —
       ritmo de ${F(d.ritmo)}/dia, projeção de <b>${F(d.projecao)}</b> no mês.</div>
     ${barra('Ponto de equilíbrio', 'cobre o custo fixo do mês', d.pe, d.porDiaPe)}
-    ${barra('Meta de caixa', 'cobre também o que está atrasado', d.meta, d.porDiaMeta)}
+    ${OBRIGACOES === null
+      ? '<div class="meta-linha"><div class="meta-topo"><b>Meta de caixa</b> <small>cobre também o que está atrasado</small></div><div class="meta-pe" style="color:var(--muted);">Aparece quando a lista de obrigações atrasadas chegar do servidor (republicação pendente). Até lá, não dá para dizer que não há dívida.</div></div>'
+      : barra('Meta de caixa', 'cobre também o que está atrasado', d.meta, d.porDiaMeta)}
     <div class="sub" style="margin-top:.5rem;">
       Custo fixo ${F(d.fixas)} ÷ margem de contribuição <b>${fmtPctSimples_(d.mc)}</b> (${d.fonteMc})${d.cobertura != null && d.cobertura < 1
         ? ' · <span style="color:#b26a00;">⚠ cobertura do CMV: ' + fmtPctSimples_(d.cobertura) + ' — parte das vendas não tem custo cadastrado, o PE real pode ser maior</span>' : ''}.<br>
