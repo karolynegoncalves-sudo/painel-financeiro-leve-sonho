@@ -71,7 +71,7 @@ const MODO_PRECIF_ = new URLSearchParams(location.search).get('app') === 'precif
   if (!MODO_PRECIF_) return;
   document.title = 'Leve Sonho — Precificação';
   const man = document.querySelector('link[rel="manifest"]');
-  if (man) man.href = 'manifest-precificacao.json?v=20261029b';
+  if (man) man.href = 'manifest-precificacao.json?v=20261029c';
   const tit = document.querySelector('meta[name="apple-mobile-web-app-title"]');
   if (tit) tit.content = 'Preço LS';
   const h1Gate = document.querySelector('#loginGate h1');
@@ -1505,11 +1505,18 @@ const CANAL_PARA_CONFIG = {
  * Pedido cancelado não entra (contaReceita = false na aba Vendas), mas é
  * contado à parte pra ficar visível.
  */
+/* CANCELADO = situacao 12 "Cancelado", SO (DRE, 29/10/2026). contaReceita =
+   false junta cancelado E pedido-clone ("Financeiro Auxiliar", 890573), que e
+   duplicata de lancamento - contar clone como cancelamento inflava o KPI (em
+   julho/2026 os clones eram 31% da receita bruta). Para EXCLUIR do faturamento
+   o contaReceita continua certo; para CONTAR cancelado, so este. */
+function ehCancelado_(v) { return /^cancelad/i.test(String(v.situacao || '')) || String(v.situacao) === '12'; }
+
 function faturamento_(inicio, fim) {
   const todas = (VENDAS_ROWS || []).filter(v => v.date >= inicio && v.date <= fim);
   const vendas = todas.filter(v => v.contaReceita);
   const total = vendas.reduce((s, v) => s + v.total, 0);
-  const canceladas = todas.filter(v => !v.contaReceita);
+  const canceladas = todas.filter(ehCancelado_);
   return {
     total: total,
     pedidos: vendas.length,
@@ -2361,7 +2368,7 @@ function renderKpis(el, rows) {
     </div>
     <div class="panel">
       <h3>Faturamento × imposto × custo fixo × margem</h3>
-      <div class="sub">Por mês, por competência — os mesmos números da aba DRE. Barra: receita bruta. Linhas: imposto do Simples (vermelho), custo fixo realizado (Pessoal + Administrativas + Comerciais, com o cadastro tracejado como referência) e margem de contribuição em R$.</div>
+      <div class="sub">Por mês, por competência — os mesmos números da aba DRE. Barra: receita bruta. Linhas: imposto do Simples (vermelho), custo fixo realizado (Pessoal + Administrativas + Comerciais, só contas pagas) e margem de contribuição em R$. O tracejado é o custo fixo cadastrado <b>sem o financiamento</b>, que na DRE fica em Resultado Financeiro. As duas linhas de custo fixo não batem por motivos que não são desempenho: o cadastro não tem os encargos de folha (FGTS e DAS das MEI, ~R$ 305/mês), e uma fatura de cartão lançada de uma vez cai inteira no mês em que foi lançada.</div>
       <div id="avisoGisele1"></div>
       <div class="chart-box" style="height:320px;"><canvas id="chartGisele1"></canvas></div>
     </div>
@@ -2402,9 +2409,16 @@ function renderKpis(el, rows) {
       + '<th class="num">Margem de contrib.</th><th class="num">%</th></tr>';
     const ordenados = canais.slice().sort((a, b) => b.receita - a.receita);
     ordenados.forEach(c => {
+      /* SHEIN e TikTok tem parte FIXA por pedido (SHEIN 18% + R$ 4,00 em
+         29/10; TikTok 19,74% + R$ 6,00 em 25/10) que o cadastro ainda carrega
+         como percentual - o erro gira com o ticket. O conserto e o DRE mover
+         para taxaFixaReais (depende do pode da Karol); ate la, aviso. Quando o
+         fixo estiver no cadastro, o aviso some sozinho (fixaUnit > 0). */
+      const fixoPendente = !c.semTaxa && !c.fixaUnit && /shein|tiktok/i.test(c.canal);
       const selo = c.semTaxa
         ? ' <span class="pill md">sem taxa cadastrada</span>'
-        : (c.medido ? '' : ' <span class="pill md">estimado</span>');
+        : (c.medido ? '' : ' <span class="pill md">estimado</span>')
+          + (fixoPendente ? ' <span class="pill md" title="A taxa real tem uma parte fixa por pedido (SHEIN 18% + R$ 4,00; TikTok 19,74% + R$ 6,00). O cadastro ainda usa só %, então a margem erra mais quanto mais longe o ticket estiver da média.">taxa fixa pendente</span>' : '');
       const detTaxa = c.semTaxa ? '—'
         : fmtPctSimples_(c.pct) + (c.fixaUnit ? ' + ' + fmtBRL(c.fixaUnit, 2) + '/pedido' : '');
       h += `<tr class="dre-abre" data-canal="${escapeHtml_(c.canal)}" title="Clique para ver o canal mês a mês"><td>${escapeHtml_(c.canal)}${selo}</td>`
@@ -2514,7 +2528,7 @@ function renderKpis(el, rows) {
       fonte agregada fica sem barra (nunca zero).
    2) Tendencia: pedidos, ticket e cancelados por mes (rota vendas, data do
       pedido; cancelado = contaReceita false, o mesmo criterio do cartao de
-      Faturamento). Projecao: mes corrente pelo ritmo diario; +3 meses pela
+      Faturamento? NAO: so situacao Cancelado, ver ehCancelado_). Projecao: mes corrente pelo ritmo diario; +3 meses pela
       reta (minimos quadrados) dos 6 ultimos meses FECHADOS. */
 function mesesParaGrafico_() {
   const hoje = startOfDay_(new Date());
@@ -2540,10 +2554,22 @@ function desenharGraficosGisele_() {
   const deIni = ymdLocal_(meses[0].ini), deFim = ymdLocal_(ultimo > hojeG ? hojeG : ultimo);
   const chave = chaveQueCobre_(deIni, deFim);
   const rowsBase = chave ? FLUXO_CACHE[chave] : FLUXO_ROWS;
+  /* Tracejada comparavel ao realizado (DRE, 29/10/2026): o cadastro tem o
+     Financiamento (cf15, R$ 3.462), que na DRE cai em Resultado Financeiro e
+     nao em Pessoal/Adm/Comerciais - com ele, o realizado parecia ~R$ 3,5 mil
+     de "economia" que nao existe. E o cadastro nao tem encargo de folha
+     (FGTS + DAS MEI, ~R$ 305/mes) que o realizado tem: as duas linhas
+     divergem por motivos opostos, nenhum e desempenho. */
   const fixasCad = (precifDespesasFixas || []).filter(d => d.vigente !== false)
+    .filter(d => !/financ/i.test(String(d.descricao || d.nome || '')))
     .reduce((t, d) => t + (Number(d.valorMensal || d.valor || 0)), 0);
+  /* Realizado so com conta PAGA (situacao 2): provisao em aberto clona o
+     valor de um mes real e contaria o mes duas vezes. */
+  const rowsPagos = (rowsBase || []).filter(r => r.paga);
   const linhas = meses.map(function (m) {
     const pg = agregadoDre_(m.ini, m.fim, rowsBase);
+    const pgPago = agregadoDre_(m.ini, m.fim, rowsPagos) || {};
+    const gp = (n) => pgPago[n] || 0;
     if (!pg) return { m, ok: false };
     const g = (n) => pg[n] || 0;
     const semFonte = (pg.__mesesSemFonte || []).length > 0;
@@ -2552,7 +2578,7 @@ function desenharGraficosGisele_() {
     return { m, ok: !semFonte && receita > 0,
       receita: receita,
       imposto: -g(GRUPO_IMPOSTO),
-      fixoReal: -(g('Despesas com Pessoal') + g('Despesas Administrativas') + g('Despesas Comerciais')),
+      fixoReal: -(gp('Despesas com Pessoal') + gp('Despesas Administrativas') + gp('Despesas Comerciais')),
       mc: receita - ded + 0 - (-g('CMV')) - (-g('Despesas Variáveis de Venda')) };
   });
   const aviso = document.getElementById('avisoGisele1');
@@ -2568,8 +2594,8 @@ function desenharGraficosGisele_() {
       datasets: [
         { type: 'bar', label: 'Faturamento (receita bruta)', data: linhas.map(l => v(l, 'receita')), backgroundColor: PALETTE.sageSoft, borderRadius: 3, order: 5 },
         { type: 'line', label: 'Imposto (Simples)', data: linhas.map(l => v(l, 'imposto')), borderColor: '#C0392B', backgroundColor: '#C0392B', borderWidth: 2.5, pointRadius: 3, tension: .2, order: 1 },
-        { type: 'line', label: 'Custo fixo realizado', data: linhas.map(l => v(l, 'fixoReal')), borderColor: PALETTE.amber, backgroundColor: PALETTE.amber, borderWidth: 2, pointRadius: 3, tension: .2, order: 2 },
-        { type: 'line', label: 'Custo fixo cadastrado', data: linhas.map(() => fixasCad || null), borderColor: PALETTE.amber, borderDash: [5, 4], borderWidth: 1.5, pointRadius: 0, order: 3 },
+        { type: 'line', label: 'Realizado: Pessoal + Administrativas + Comerciais', data: linhas.map(l => v(l, 'fixoReal')), borderColor: PALETTE.amber, backgroundColor: PALETTE.amber, borderWidth: 2, pointRadius: 3, tension: .2, order: 2 },
+        { type: 'line', label: 'Custo fixo cadastrado (sem financiamento)', data: linhas.map(() => fixasCad || null), borderColor: PALETTE.amber, borderDash: [5, 4], borderWidth: 1.5, pointRadius: 0, order: 3 },
         { type: 'line', label: 'Margem de contribuição', data: linhas.map(l => v(l, 'mc')), borderColor: PALETTE.entrada, backgroundColor: PALETTE.entrada, borderWidth: 2.5, pointRadius: 3, tension: .2, order: 0 }
       ]
     },
@@ -2585,7 +2611,7 @@ function desenharGraficosGisele_() {
     const todas = (VENDAS_ROWS || []).filter(x => x.date >= ini && x.date <= fim);
     const ok = todas.filter(x => x.contaReceita);
     const tot = ok.reduce((t, x) => t + x.total, 0);
-    return { pedidos: ok.length, ticket: ok.length ? tot / ok.length : null, cancel: todas.length - ok.length };
+    return { pedidos: ok.length, ticket: ok.length ? tot / ok.length : null, cancel: todas.filter(ehCancelado_).length };
   };
   const hist = [];
   for (let k = 6; k >= 1; k--) {
@@ -4420,7 +4446,7 @@ document.addEventListener('DOMContentLoaded', function () {
 function renderVendas(el, rowsPagas) {
   const todas = (VENDAS_ROWS || []).filter(v => v.date >= FILTER.start && v.date <= FILTER.end);
   const vendas = todas.filter(v => v.contaReceita);
-  const canceladas = todas.filter(v => !v.contaReceita);
+  const canceladas = todas.filter(ehCancelado_);
 
   el.innerHTML = `
     <div class="section-head">
@@ -4520,7 +4546,7 @@ function renderDreCompetenciaVendas_(corpoPai) {
   const vendas = todas.filter(v => v.contaReceita);
   if (!todas.length) { corpo.innerHTML = ''; return; }
 
-  const canceladas = todas.filter(v => !v.contaReceita);
+  const canceladas = todas.filter(ehCancelado_);
   const totalBruto = vendas.reduce((s, v) => s + v.total, 0);
   const ticket = vendas.length ? totalBruto / vendas.length : 0;
 
