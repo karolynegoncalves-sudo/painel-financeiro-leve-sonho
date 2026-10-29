@@ -71,7 +71,7 @@ const MODO_PRECIF_ = new URLSearchParams(location.search).get('app') === 'precif
   if (!MODO_PRECIF_) return;
   document.title = 'Leve Sonho — Precificação';
   const man = document.querySelector('link[rel="manifest"]');
-  if (man) man.href = 'manifest-precificacao.json?v=20261029a';
+  if (man) man.href = 'manifest-precificacao.json?v=20261029b';
   const tit = document.querySelector('meta[name="apple-mobile-web-app-title"]');
   if (tit) tit.content = 'Preço LS';
   const h1Gate = document.querySelector('#loginGate h1');
@@ -2360,6 +2360,17 @@ function renderKpis(el, rows) {
       <div class="chart-box" style="height:260px; margin-top:16px;"><canvas id="chartCanais"></canvas></div>
     </div>
     <div class="panel">
+      <h3>Faturamento × imposto × custo fixo × margem</h3>
+      <div class="sub">Por mês, por competência — os mesmos números da aba DRE. Barra: receita bruta. Linhas: imposto do Simples (vermelho), custo fixo realizado (Pessoal + Administrativas + Comerciais, com o cadastro tracejado como referência) e margem de contribuição em R$.</div>
+      <div id="avisoGisele1"></div>
+      <div class="chart-box" style="height:320px;"><canvas id="chartGisele1"></canvas></div>
+    </div>
+    <div class="panel">
+      <h3>Tendência: pedidos, ticket médio e cancelados</h3>
+      <div class="sub">Pela data do pedido. Tracejado = projeção: o mês corrente pelo ritmo diário, e os 3 próximos pela tendência dos últimos 6 meses fechados. Projeção é tendência, não promessa — muda com sazonalidade e promoção.</div>
+      <div class="chart-box" style="height:320px;"><canvas id="chartGisele2"></canvas></div>
+    </div>
+    <div class="panel">
       <h3>Receita bruta x Resultado líquido</h3>
       <div class="sub">${FILTER.start.toDateString() === FILTER.end.toDateString() ? 'Único dia selecionado — sem série temporal.' : 'Ao longo do período selecionado, em R$.'}</div>
       <div class="chart-box" style="height:300px;"><canvas id="chartKpis"></canvas></div>
@@ -2488,6 +2499,135 @@ function renderKpis(el, rows) {
       plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 11 } } }, tooltip: { callbacks: { label: (c) => c.dataset.label + ': ' + fmtBRL(c.raw) } } },
       scales: { y: { ticks: { callback: (v) => fmtBRL(v) }, grid: { color: '#EFE7DB' } }, x: { grid: { display: false } } }
     }
+  });
+
+  desenharGraficosGisele_();
+}
+
+/* GRAFICOS DA REUNIAO COM A GISELE (consultoria, 29/10/2026).
+   1) Faturamento x imposto x custo fixo x margem, mensal, por COMPETENCIA - a
+      mesma base da tabela DRE (agregadoDre_), para os numeros baterem. A linha
+      do IMPOSTO e SEMPRE vermelha (pedido dela). Custo fixo: REALIZADO (Pessoal
+      + Administrativas + Comerciais), com o CADASTRO tracejado como referencia -
+      combinar com o DRE se a consultora preferir o cadastro. Meses: os do
+      filtro; com menos de 4, os meses que a janela pre-carregada cobre. Mes sem
+      fonte agregada fica sem barra (nunca zero).
+   2) Tendencia: pedidos, ticket e cancelados por mes (rota vendas, data do
+      pedido; cancelado = contaReceita false, o mesmo criterio do cartao de
+      Faturamento). Projecao: mes corrente pelo ritmo diario; +3 meses pela
+      reta (minimos quadrados) dos 6 ultimos meses FECHADOS. */
+function mesesParaGrafico_() {
+  const hoje = startOfDay_(new Date());
+  const fim = FILTER.end > hoje ? hoje : FILTER.end;
+  let ini = new Date(FILTER.start.getFullYear(), FILTER.start.getMonth(), 1);
+  const nFiltro = (fim.getFullYear() - ini.getFullYear()) * 12 + fim.getMonth() - ini.getMonth() + 1;
+  if (nFiltro < 4) ini = new Date(fim.getFullYear(), fim.getMonth() - (JANELA_MESES_), 1);
+  const out = [];
+  for (let d = new Date(ini); d <= fim; d = new Date(d.getFullYear(), d.getMonth() + 1, 1)) {
+    out.push({ ini: new Date(d), fim: endOfDay_(new Date(d.getFullYear(), d.getMonth() + 1, 0)),
+               chave: ymdLocal_(d).slice(0, 7) });
+  }
+  return out;
+}
+
+function desenharGraficosGisele_() {
+  const c1 = document.getElementById('chartGisele1');
+  const c2 = document.getElementById('chartGisele2');
+  if (!c1 || !c2) return;
+  const meses = mesesParaGrafico_();
+  const hojeG = startOfDay_(new Date());
+  const ultimo = meses[meses.length - 1].fim;
+  const deIni = ymdLocal_(meses[0].ini), deFim = ymdLocal_(ultimo > hojeG ? hojeG : ultimo);
+  const chave = chaveQueCobre_(deIni, deFim);
+  const rowsBase = chave ? FLUXO_CACHE[chave] : FLUXO_ROWS;
+  const fixasCad = (precifDespesasFixas || []).filter(d => d.vigente !== false)
+    .reduce((t, d) => t + (Number(d.valorMensal || d.valor || 0)), 0);
+  const linhas = meses.map(function (m) {
+    const pg = agregadoDre_(m.ini, m.fim, rowsBase);
+    if (!pg) return { m, ok: false };
+    const g = (n) => pg[n] || 0;
+    const semFonte = (pg.__mesesSemFonte || []).length > 0;
+    const receita = g('Receita Bruta');
+    const ded = -(g('Deduções da Receita') + g(GRUPO_IMPOSTO));
+    return { m, ok: !semFonte && receita > 0,
+      receita: receita,
+      imposto: -g(GRUPO_IMPOSTO),
+      fixoReal: -(g('Despesas com Pessoal') + g('Despesas Administrativas') + g('Despesas Comerciais')),
+      mc: receita - ded + 0 - (-g('CMV')) - (-g('Despesas Variáveis de Venda')) };
+  });
+  const aviso = document.getElementById('avisoGisele1');
+  if (aviso) {
+    const sem = linhas.filter(l => !l.ok).map(l => monthLabel(l.m.chave));
+    aviso.innerHTML = (!chave ? '<div class="alerta warn">Parte dos meses ainda não carregou — o gráfico completa quando os últimos meses chegarem.</div>' : '')
+      + (sem.length ? '<div class="alerta info">Sem receita agregada: ' + sem.join(', ') + ' — esses meses ficam sem barra (não é zero).</div>' : '');
+  }
+  const v = (l, k) => l.ok ? l[k] : null;
+  new Chart(c1, {
+    data: {
+      labels: meses.map(m => monthLabel(m.chave)),
+      datasets: [
+        { type: 'bar', label: 'Faturamento (receita bruta)', data: linhas.map(l => v(l, 'receita')), backgroundColor: PALETTE.sageSoft, borderRadius: 3, order: 5 },
+        { type: 'line', label: 'Imposto (Simples)', data: linhas.map(l => v(l, 'imposto')), borderColor: '#C0392B', backgroundColor: '#C0392B', borderWidth: 2.5, pointRadius: 3, tension: .2, order: 1 },
+        { type: 'line', label: 'Custo fixo realizado', data: linhas.map(l => v(l, 'fixoReal')), borderColor: PALETTE.amber, backgroundColor: PALETTE.amber, borderWidth: 2, pointRadius: 3, tension: .2, order: 2 },
+        { type: 'line', label: 'Custo fixo cadastrado', data: linhas.map(() => fixasCad || null), borderColor: PALETTE.amber, borderDash: [5, 4], borderWidth: 1.5, pointRadius: 0, order: 3 },
+        { type: 'line', label: 'Margem de contribuição', data: linhas.map(l => v(l, 'mc')), borderColor: PALETTE.entrada, backgroundColor: PALETTE.entrada, borderWidth: 2.5, pointRadius: 3, tension: .2, order: 0 }
+      ]
+    },
+    options: { responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 11 } } },
+        tooltip: { callbacks: { label: (c) => c.dataset.label + ': ' + (c.raw == null ? '—' : fmtBRL(c.raw)) } } },
+      scales: { y: { ticks: { callback: (x) => fmtBRL(x) }, grid: { color: '#EFE7DB' } }, x: { grid: { display: false } } } }
+  });
+
+  /* --- tendencia --- */
+  const hoje = startOfDay_(new Date());
+  const doMes = (ini, fim) => {
+    const todas = (VENDAS_ROWS || []).filter(x => x.date >= ini && x.date <= fim);
+    const ok = todas.filter(x => x.contaReceita);
+    const tot = ok.reduce((t, x) => t + x.total, 0);
+    return { pedidos: ok.length, ticket: ok.length ? tot / ok.length : null, cancel: todas.length - ok.length };
+  };
+  const hist = [];
+  for (let k = 6; k >= 1; k--) {
+    const ini = new Date(hoje.getFullYear(), hoje.getMonth() - k, 1);
+    hist.push(Object.assign({ chave: ymdLocal_(ini).slice(0, 7) }, doMes(ini, endOfDay_(new Date(ini.getFullYear(), ini.getMonth() + 1, 0)))));
+  }
+  const iniAtual = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+  const diasMes = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0).getDate();
+  const atualParcial = doMes(iniAtual, endOfDay_(hoje));
+  const f = diasMes / hoje.getDate();
+  const atualProj = { pedidos: atualParcial.pedidos * f, ticket: atualParcial.ticket, cancel: atualParcial.cancel * f };
+  const reta = (ys) => {   // minimos quadrados em x = 0..n-1
+    const pts = ys.map((y, i) => [i, y]).filter(p => p[1] != null);
+    const n = pts.length; if (n < 2) return () => null;
+    const sx = pts.reduce((t, p) => t + p[0], 0), sy = pts.reduce((t, p) => t + p[1], 0);
+    const sxx = pts.reduce((t, p) => t + p[0] * p[0], 0), sxy = pts.reduce((t, p) => t + p[0] * p[1], 0);
+    const b = (n * sxy - sx * sy) / (n * sxx - sx * sx), a = (sy - b * sx) / n;
+    return (x) => Math.max(0, a + b * x);
+  };
+  const rP = reta(hist.map(h => h.pedidos)), rT = reta(hist.map(h => h.ticket)), rC = reta(hist.map(h => h.cancel));
+  const futuros = [1, 2, 3].map(k => ymdLocal_(new Date(hoje.getFullYear(), hoje.getMonth() + k, 1)).slice(0, 7));
+  const labels = hist.map(h => monthLabel(h.chave)).concat([monthLabel(ymdLocal_(iniAtual).slice(0, 7)) + '*'], futuros.map(c => monthLabel(c) + '*'));
+  const nH = hist.length;
+  const real = (k) => hist.map(h => h[k]).concat([null, null, null, null]);
+  const proj = (k, r) => hist.map((h, i) => i === nH - 1 ? h[k] : null).concat([atualProj[k]], [nH + 1, nH + 2, nH + 3].map(x => r(x)));
+  new Chart(c2, {
+    data: { labels: labels, datasets: [
+      { type: 'bar', label: 'Pedidos', data: real('pedidos'), backgroundColor: PALETTE.sageSoft, borderRadius: 3, yAxisID: 'y', order: 5 },
+      { type: 'bar', label: 'Pedidos (projeção)', data: hist.map(() => null).concat([atualProj.pedidos], [nH + 1, nH + 2, nH + 3].map(x => rP(x))), backgroundColor: 'rgba(157,184,181,.35)', borderColor: PALETTE.sageSoft, borderWidth: 1, borderDash: [4, 3], borderRadius: 3, yAxisID: 'y', order: 6 },
+      { type: 'line', label: 'Cancelados', data: real('cancel'), borderColor: '#C0392B', backgroundColor: '#C0392B', borderWidth: 2, pointRadius: 3, yAxisID: 'y', order: 1 },
+      { type: 'line', label: 'Cancelados (projeção)', data: proj('cancel', rC), borderColor: '#C0392B', borderDash: [5, 4], borderWidth: 1.5, pointRadius: 2, yAxisID: 'y', order: 2 },
+      { type: 'line', label: 'Ticket médio', data: real('ticket'), borderColor: PALETTE.terracottaDark, backgroundColor: PALETTE.terracottaDark, borderWidth: 2.5, pointRadius: 3, yAxisID: 'y2', order: 0 },
+      { type: 'line', label: 'Ticket médio (projeção)', data: proj('ticket', rT), borderColor: PALETTE.terracottaDark, borderDash: [5, 4], borderWidth: 1.5, pointRadius: 2, yAxisID: 'y2', order: 3 }
+    ] },
+    options: { responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 11 } } },
+        tooltip: { callbacks: { label: (c) => c.dataset.label + ': ' + (c.raw == null ? '—'
+          : /Ticket/.test(c.dataset.label) ? fmtBRL(c.raw, 2) : Math.round(c.raw)) } } },
+      scales: {
+        y: { position: 'left', title: { display: true, text: 'pedidos / cancelados' }, grid: { color: '#EFE7DB' } },
+        y2: { position: 'right', title: { display: true, text: 'ticket médio' }, ticks: { callback: (x) => fmtBRL(x) }, grid: { display: false } },
+        x: { grid: { display: false } } } }
   });
 }
 
