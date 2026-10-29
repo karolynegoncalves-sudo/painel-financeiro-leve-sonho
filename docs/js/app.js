@@ -71,7 +71,7 @@ const MODO_PRECIF_ = new URLSearchParams(location.search).get('app') === 'precif
   if (!MODO_PRECIF_) return;
   document.title = 'Leve Sonho — Precificação';
   const man = document.querySelector('link[rel="manifest"]');
-  if (man) man.href = 'manifest-precificacao.json?v=20261023a';
+  if (man) man.href = 'manifest-precificacao.json?v=20261029a';
   const tit = document.querySelector('meta[name="apple-mobile-web-app-title"]');
   if (tit) tit.content = 'Preço LS';
   const h1Gate = document.querySelector('#loginGate h1');
@@ -2884,9 +2884,9 @@ const BALANCO_ = {
       ['Fechos Carmóvel',        645.86, '80 unidades da NF 3986']
     ],
     'Imobilizado': [
-      ['Máquinas e equipamentos', 6113.09, 'costura, corte, prensas — custo 17.950, já depreciado. NÃO inclui a bordadeira Brother, a reta Singer, a overlock, a Cameo 1 nem o filtro: foram ganhadas, custo zero'],
+      ['Máquinas e equipamentos', 12143.09, 'costura, corte, prensas — custo 23.980, já depreciado. Inclui duas aquisições novas, ainda sem depreciação acumulada: bordadeira Janome Memory Craft 500 (R$ 5.340,00, em 22/10/2026) e máquina de corte Zoje ZJ100 4" 110V 250W (R$ 690,00, em 21/10/2026). NÃO inclui a bordadeira Brother, a reta Singer, a overlock, a Cameo 1 nem o filtro: foram ganhadas, custo zero'],
       ['Informática',             4004.00, 'notebooks e impressoras — custo 10.400, já depreciado'],
-      ['(depreciação acumulada)',     0.0, 'custo total 28.350, sendo 18.233 já depreciados — os valores acima já são líquidos']
+      ['(depreciação acumulada)',     0.0, 'custo total 34.380, sendo 18.233 já depreciados — os valores acima já são líquidos']
     ],
     /* PISO, nao saldo exato - e a diferenca importa. O Bling guarda a situacao
        de HOJE: conta que estava aberta em 31/08 e foi recebida em setembro
@@ -3546,7 +3546,53 @@ const ATE_MC = ['Receita Bruta'].concat(DEDUZ, ['CMV', 'Despesas Variáveis de V
  * Nao vem do Fluxo de Caixa porque nao E lancamento: depreciacao nao move
  * dinheiro. Por isso tambem nao aparece na DFC.
  */
-const DEPRECIACAO_MENSAL_ = 149.58 + 173.33;
+/* DEPRECIACAO POR MES, e nao uma constante - a diferenca importa.
+ *
+ * Ate 23/10/2026 isto era um numero fixo multiplicado por todos os meses da
+ * serie. Funcionava enquanto o parque nao mudava. Quando a Karol comprou a
+ * bordadeira Janome (22/10) e a maquina de corte (21/10), so' aumentar a
+ * constante faria a DRE de JANEIRO DE 2025 mostrar depreciacao de maquina que
+ * ainda nao existia - erro silencioso, e para tras, que e o pior tipo.
+ *
+ * Entao cada bem tem a data em que entrou. Bem comprado dia 22 deprecia o mes
+ * inteiro (convencao: mes da aquisicao conta inteiro; o pro-rata por dia nao
+ * muda decisao nenhuma e complica a leitura).
+ *
+ * Taxas da Receita: maquinas e moveis 10 anos (10% a.a.), informatica e
+ * veiculos 5 anos (20% a.a.).
+ */
+const IMOBILIZADO_ = [
+  { grupo: 'Máquinas e equipamentos', custo: 17950.00, taxaAno: 0.10, desde: '2020-01',
+    nota: 'parque antigo: costura, corte, prensas, Janome e Cameo 4 de 2020' },
+  { grupo: 'Máquinas e equipamentos', custo:  5340.00, taxaAno: 0.10, desde: '2026-10',
+    nota: 'bordadeira Janome Memory Craft 500, comprada 22/10/2026' },
+  { grupo: 'Máquinas e equipamentos', custo:   690.00, taxaAno: 0.10, desde: '2026-10',
+    nota: 'máquina de corte de tecido Zoje ZJ100 4" 110V 250W, 21/10/2026' },
+  { grupo: 'Informática',             custo: 10400.00, taxaAno: 0.20, desde: '2022-01',
+    nota: 'notebooks e impressoras' }
+];
+
+/** Depreciacao de um mes (AAAA-MM): so' o que ja existia naquele mes. */
+function depreciacaoDoMes_(mes) {
+  var t = 0;
+  IMOBILIZADO_.forEach(function (b) {
+    if (String(mes) >= b.desde) t += b.custo * b.taxaAno / 12;
+  });
+  return t;
+}
+
+/** Por grupo, pro detalhe da DRE somar certo no periodo exibido. */
+function depreciacaoPorGrupo_(meses) {
+  var out = {};
+  (meses || []).forEach(function (m) {
+    IMOBILIZADO_.forEach(function (b) {
+      if (String(m) >= b.desde) {
+        out[b.grupo] = (out[b.grupo] || 0) + b.custo * b.taxaAno / 12;
+      }
+    });
+  });
+  return out;
+}
 const GRUPO_DEPRECIACAO = 'Depreciação';
 
 const DRE_ESTRUTURA = [
@@ -3731,7 +3777,7 @@ function renderDreCaixa_(corpo, rows, porCompetencia) {
      So entra em coluna MENSAL: numa coluna de um dia, um mes de depreciacao
      daria um resultado diario absurdo. */
   if (serie.length && /^\d{4}-\d{2}$/.test(String(serie[0].chave))) {
-    serie.forEach((b, i) => { porColuna[i][GRUPO_DEPRECIACAO] = -DEPRECIACAO_MENSAL_; });
+    serie.forEach((b, i) => { porColuna[i][GRUPO_DEPRECIACAO] = -depreciacaoDoMes_(b.chave); });
   }
   const nCols = serie.length;
 
@@ -4031,12 +4077,12 @@ function corpoGaveta_(item, ctx) {
         do caixa por esta linha — a máquina foi paga quando foi comprada, e aqui
         ela perde valor com o uso.</p>
         <table class="simple gv-tab">
-          <tr><td>Máquinas e equipamentos<small>R$ 17.950 × 10% a.a.</small></td>
-              <td class="num">${F(-149.58 * ctx.serie.length)}</td></tr>
-          <tr><td>Informática<small>R$ 10.400 × 20% a.a.</small></td>
-              <td class="num">${F(-173.33 * ctx.serie.length)}</td></tr>
+          ${Object.entries(depreciacaoPorGrupo_(ctx.serie.map(b => b.chave)))
+             .map(([g, v]) => `<tr><td>${g}</td><td class="num">${F(-v)}</td></tr>`).join('')}
         </table>
-        <p class="gv-nota">${ctx.serie.length} mês(es) no período.</p>`;
+        <p class="gv-nota">${ctx.serie.length} mês(es) no período. Cada bem só
+        deprecia a partir do mês em que entrou — a bordadeira Janome e a máquina
+        de corte entraram em outubro/2026, então não pesam nos meses anteriores.</p>`;
 
     } else if (ctx.fontes && (item.nome === 'Receita Bruta' || item.nome === 'CMV'
                || item.nome === GRUPO_IMPOSTO || item.nome === GRUPO_PROVISAO)) {
