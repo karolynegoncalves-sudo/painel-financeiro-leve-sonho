@@ -2418,7 +2418,7 @@ function renderKpis(el, rows) {
       const selo = c.semTaxa
         ? ' <span class="pill md">sem taxa cadastrada</span>'
         : (c.medido ? '' : ' <span class="pill md">estimado</span>')
-          + (fixoPendente ? ' <span class="pill md" title="A taxa real tem uma parte fixa por pedido (SHEIN 18% + R$ 4,00; TikTok 19,74% + R$ 6,00). O cadastro ainda usa só %, então a margem erra mais quanto mais longe o ticket estiver da média.">taxa fixa pendente</span>' : '');
+          + (fixoPendente ? ' <span class="pill md" title="A taxa real tem uma parte fixa por pedido (SHEIN 18% + R$ 4,00/pedido; TikTok 19,74% + R$ 6,00/item). Já medida em 29/10; falta você autorizar a gravação no cadastro, que ainda usa só %, então a margem erra mais quanto mais longe o ticket estiver da média.">taxa fixa medida, aguardando cadastro</span>' : '');
       const detTaxa = c.semTaxa ? '—'
         : fmtPctSimples_(c.pct) + (c.fixaUnit ? ' + ' + fmtBRL(c.fixaUnit, 2) + '/pedido' : '');
       h += `<tr class="dre-abre" data-canal="${escapeHtml_(c.canal)}" title="Clique para ver o canal mês a mês"><td>${escapeHtml_(c.canal)}${selo}</td>`
@@ -3424,7 +3424,15 @@ const DFC_REGRAS = [
   { chave: 'transf',      teste: /transfer/i },
   { chave: 'emprestimo',  teste: /empr[ée]stimo|financiamento/i },
   { chave: 'retirada',    teste: /retirada|pr[óo]-?labore|s[óo]cio|compra pessoal/i },
-  { chave: 'investimento',teste: /m[áa]quina|equipamento|imobilizado|m[óo]vel/i }
+  { chave: 'investimento',teste: /m[áa]quina|equipamento|imobilizado|m[óo]vel/i },
+  // Antecipacao de recebivel e operação de FINANCIAMENTO no caixa: entra
+  // dinheiro hoje contra recebivel de amanha, igual amortizacao de divida (que
+  // ja cai em 'financeiro' pelo grupo). Sem esta regra a categoria
+  // "Antecipação Shopee a compensar" cai no fallback 'outros', porque o grupo
+  // dela ("Não Operacional (ignorar na DRE)") NAO tem entrada em
+  // DFC_POR_GRUPO - e R$ 5.330,28 de setembro apareceriam como "outros" sem
+  // nome no DFC, que e o balde que ninguem investiga.
+  { chave: 'financeiro',  teste: /antecipa/i }
 ];
 
 function renderDfc_(el, rows) {
