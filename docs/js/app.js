@@ -426,6 +426,19 @@ async function verificarESeguir_(token) {
   /* Depois do login, nao antes: duas rotas pesadas juntas disputam o limite
      de execucoes simultaneas do Apps Script (ver carregarEmLotes_). */
   preCarregarJanela_();
+  if (!Array.isArray(data.obrigacoes)) buscarObrigacoes_();
+}
+
+/* Obrigacoes atrasadas (meta de caixa) por view propria, DEPOIS da tela
+   aberta. Le do Bling, entao e lenta e pode falhar - por isso nunca segura o
+   login. Backend que ainda nao tem a view responde unknown_view: fica o
+   "pendente" de antes, sem erro na tela. */
+async function buscarObrigacoes_() {
+  const d = await apiFetch_('obrigacoes', idToken, 1);
+  if (!d || d.error || d._falhou || !Array.isArray(d.obrigacoes)) return;
+  OBRIGACOES = d.obrigacoes;
+  OBRIGACOES_EM = d.atualizadoEm || null;
+  rerenderSeUsa_(['kpis']);   // a barra da meta de caixa mora nos KPIs
 }
 
 /* Aplica a resposta do login - a guardada ou a fresca, o mesmo caminho para
@@ -453,7 +466,11 @@ function aplicarLogin_(data, chave0) {
   SALDOS_ERRO = data.saldosErro || null;
   FANTASMAS = (data.fantasmas && typeof data.fantasmas === 'object') ? data.fantasmas : null;
   /* Meta do mes (22/10/2026): obrigacoes atrasadas derivadas do Bling (DRE). */
-  OBRIGACOES = Array.isArray(data.obrigacoes) ? data.obrigacoes : null;
+  /* Desde 12/11/2026 as obrigacoes saem do login e vem por view propria
+     (buscarObrigacoes_), porque varrer o Bling dentro do login derrubava o
+     painel com 503. Backend antigo ainda manda aqui: usa. Backend novo nao
+     manda: NAO zera o que a view propria ja trouxe. */
+  if (Array.isArray(data.obrigacoes)) OBRIGACOES = data.obrigacoes;
   DRE_FONTES = (data.dreFontes && data.dreFontes.receita)
     ? data.dreFontes : { receita: [], cmv: [] };
   /* Que versao do Apps Script respondeu. Salvar o codigo nao publica: o Web App
@@ -1626,6 +1643,20 @@ const RESSALVA_CMV_PE_ = true;
    Conferencia do DRE para 22/10/2026: PE 51.365,72; meta 62.640,48; ritmo
    1.879,86/dia; falta/dia 1.112,09 (PE) e 2.364,84 (meta). */
 let OBRIGACOES = null;
+/* Quando a lista foi tirada do Bling (cache do gatilho de 2h). Dado velho
+   mostrado como atual e pior que a falta dele: a tela diz a idade. */
+let OBRIGACOES_EM = null;
+function idadeObrigacoes_() {
+  if (!OBRIGACOES_EM) return '';
+  const t = new Date(OBRIGACOES_EM).getTime();
+  if (isNaN(t)) return '';
+  const h = (Date.now() - t) / 3600000;
+  const quando = h < 1 ? 'há ' + Math.max(1, Math.round(h * 60)) + ' min'
+    : h < 48 ? 'há ' + Math.round(h) + 'h' : 'há ' + Math.round(h / 24) + ' dias';
+  return h > 4
+    ? ' <span style="color:#b26a00;">⚠ lista de obrigações tirada do Bling ' + quando + ' — pode estar desatualizada.</span>'
+    : ' <small style="color:var(--muted);">(lista de ' + quando + ')</small>';
+}
 
 function metaDoMes_() {
   const hoje = startOfDay_(new Date());
@@ -1688,7 +1719,7 @@ function blocoMetaMes_() {
     <div class="sub" style="margin-top:.5rem;">
       Custo fixo ${F(d.fixas)} ÷ margem de contribuição <b>${fmtPctSimples_(d.mc)}</b> (${d.fonteMc})${d.cobertura != null && d.cobertura < 1
         ? ' · <span style="color:#b26a00;">⚠ cobertura do CMV: ' + fmtPctSimples_(d.cobertura) + ' — parte das vendas não tem custo cadastrado, o PE real pode ser maior</span>' : ''}.<br>
-      Meta de caixa = ponto de equilíbrio + obrigações atrasadas ÷ margem (${F(d.somaObrig)} ÷ ${fmtPctSimples_(d.mc)} = ${F(d.meta - d.pe)}). Hoje: ${obrigTxt}.
+      Meta de caixa = ponto de equilíbrio + obrigações atrasadas ÷ margem (${F(d.somaObrig)} ÷ ${fmtPctSimples_(d.mc)} = ${F(d.meta - d.pe)}). Hoje: ${obrigTxt}.${idadeObrigacoes_()}
       O DAS do próprio mês não entra: ele já está dentro da margem.
     </div>
   </div>`;
