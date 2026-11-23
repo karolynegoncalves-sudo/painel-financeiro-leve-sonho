@@ -4825,12 +4825,27 @@ function taxaNoPreco_(canalObj, preco) {
     };
   }
   const p = Number(preco) || 0;
-  let alvo = f[0];
-  for (let i = 0; i < f.length; i++) {
-    const min = Number(f[i].precoMin) || 0;
-    const max = Number(f[i].precoMax) || 0;   // 0 = sem teto
-    if (p >= min && (max === 0 || p <= max)) { alvo = f[i]; break; }
-    if (p >= min) alvo = f[i];
+  const ord = faixasOrdenadas_(f);
+  /* Sem preço, a primeira faixa: é o que a pessoa vê antes de digitar. */
+  let alvo = p ? null : ord[0];
+  for (let i = 0; i < ord.length && !alvo; i++) {
+    if (dentroDaFaixa_(ord[i], p)) alvo = ord[i];
+  }
+  /* PREÇO FORA DE TODA FAIXA NÃO HERDA TAXA DE NINGUÉM (aviso do DRE,
+     20/11/2026). Antes, preço acima do teto da última faixa saía com a taxa
+     dela em silêncio: um kit de R$ 180 na Shopee levaria a taxa medida para
+     100–149,99 como se fosse medição. Número plausível e inventado é o pior
+     erro, então aqui a função devolve "não sei" e a tela mostra o travessão. */
+  if (!alvo) {
+    const ult = ord[ord.length - 1];
+    const tetoUlt = Number(ult.precoMax) || 0;
+    const minPri = Number(ord[0].precoMin) || 0;
+    return {
+      imp: 0, com: 0, ex: [], fixa: 0, faixa: null, foraDeFaixa: true,
+      faixaFalta: (p < minPri)
+        ? 'abaixo de R$ ' + fmtNum_(minPri)
+        : 'acima de R$ ' + fmtNum_(tetoUlt)
+    };
   }
   const ex = [];
   if (alvo.extra1Nome && alvo.extra1Pct) ex.push([alvo.extra1Nome, Number(alvo.extra1Pct) || 0]);
@@ -4844,6 +4859,19 @@ function taxaNoPreco_(canalObj, preco) {
     faixa: (max ? 'R$ ' + fmtNum_(alvo.precoMin) + ' a ' + fmtNum_(max)
                 : 'acima de R$ ' + fmtNum_(alvo.precoMin))
   };
+}
+
+/* Faixas em ordem de preço mínimo: a planilha pode vir em qualquer ordem e
+   o piso de queima depende de percorrer de baixo para cima. */
+function faixasOrdenadas_(f) {
+  return f.slice().sort((a, b) => (Number(a.precoMin) || 0) - (Number(b.precoMin) || 0));
+}
+/* Teto inclusivo com meio centavo de folga: 79,99 e 80,00 são faixas
+   vizinhas e conta em ponto flutuante não pode cair no vão entre elas. */
+function dentroDaFaixa_(fx, p) {
+  const min = Number(fx.precoMin) || 0;
+  const max = Number(fx.precoMax) || 0;   // 0 = sem teto
+  return p >= min - 0.005 && (max === 0 || p <= max + 0.005);
 }
 
 function canaisDaConfig_() {
@@ -4980,8 +5008,16 @@ function calcularFicha_(modelo, tamanho, tecido, escolhidos, canalObj, preco) {
      antes de digitar qualquer coisa. */
   const t = taxaNoPreco_(canalObj, preco);
   const taxaPct = t.imp + t.com + t.ex.reduce((s, e) => s + e[1], 0);
+  const semTaxa = !!t.foraDeFaixa;
+  if (semTaxa) {
+    avisos.push('Não há taxa medida de ' + canalObj.canal + ' para R$ ' + fmtNum_(preco)
+      + ': falta a faixa ' + t.faixaFalta + ' na _Precificacao_Config. '
+      + 'Sem a medição, a ficha não mostra taxa nem margem. Não é defeito da tela: '
+      + 'peça ao DRE para medir essa faixa.');
+  }
 
   return {
+    semTaxa,
     canal: canalObj, tipoPeca, totalMetros, metrosPrinc, metrosSubstituidos, detAcab, custoAcab,
     mat, nomeTecido, padraoDoCanal, custoTecido, custoCorte, custoCostura,
     itensFicha, custoAviamento, custoMaoObraExtra, custoEmbalagem,
@@ -5006,21 +5042,25 @@ function pisoQueima_(custo, taxaPct, taxaFixa, canalObj) {
   const f = canalObj && canalObj.faixas;
   if (!f || f.length <= 1) return resolve(taxaPct, taxaFixa);
 
-  let ultimo = null;
-  for (let i = 0; i < f.length; i++) {
-    const t = taxaNoPreco_(canalObj, (Number(f[i].precoMin) || 0) + 0.01);
+  const ord = faixasOrdenadas_(f);
+  for (let i = 0; i < ord.length; i++) {
+    const min = Number(ord[i].precoMin) || 0;
+    const t = taxaNoPreco_(canalObj, min);
+    if (t.foraDeFaixa) continue;
     const pct = t.imp + t.com + t.ex.reduce((s, e) => s + e[1], 0);
     const p = resolve(pct, t.fixa);
-    if (p === null) continue;
-    ultimo = p;
-    const min = Number(f[i].precoMin) || 0;
-    const max = Number(f[i].precoMax) || 0;
-    if (p >= min && (max === 0 || p <= max)) return p;   // fecha dentro da faixa
+    if (p === null) continue;                       // nenhum preço desta faixa fecha
+    if (dentroDaFaixa_(ord[i], p)) return p;        // fecha dentro da faixa
+    /* Conta abaixo do começo da faixa = ZONA MORTA: a faixa de baixo não
+       fechou (pediu preço acima do teto dela) e nesta já sobra margem no
+       primeiro centavo. O piso é o começo desta faixa. Antes devolvia o
+       número da conta, que fica abaixo do mínimo e é preço que não existe
+       com essa taxa. */
+    if (p < min) return min;
   }
-  /* Nenhuma faixa fechou em si mesma: o piso caiu numa zona morta, onde
-     o degrau da taxa engole o aumento de preço. A resposta correta é o
-     primeiro preço da faixa seguinte que dê margem. */
-  return ultimo;
+  /* Nenhuma faixa fecha: o piso está acima da última faixa medida. Sem
+     medição não há piso, e o travessão diz isso melhor que um número. */
+  return null;
 }
 
 function fmtNum_(v) {
@@ -5064,13 +5104,18 @@ function atualizarSaida_(el) {
 
   const hero = document.getElementById('fpHero');
   if (hero) {
-    hero.className = 'fp-hero ' + (!preco ? '' : mcPct >= 0.30 ? 'ok' : mcPct >= MARGEM_QUEIMA ? 'warn' : 'crit');
+    const calc = preco && !r.semTaxa;
+    hero.className = 'fp-hero ' + (!calc ? '' : mcPct >= 0.30 ? 'ok' : mcPct >= MARGEM_QUEIMA ? 'warn' : 'crit');
     hero.innerHTML = '<span class="k">Margem de contribuição</span>'
-      + '<span class="v">' + (preco ? fmtPctPlano_(mcPct) : '—') + '</span>'
-      + '<span class="n">' + (preco
-        ? 'R$ ' + fmtNum_(sobra) + ' por peça vendida a R$ ' + fmtNum_(preco)
-        : 'Informe um preço de venda para ver.') + '</span>';
+      + '<span class="v">' + (calc ? fmtPctPlano_(mcPct) : '—') + '</span>'
+      + '<span class="n">' + heroNota_(r, preco, sobra) + '</span>';
   }
+}
+
+function heroNota_(r, preco, sobra) {
+  if (!preco) return 'Informe um preço de venda para ver.';
+  if (r.semTaxa) return 'Sem taxa medida para R$ ' + fmtNum_(preco) + ' (falta a faixa ' + escapeHtml_(r.taxa.faixaFalta) + ').';
+  return 'R$ ' + fmtNum_(sobra) + ' por peça vendida a R$ ' + fmtNum_(preco);
 }
 
 function renderPrecificacao(el) {
@@ -5109,7 +5154,8 @@ function renderPrecificacao(el) {
   const opt = (lista, sel) => lista.map((v, i) =>
     '<option value="' + i + '"' + (v === sel ? ' selected' : '') + '>' + escapeHtml_(v) + '</option>').join('');
 
-  const heroCls = !preco ? '' : mcPct >= 0.30 ? 'ok' : mcPct >= MARGEM_QUEIMA ? 'warn' : 'crit';
+  const calcHero = preco && !r.semTaxa;
+  const heroCls = !calcHero ? '' : mcPct >= 0.30 ? 'ok' : mcPct >= MARGEM_QUEIMA ? 'warn' : 'crit';
 
   el.innerHTML = `
     <div class="section-head">
@@ -5139,8 +5185,8 @@ function renderPrecificacao(el) {
         <h3>O que sobra nesse canal</h3>
         <div class="fp-hero ${heroCls}" id="fpHero">
           <span class="k">Margem de contribuição</span>
-          <span class="v">${preco ? fmtPctPlano_(mcPct) : '—'}</span>
-          <span class="n">${preco ? 'R$ ' + fmtNum_(sobra) + ' por peça vendida a R$ ' + fmtNum_(preco) : 'Informe um preço de venda para ver.'}</span>
+          <span class="v">${calcHero ? fmtPctPlano_(mcPct) : '—'}</span>
+          <span class="n">${heroNota_(r, preco, sobra)}</span>
         </div>
         <div class="fp-linhas" id="fpVenda">${linhasVenda_(r, preco, taxaRs, sobra, p15, dfx, fixasRs, lucro)}</div>
         <div id="fpAvisos">${avisosFicha_(r, preco, p15)}</div>
@@ -5309,7 +5355,10 @@ function linhasVenda_(r, preco, taxaRs, sobra, p15, dfx, fixasRs, lucro) {
 
      Mesma regra do hero, que ja fazia certo ("Informe um preco de venda para
      ver"): numero que depende do preco so aparece quando existe preco. */
-  const q = (v) => preco ? '− R$ ' + fmtNum_(v) : '—';
+  /* Preço fora das faixas medidas: mesma regra, travessão em tudo que
+     depende da taxa (ver taxaNoPreco_). */
+  const calc = preco && !r.semTaxa;
+  const q = (v) => calc ? '− R$ ' + fmtNum_(v) : '—';
 
   vi('Preço de venda', preco ? '' : 'digite acima para calcular as taxas',
     preco ? 'R$ ' + fmtNum_(preco) : '—');
@@ -5324,10 +5373,11 @@ function linhasVenda_(r, preco, taxaRs, sobra, p15, dfx, fixasRs, lucro) {
   if (r.fixa) vi('Taxa fixa por item', escapeHtml_(r.canal.canal)
     + (r.faixa ? ' cobra nesta faixa' : ' cobra por item vendido'),
     '− R$ ' + fmtNum_(r.fixa), 'sub');
+  if (preco && r.semTaxa) vi('Taxa do canal', 'sem medição: falta a faixa ' + r.taxa.faixaFalta, '—', 'sub');
 
   vi('Margem de contribuição', 'antes das despesas fixas',
-    preco ? 'R$ ' + fmtNum_(sobra) : '—',
-    'tot' + (preco && sobra < 0 ? ' neg' : ''));
+    calc ? 'R$ ' + fmtNum_(sobra) : '—',
+    'tot' + (calc && sobra < 0 ? ' neg' : ''));
 
   /* Rateio das despesas fixas: aluguel, salarios, energia. Vem da aba
      _Despesas_Fixas dividida pela receita media dos ultimos meses da DRE,
@@ -5336,10 +5386,11 @@ function linhasVenda_(r, preco, taxaRs, sobra, p15, dfx, fixasRs, lucro) {
   vi('Despesas fixas (' + fmtPctPlano_(dfx) + ')', 'rateio sobre o faturamento',
     q(fixasRs), 'sub');
   vi('Lucro',
-    preco ? fmtPctPlano_(lucro / preco) + ' do preço'
-          : 'sem preço não há lucro a calcular — o piso abaixo é a resposta útil',
-    preco ? 'R$ ' + fmtNum_(lucro) : '—',
-    'tot destaque' + (preco && lucro < 0 ? ' neg' : ''));
+    calc ? fmtPctPlano_(lucro / preco) + ' do preço'
+         : preco ? 'sem taxa medida para este preço, não há lucro a calcular'
+         : 'sem preço não há lucro a calcular — o piso abaixo é a resposta útil',
+    calc ? 'R$ ' + fmtNum_(lucro) : '—',
+    'tot destaque' + (calc && lucro < 0 ? ' neg' : ''));
 
   vi('Piso para 15% de margem', 'só para queima — ignora as despesas fixas de propósito',
     p15 ? 'R$ ' + fmtNum_(p15) : '—');
@@ -5499,6 +5550,11 @@ function linhasAntecipacao_(canais, preco) {
     const s = preco - t - rc.fixa - rc.custo;
     const liberado = Math.max(0, preco - t - rc.fixa);
     const data = a.medidoEm ? fmtDataBR(new Date(String(a.medidoEm).slice(0, 10) + 'T00:00:00')) : '';
+    if (preco && rc.semTaxa) {
+      return '<tr><td>' + escapeHtml_(c.canal) + '</td><td>' + a.nome + '</td>'
+        + '<td class="num" colspan="5" style="color:var(--muted);">sem taxa do canal medida para este preço (falta a faixa '
+        + escapeHtml_(rc.taxa.faixaFalta) + ')</td></tr>';
+    }
     if (a.pct === null) {
       return '<tr><td>' + escapeHtml_(c.canal) + '</td><td>' + a.nome + '</td>'
         + '<td class="num" colspan="5" style="color:var(--muted);">taxa ainda não medida pelo DRE — sem número até medir</td></tr>';
@@ -5526,6 +5582,15 @@ function linhasCanais_(canais, preco) {
     const s = preco - t - rc.fixa - rc.custo;
     const mp = preco ? s / preco : 0;
     const pc = pisoQueima_(rc.custo, rc.taxaPct, rc.fixa, c);
+    if (preco && rc.semTaxa) {
+      return '<tr class="' + (c.canal === FICHA.canal ? 'fp-atual' : '') + '">'
+        + '<td>' + escapeHtml_(c.canal) + '</td>'
+        + '<td class="num">R$ ' + fmtNum_(rc.custo) + '</td>'
+        + '<td class="num" colspan="5" style="color:var(--muted);">sem taxa medida para este preço (falta a faixa '
+        + escapeHtml_(rc.taxa.faixaFalta) + ')</td>'
+        + '<td class="num fp-piso">' + (pc ? 'R$ ' + fmtNum_(pc) : '—') + '</td>'
+        + '<td><span class="pill md">sem medição</span></td></tr>';
+    }
     /* Quatro faixas, não três: margem positiva mas abaixo do piso não é
        prejuízo — é venda que não paga a parte dela do custo fixo. */
     const sit = !preco ? '<span class="pill md">sem preço</span>'
